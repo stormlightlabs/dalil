@@ -85,13 +85,14 @@ impl CapabilitiesReport {
         }
     }
 
-    pub fn render(&self, format: OutputFormat) -> Result<String, serde_json::Error> {
+    pub fn render(&self, format: OutputFormat) -> Result<String, ReportError> {
         match format {
             OutputFormat::Json => {
                 let mut output = serde_json::to_string_pretty(self)?;
                 output.push('\n');
                 Ok(output)
             }
+            OutputFormat::Html => super::html::render_capabilities(self),
             OutputFormat::Markdown => {
                 let mut output = String::from("# Codeplat capabilities\n\n");
                 writeln!(output, "Schema version: {}", self.schema_version)
@@ -317,13 +318,14 @@ impl DoctorReport {
         self.checks.iter().all(|check| check.status != DoctorCheckStatus::Fail)
     }
 
-    pub fn render(&self, format: OutputFormat) -> Result<String, serde_json::Error> {
+    pub fn render(&self, format: OutputFormat) -> Result<String, ReportError> {
         match format {
             OutputFormat::Json => {
                 let mut output = serde_json::to_string_pretty(self)?;
                 output.push('\n');
                 Ok(output)
             }
+            OutputFormat::Html => super::html::render_doctor(self),
             OutputFormat::Markdown => {
                 let mut output = String::from("# Codeplat doctor\n\n");
                 writeln!(output, "Tool version: {}", self.tool_version)

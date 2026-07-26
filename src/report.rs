@@ -1,4 +1,5 @@
 mod analysis;
+mod html;
 mod model;
 mod render;
 #[cfg(test)]
@@ -19,6 +20,7 @@ use crate::cli::{ColorPolicy, CommandRequest, OutputFormat};
 use crate::utils::token_count;
 use crate::{history, map, security, utils};
 
+pub(crate) use html::render_cache as render_cache_html;
 pub use model::*;
 
 /// The current compatibility version of the JSON report envelope.

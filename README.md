@@ -34,6 +34,8 @@ Then run it from a Git worktree:
 ```sh
 codeplat
 codeplat --json
+codeplat --html > codeplat-report.html
+codeplat --html --open
 codeplat map
 codeplat map --json
 codeplat map src --exclude 'src/generated/**' --json
@@ -227,14 +229,29 @@ the embedded schema, query packs, and effective limits.
 
 ## Output
 
-Markdown is the default format. Use either `--format json` or `--json` for machine-readable output:
+Markdown is the default format. Use `--format json` or `--json` for machine-readable output:
 
 ```sh
 codeplat map --format json
 codeplat history --json
 ```
 
-JSON reports use `schema_version: 1`. Markdown and JSON are rendered from the same typed report model.
+Use `--format html` or `--html` to write a standalone report for a browser:
+
+```sh
+codeplat --html > codeplat-report.html
+codeplat history --format html > codeplat-history.html
+```
+
+Add `--open` to write the HTML report to a private temporary file and open it
+in the default browser:
+
+```sh
+codeplat --html --open
+```
+
+With Markdown or JSON, `--open` has no effect.
+
 Reports go to stdout without ANSI escape sequences and diagnostics go to stderr.
 
 Machine reports include typed provenance:

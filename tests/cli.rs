@@ -506,12 +506,16 @@ impl MixedMapFixtureRepository {
     }
 
     fn run(&self, arguments: &[&str]) -> Output {
+        self.command(arguments).output().expect("run mixed map fixture command")
+    }
+
+    fn command(&self, arguments: &[&str]) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_codeplat"));
         command
             .args(arguments)
             .current_dir(&self.root)
             .env("XDG_CACHE_HOME", &self.cache);
-        command.output().expect("run mixed map fixture command")
+        command
     }
 }
 
@@ -734,6 +738,8 @@ fn root_map_and_history_help_are_complete() {
         assert!(help.contains("Examples:"));
         assert!(help.contains("--format <FORMAT>"));
         assert!(help.contains("--json"));
+        assert!(help.contains("--html"));
+        assert!(help.contains("--open"));
         assert!(help.contains("github.com/stormlightlabs/codeplat/issues"));
         if arguments.first().copied() == Some("map") {
             assert!(help.contains("--exclude <GLOB>"));
@@ -3341,6 +3347,119 @@ fn format_json_and_json_alias_share_the_report_renderer() {
 }
 
 #[test]
+fn format_html_and_html_alias_render_the_same_standalone_report() {
+    let fixture = MixedMapFixtureRepository::new();
+    let format_output = fixture.run(&["--no-cache", "--format", "html"]);
+    let alias_output = fixture.run(&["--no-cache", "--html"]);
+
+    assert!(format_output.status.success());
+    assert!(alias_output.status.success());
+    assert!(format_output.stderr.is_empty());
+    assert!(alias_output.stderr.is_empty());
+    assert_eq!(stdout(&format_output), stdout(&alias_output));
+
+    let html = stdout(&format_output);
+    assert!(html.starts_with("<!doctype html>"));
+    assert!(html.contains("Suggested reading order"));
+    assert!(html.contains("Complete report data"));
+    assert!(html.contains("IBM+Plex+Sans"));
+    assert!(html.contains("Manrope"));
+    assert!(!html.contains("linear-gradient"));
+    assert_plain_report(&html);
+}
+
+#[cfg(unix)]
+#[test]
+fn open_writes_a_private_html_report_and_invokes_the_platform_opener() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = MixedMapFixtureRepository::new();
+    let opener_directory = fixture.temporary_root.join("opener");
+    let marker = fixture.temporary_root.join("opened-path");
+    fs::create_dir_all(&opener_directory).expect("create fake opener directory");
+    let opener_name = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let opener = opener_directory.join(opener_name);
+    write_file(&opener, b"#!/bin/sh\nprintf '%s' \"$1\" > \"$CODEPLAT_OPEN_MARKER\"\n");
+    let mut permissions = fs::metadata(&opener).expect("fake opener metadata").permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&opener, permissions).expect("make fake opener executable");
+    let current_path = env::var_os("PATH").unwrap_or_default();
+    let executable_path =
+        env::join_paths(std::iter::once(opener_directory.clone()).chain(env::split_paths(&current_path)))
+            .expect("build executable search path");
+
+    let output = fixture
+        .command(&["--no-cache", "--html", "--open"])
+        .env("PATH", executable_path)
+        .env("TMPDIR", &fixture.temporary_root)
+        .env("CODEPLAT_OPEN_MARKER", &marker)
+        .output()
+        .expect("run HTML opener fixture");
+
+    assert!(
+        output.status.success(),
+        "codeplat failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("opened HTML report"));
+    let report_path = PathBuf::from(fs::read_to_string(&marker).expect("read opened report path"));
+    assert!(report_path.starts_with(&fixture.temporary_root));
+    assert!(
+        fs::read_to_string(&report_path)
+            .expect("read temporary HTML report")
+            .starts_with("<!doctype html>")
+    );
+    assert_eq!(
+        fs::metadata(report_path.parent().expect("report directory"))
+            .expect("report directory metadata")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    assert_eq!(
+        fs::metadata(&report_path)
+            .expect("report metadata")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+}
+
+#[test]
+fn open_warns_and_keeps_stdout_for_non_html_formats() {
+    let fixture = MixedMapFixtureRepository::new();
+    for arguments in [
+        ["--no-cache", "--open"].as_slice(),
+        ["--no-cache", "--json", "--open"].as_slice(),
+    ] {
+        let output = fixture.run(arguments);
+        assert!(output.status.success());
+        assert!(!output.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("only applies to HTML output"));
+    }
+}
+
+#[test]
+fn support_reports_render_as_html_documents() {
+    let fixture = FixtureRepository::new();
+    for arguments in [
+        ["capabilities", "--html"].as_slice(),
+        ["doctor", "--html"].as_slice(),
+        ["cache", "status", "--html"].as_slice(),
+    ] {
+        let output = fixture.run(arguments);
+        let html = stdout(&output);
+        assert!(output.status.success(), "HTML report failed: {arguments:?}");
+        assert!(output.stderr.is_empty());
+        assert!(html.starts_with("<!doctype html>"));
+        assert!(html.contains("Complete report data"));
+    }
+}
+
+#[test]
 fn markdown_snapshot_is_direct_and_readable() {
     let fixture = FixtureRepository::new();
     let output = fixture.run(&["map"]);
@@ -3421,6 +3540,7 @@ fn parser_and_usage_errors_use_the_documented_exit_category_and_stderr() {
     let fixture = FixtureRepository::new();
     let invalid_value = fixture.run(&["--format", "xml"]);
     let conflicting_output = fixture.run(&["--format", "markdown", "--json"]);
+    let conflicting_aliases = fixture.run(&["--json", "--html"]);
 
     assert_eq!(invalid_value.status.code(), Some(2));
     assert!(invalid_value.stdout.is_empty());
@@ -3429,4 +3549,8 @@ fn parser_and_usage_errors_use_the_documented_exit_category_and_stderr() {
     assert_eq!(conflicting_output.status.code(), Some(2));
     assert!(conflicting_output.stdout.is_empty());
     assert!(String::from_utf8_lossy(&conflicting_output.stderr).contains("cannot be combined"));
+
+    assert_eq!(conflicting_aliases.status.code(), Some(2));
+    assert!(conflicting_aliases.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&conflicting_aliases.stderr).contains("cannot be combined"));
 }

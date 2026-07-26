@@ -1,7 +1,10 @@
 use std::ffi::OsString;
+use std::fs::{self, OpenOptions};
 use std::io;
 use std::io::{IsTerminal, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command as ProcessCommand;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
 use clap::{
@@ -70,13 +73,14 @@ enum HistorySubcommand {
     Firefighting(HistoryOperationCommand),
 }
 
-/// The report serialization selected by `--format` or `--json`.
+/// The report serialization selected by `--format`, `--json`, or `--html`.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize, ValueEnum)]
 #[serde(rename_all = "snake_case")]
 pub enum OutputFormat {
     #[default]
     Markdown,
     Json,
+    Html,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -174,12 +178,16 @@ enum ApplicationError {
     Usage(String),
     #[error("{0}")]
     Report(#[source] crate::report::ReportError),
-    #[error("could not serialize the report as JSON")]
-    Render(#[source] serde_json::Error),
     #[error("strict report policy rejected: {issues:?}")]
     Strict { issues: Vec<StrictIssue> },
     #[error("doctor found one or more failing checks")]
     DoctorFailed,
+    #[error("could not open HTML report `{path}`")]
+    OpenReport {
+        path: PathBuf,
+        #[source]
+        error: io::Error,
+    },
 }
 
 impl From<ApplicationError> for ExitCategory {
@@ -189,10 +197,13 @@ impl From<ApplicationError> for ExitCategory {
             ApplicationError::Report(error) => match error {
                 crate::report::ReportError::History(error) => error.into(),
                 crate::report::ReportError::Map(error) => error.into(),
+                crate::report::ReportError::Json(_)
+                | crate::report::ReportError::Html(_)
+                | crate::report::ReportError::OutputLimit(_) => ExitCategory::Internal,
             },
-            ApplicationError::Render(_) => ExitCategory::Internal,
             ApplicationError::Strict { .. } => ExitCategory::Analysis,
             ApplicationError::DoctorFailed => ExitCategory::Repository,
+            ApplicationError::OpenReport { .. } => ExitCategory::Internal,
         }
     }
 }
@@ -204,10 +215,13 @@ impl From<&ApplicationError> for ExitCategory {
             ApplicationError::Report(error) => match error {
                 crate::report::ReportError::History(error) => error.into(),
                 crate::report::ReportError::Map(error) => error.into(),
+                crate::report::ReportError::Json(_)
+                | crate::report::ReportError::Html(_)
+                | crate::report::ReportError::OutputLimit(_) => ExitCategory::Internal,
             },
-            ApplicationError::Render(_) => ExitCategory::Internal,
             ApplicationError::Strict { .. } => ExitCategory::Analysis,
             ApplicationError::DoctorFailed => ExitCategory::Repository,
+            ApplicationError::OpenReport { .. } => ExitCategory::Internal,
         }
     }
 }
@@ -238,6 +252,8 @@ Use `map` or `history` for focused reports.
 Examples:
     codeplat .
     codeplat --json .
+    codeplat --html . > codeplat-report.html
+    codeplat --html --open .
     codeplat --focus parser --focus-path src .
     codeplat --no-cache .
     codeplat map --json
@@ -285,10 +301,13 @@ pub fn command() -> Command {
 
 impl From<Cli> for CommandRequest {
     fn from(cli: Cli) -> Self {
-        let output_format =
-            cli.output
-                .format
-                .unwrap_or(if cli.output.json { OutputFormat::Json } else { OutputFormat::Markdown });
+        let output_format = cli.output.format.unwrap_or(if cli.output.json {
+            OutputFormat::Json
+        } else if cli.output.html {
+            OutputFormat::Html
+        } else {
+            OutputFormat::Markdown
+        });
         let color_policy = cli.color_policy();
         let strict = cli.output.strict;
         let profile = cli.output.profile.into();
@@ -373,6 +392,7 @@ impl Cli {
 #[command(after_help = "Examples:
     codeplat map
     codeplat map --json
+    codeplat map --html > codeplat-map.html
 
 Support: https://github.com/stormlightlabs/codeplat/issues
 ")]
@@ -521,6 +541,7 @@ struct HistoryCommand {
 #[command(after_help = "Examples:
     codeplat history churn
     codeplat history bugs --json
+    codeplat history --html > codeplat-history.html
 
 Support: https://github.com/stormlightlabs/codeplat/issues
 ")]
@@ -637,13 +658,21 @@ impl HistoryOptions {
 
 #[derive(Debug, clap::Args)]
 struct OutputOptions {
-    /// Select Markdown for people or JSON for tools.
+    /// Select Markdown, JSON, or a standalone HTML document.
     #[arg(long, global = true, value_enum)]
     format: Option<OutputFormat>,
 
     /// Shorthand for `--format json`.
     #[arg(long, global = true, action = ArgAction::SetTrue)]
     json: bool,
+
+    /// Shorthand for `--format html`.
+    #[arg(long, global = true, action = ArgAction::SetTrue)]
+    html: bool,
+
+    /// Open HTML output in the default browser instead of writing it to stdout.
+    #[arg(long, global = true, action = ArgAction::SetTrue)]
+    open: bool,
 
     /// Control diagnostic color; report stdout is always uncolored.
     #[arg(long, global = true, value_enum, default_value_t = ColorPolicy::Auto)]
@@ -664,13 +693,23 @@ struct OutputOptions {
 
 impl OutputOptions {
     fn format(&self) -> Result<OutputFormat, ApplicationError> {
-        match (self.format, self.json) {
-            (Some(OutputFormat::Markdown), true) => Err(ApplicationError::usage(
-                "`--json` cannot be combined with `--format markdown`; choose one output format",
+        if self.json && self.html {
+            return Err(ApplicationError::usage(
+                "`--json` and `--html` cannot be combined; choose one output format",
+            ));
+        }
+        match (self.format, self.json, self.html) {
+            (Some(format), true, _) if format != OutputFormat::Json => Err(ApplicationError::usage(
+                "`--json` cannot be combined with a different `--format`; choose one output format",
             )),
-            (Some(format), _) => Ok(format),
-            (None, true) => Ok(OutputFormat::Json),
-            (None, false) => Ok(OutputFormat::Markdown),
+            (Some(format), _, true) if format != OutputFormat::Html => Err(ApplicationError::usage(
+                "`--html` cannot be combined with a different `--format`; choose one output format",
+            )),
+            (Some(format), _, _) => Ok(format),
+            (None, true, false) => Ok(OutputFormat::Json),
+            (None, false, true) => Ok(OutputFormat::Html),
+            (None, false, false) => Ok(OutputFormat::Markdown),
+            (None, true, true) => unreachable!("conflicting shorthand flags returned above"),
         }
     }
 
@@ -771,17 +810,18 @@ fn invoke<W: Write, E: Write>(
     cli: Cli, stdout: &mut W, stderr: &mut E, stderr_is_terminal: bool,
 ) -> anyhow::Result<()> {
     let output_format = cli.output_format()?;
+    let open = cli.output.open;
     cli.validate()?;
     if matches!(&cli.command, Some(SubcommandName::Capabilities)) {
         let report = CapabilitiesReport::current();
-        let output = report.render(output_format).map_err(ApplicationError::Render)?;
-        write_stdout(stdout, output.as_bytes(), "capabilities report")?;
+        let output = report.render(output_format).map_err(ApplicationError::Report)?;
+        deliver_output(output_format, open, output, stdout, stderr, "capabilities report")?;
         return Ok(());
     }
     if let Some(SubcommandName::Doctor(command)) = &cli.command {
         let report = DoctorReport::run(command.path.clone());
-        let output = report.render(output_format).map_err(ApplicationError::Render)?;
-        write_stdout(stdout, output.as_bytes(), "doctor report")?;
+        let output = report.render(output_format).map_err(ApplicationError::Report)?;
+        deliver_output(output_format, open, output, stdout, stderr, "doctor report")?;
         if !report.is_ok() {
             return Err(ApplicationError::DoctorFailed.into());
         }
@@ -793,8 +833,8 @@ fn invoke<W: Write, E: Write>(
         }
         let report = crate::map::cache_control(cache.operation.into())
             .map_err(|error| ApplicationError::Report(crate::report::ReportError::Map(error)))?;
-        let output = render_cache_control(&report, output_format)?;
-        write_stdout(stdout, output.as_bytes(), "cache report")?;
+        let output = render_cache_control(&report, output_format).map_err(ApplicationError::Report)?;
+        deliver_output(output_format, open, output, stdout, stderr, "cache report")?;
         return Ok(());
     }
     if stderr_is_terminal {
@@ -802,14 +842,97 @@ fn invoke<W: Write, E: Write>(
     }
     let strict = cli.output.strict;
     let report = Report::analyze(cli.into()).map_err(ApplicationError::Report)?;
-    let output = report.render(output_format).map_err(ApplicationError::Render)?;
+    let output = report.render(output_format).map_err(ApplicationError::Report)?;
     let strict_issues = report.quality.strict_issues.clone();
 
-    write_stdout(stdout, output.as_bytes(), "report")?;
+    deliver_output(output_format, open, output, stdout, stderr, "report")?;
     if strict && !strict_issues.is_empty() {
         return Err(ApplicationError::Strict { issues: strict_issues }.into());
     }
     Ok(())
+}
+
+fn deliver_output<W: Write, E: Write>(
+    format: OutputFormat, open: bool, output: String, stdout: &mut W, stderr: &mut E, label: &str,
+) -> anyhow::Result<()> {
+    if open {
+        if format == OutputFormat::Html {
+            let path = open_html_report(output.as_bytes())
+                .map_err(|(path, error)| ApplicationError::OpenReport { path, error })?;
+            let _ = writeln!(stderr, "codeplat: opened HTML report at `{}`", path.display());
+            return Ok(());
+        }
+        let _ = writeln!(
+            stderr,
+            "codeplat: warning: `--open` only applies to HTML output; writing {format:?} to stdout"
+        );
+    }
+    write_stdout(stdout, output.as_bytes(), label)
+}
+
+fn open_html_report(bytes: &[u8]) -> Result<PathBuf, (PathBuf, io::Error)> {
+    let directory = temporary_report_directory();
+    create_private_directory(&directory).map_err(|error| (directory.clone(), error))?;
+    let path = directory.join("report.html");
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&path).map_err(|error| (path.clone(), error))?;
+    file.write_all(bytes).map_err(|error| (path.clone(), error))?;
+    file.flush().map_err(|error| (path.clone(), error))?;
+
+    let status = report_open_command(&path)
+        .status()
+        .map_err(|error| (path.clone(), error))?;
+    if !status.success() {
+        return Err((
+            path,
+            io::Error::other(format!("the platform opener exited with status {status}")),
+        ));
+    }
+    Ok(path)
+}
+
+fn temporary_report_directory() -> PathBuf {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_nanos());
+    std::env::temp_dir().join(format!("codeplat-report-{}-{timestamp}", std::process::id()))
+}
+
+fn create_private_directory(path: &Path) -> io::Result<()> {
+    let mut builder = fs::DirBuilder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(path)
+}
+
+#[cfg(target_os = "macos")]
+fn report_open_command(path: &Path) -> ProcessCommand {
+    let mut command = ProcessCommand::new("open");
+    command.arg(path);
+    command
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn report_open_command(path: &Path) -> ProcessCommand {
+    let mut command = ProcessCommand::new("xdg-open");
+    command.arg(path);
+    command
+}
+
+#[cfg(windows)]
+fn report_open_command(path: &Path) -> ProcessCommand {
+    let mut command = ProcessCommand::new("rundll32");
+    command.arg("url.dll,FileProtocolHandler").arg(path);
+    command
 }
 
 fn write_stdout<W: Write>(stdout: &mut W, bytes: &[u8], label: &str) -> anyhow::Result<()> {
@@ -825,13 +948,16 @@ fn write_stdout<W: Write>(stdout: &mut W, bytes: &[u8], label: &str) -> anyhow::
     }
 }
 
-fn render_cache_control(report: &CacheControlReport, format: OutputFormat) -> Result<String, ApplicationError> {
+fn render_cache_control(
+    report: &CacheControlReport, format: OutputFormat,
+) -> Result<String, crate::report::ReportError> {
     match format {
         OutputFormat::Json => {
-            let mut output = serde_json::to_string_pretty(report).map_err(ApplicationError::Render)?;
+            let mut output = serde_json::to_string_pretty(report).map_err(crate::report::ReportError::Json)?;
             output.push('\n');
             Ok(output)
         }
+        OutputFormat::Html => crate::report::render_cache_html(report),
         OutputFormat::Markdown => {
             let path = utils::escape_inline_code(report.path.as_deref().unwrap_or("not configured"));
             let mut output = format!("# Codeplat cache {}\n\n", report.operation);
@@ -877,6 +1003,8 @@ mod tests {
         let options = OutputOptions {
             format: None,
             json: false,
+            html: false,
+            open: false,
             color: ColorPolicy::Always,
             no_color: true,
             profile: ProfileOption::Compact,
@@ -904,6 +1032,8 @@ mod tests {
         let options = OutputOptions {
             format: Some(OutputFormat::Markdown),
             json: true,
+            html: false,
+            open: false,
             color: ColorPolicy::Auto,
             no_color: false,
             profile: ProfileOption::Compact,

@@ -30,6 +30,43 @@ fn markdown_escapes_report_content_that_could_add_control_sequences() {
 }
 
 #[test]
+fn html_is_embedded_deterministic_and_escapes_report_content() {
+    let report = Report {
+        schema_version: SCHEMA_VERSION,
+        profile: AnalysisProfile::Compact,
+        limits: ReportLimits::for_profile(AnalysisProfile::Compact),
+        command: CommandDescriptor::map(PathBuf::from(".")),
+        scope: ReportScope { selected_path: "\"><img src=x onerror=alert(1)>".to_owned() },
+        status: ReportStatus::Foundation,
+        summary: "<script>alert('report')</script>".to_owned(),
+        provenance: ReportProvenance::default(),
+        quality: ReportQuality::default(),
+        findings: vec![Finding { title: "<strong>unsafe</strong>".to_owned(), detail: "detail".to_owned() }],
+        limitations: vec![],
+        reading_plan: None,
+        history: None,
+        map: None,
+        explain: None,
+    };
+
+    let first = report.render(OutputFormat::Html).expect("HTML renders");
+    let second = report
+        .render(OutputFormat::Html)
+        .expect("HTML renders deterministically");
+
+    assert_eq!(first, second);
+    assert!(first.starts_with("<!doctype html>"));
+    assert!(first.contains("family=IBM+Plex+Sans"));
+    assert!(first.contains("family=Manrope"));
+    assert!(first.contains("--font-heading: \"Manrope\""));
+    assert!(first.contains("--font-body: \"IBM Plex Sans\""));
+    assert!(first.contains("&lt;script&gt;alert"));
+    assert!(first.contains("&lt;img src=x onerror=alert"));
+    assert!(!first.contains("<script>alert('report')</script>"));
+    assert!(!first.contains("linear-gradient"));
+}
+
+#[test]
 fn schema_and_golden_v1_corpus_cover_all_report_variants() {
     let schema: serde_json::Value =
         serde_json::from_str(include_str!("../../schema/v1/codeplat.json")).expect("schema is valid JSON");

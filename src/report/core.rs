@@ -122,6 +122,12 @@ pub enum ReportError {
     History(#[source] history::HistoryError),
     #[error("{0}")]
     Map(#[source] map::MapError),
+    #[error("could not serialize the report as JSON")]
+    Json(#[from] serde_json::Error),
+    #[error("could not render the embedded HTML report template")]
+    Html(#[from] minijinja::Error),
+    #[error("{0}")]
+    OutputLimit(String),
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1238,7 +1244,7 @@ impl Report {
     }
 
     /// Render a report from the shared typed model without parsing or transforming Markdown.
-    pub fn render(&self, format: OutputFormat) -> Result<String, serde_json::Error> {
+    pub fn render(&self, format: OutputFormat) -> Result<String, ReportError> {
         let output = match format {
             OutputFormat::Markdown => Ok(self.render_markdown()),
             OutputFormat::Json => {
@@ -1246,14 +1252,12 @@ impl Report {
                 output.push('\n');
                 Ok(output)
             }
+            OutputFormat::Html => super::html::render_report(self),
         }?;
         if output.len() > self.limits.max_output_bytes {
-            return Err(serde_json::Error::io(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!(
-                    "rendered report exceeds the {}-byte output limit; use the compact profile or a narrower scope",
-                    self.limits.max_output_bytes
-                ),
+            return Err(ReportError::OutputLimit(format!(
+                "rendered report exceeds the {}-byte output limit; use the compact profile or a narrower scope",
+                self.limits.max_output_bytes
             )));
         }
         Ok(output)

@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="{{ summary }}">
+  <title>Codeplat report — {{ title }}</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,{{ icon|urlencode }}">
+  <script>{{ script|safe }}</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=Manrope:wght@500;600;700;800&amp;display=swap"
+    rel="stylesheet"
+  >
+  <style>{{ stylesheet|safe }}</style>
+</head>
+<body>
+  <a class="skip-link" href="#report-content">Skip to report</a>
+  <header class="masthead">
+    <div class="masthead__inner">
+      <div class="wordmark">
+        <span class="wordmark__mark" aria-hidden="true">{{ icon|safe }}</span>
+        Codeplat
+      </div>
+      <div class="masthead__meta">
+        <span>Repository briefing</span>
+        <span>{{ captured_at }}</span>
+        <span class="status status--{{ status_tone }}">{{ status }}</span>
+        <button class="theme-toggle js-only" id="theme-toggle" type="button">
+          <span class="theme-toggle__indicator" aria-hidden="true"></span>
+          <span id="theme-toggle-label">Dark mode</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="report" id="report-content">
+    <section class="intro" aria-labelledby="report-title">
+      <div>
+        <p class="eyebrow">{{ eyebrow }}</p>
+        <h1 id="report-title">{{ title }}</h1>
+        <p class="intro__summary">{{ summary }}</p>
+      </div>
+      <div class="command" aria-label="Command used to create this report">
+        <span class="command__prompt" aria-hidden="true">$</span>
+        <code>{{ command }}</code>
+      </div>
+    </section>
+
+    {% if metrics %}
+    <section class="metrics" aria-label="Report summary">
+      {% for metric in metrics %}
+      <div class="metric">
+        <span class="metric__value">{{ metric.value }}</span>
+        <span class="metric__label">{{ metric.label }}</span>
+      </div>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+    <div class="layout">
+      <div class="content">
+        {% if recommendations %}
+        <section class="section" id="reading-plan" aria-labelledby="reading-plan-title">
+          <div class="section__heading">
+            <h2 id="reading-plan-title">Suggested reading order</h2>
+            <p class="section__note">{{ recommendations|length }} paths</p>
+          </div>
+          <div class="reading-plan">
+            {% for recommendation in recommendations %}
+            <article class="reading-plan__item" data-purpose="{{ recommendation.purpose }}">
+              <span class="reading-plan__number">{{ recommendation.ordinal }}</span>
+              <code class="reading-plan__path">{{ recommendation.path }}</code>
+              <span class="reading-plan__purpose">{{ recommendation.purpose }}</span>
+              <p class="reading-plan__reason">{{ recommendation.reason }}</p>
+              <span class="confidence confidence--{{ recommendation.confidence }}">
+                {{ recommendation.confidence }}
+              </span>
+              {% if recommendation.limitations %}
+              <p class="reading-plan__limitation">{{ recommendation.limitations|join(" ") }}</p>
+              {% endif %}
+            </article>
+            {% endfor %}
+          </div>
+        </section>
+        {% endif %}
+
+        {% if cards %}
+        <section class="section" id="evidence-cards" aria-labelledby="evidence-cards-title">
+          <div class="section__heading">
+            <h2 id="evidence-cards-title">Repository evidence</h2>
+            <p class="section__note">{{ cards|length }} observations</p>
+          </div>
+          <div class="signal-grid">
+            {% for card in cards %}
+            <article class="signal-card{% if cards|length == 1 %} signal-card--wide{% endif %}">
+              <header class="signal-card__header">
+                <h3>{{ card.title }}</h3>
+                <span class="signal-card__meta">{{ card.meta }}</span>
+              </header>
+              {% if card.headline %}
+              <p class="signal-card__headline">{{ card.headline }}</p>
+              {% endif %}
+              {% if card.items %}
+              <div class="bar-list">
+                {% for item in card.items %}
+                <div class="bar-list__row">
+                  <code class="bar-list__label">{{ item.label }}</code>
+                  <span class="bar-list__track" aria-hidden="true">
+                    <span class="bar-list__fill" style="--bar: {{ item.percent }}%"></span>
+                  </span>
+                  <span class="bar-list__value">{{ item.value }}</span>
+                </div>
+                {% endfor %}
+              </div>
+              {% endif %}
+              {% if card.caveat %}
+              <p class="caveat">{{ card.caveat }}</p>
+              {% endif %}
+            </article>
+            {% endfor %}
+          </div>
+        </section>
+        {% endif %}
+
+        {% if evidence %}
+        <section class="section" id="coverage" aria-labelledby="coverage-title">
+          <div class="section__heading">
+            <h2 id="coverage-title">Evidence coverage</h2>
+            <p class="section__note">observed / shown</p>
+          </div>
+          <div class="evidence">
+            {% for item in evidence %}
+            <div class="evidence__item">
+              <span class="evidence__count">{{ item.value }}</span>
+              <span class="evidence__label">{{ item.label }}</span>
+            </div>
+            {% endfor %}
+          </div>
+        </section>
+        {% endif %}
+
+        {% if notices %}
+        <section class="section" id="notes" aria-labelledby="notes-title">
+          <div class="section__heading">
+            <h2 id="notes-title">Evidence notes</h2>
+          </div>
+          <ul class="notice-list">
+            {% for notice in notices %}
+            <li>{{ notice }}</li>
+            {% endfor %}
+          </ul>
+        </section>
+        {% endif %}
+
+        <section class="section raw-report" id="raw-report" aria-labelledby="raw-report-title">
+          <div class="section__heading">
+            <h2 id="raw-report-title">Complete report data</h2>
+            <button class="copy-button js-only" id="copy-report" type="button">Copy JSON</button>
+          </div>
+          <details>
+            <summary>Show the versioned JSON report</summary>
+            <pre id="report-json"><code>{{ report_json }}</code></pre>
+          </details>
+        </section>
+      </div>
+
+      <aside class="sidebar" aria-label="Report navigation and facts">
+        <nav class="sidebar__nav" aria-label="On this page">
+          <p class="sidebar__title">On this page</p>
+          <div class="sidebar__links">
+            {% if recommendations %}<a href="#reading-plan">Suggested reading order</a>{% endif %}
+            {% if cards %}<a href="#evidence-cards">Repository evidence</a>{% endif %}
+            {% if evidence %}<a href="#coverage">Evidence coverage</a>{% endif %}
+            {% if notices %}<a href="#notes">Evidence notes</a>{% endif %}
+            <a href="#raw-report">Complete report data</a>
+          </div>
+        </nav>
+        <div class="sidebar__facts">
+          <p class="sidebar__title">Report facts</p>
+          <dl class="fact-list">
+            {% for fact in facts %}
+            <div class="fact-list__item">
+              <dt>{{ fact.label }}</dt>
+              <dd>{{ fact.value }}</dd>
+            </div>
+            {% endfor %}
+          </dl>
+        </div>
+      </aside>
+    </div>
+
+    <footer class="footer">
+      <span>Generated by Codeplat {{ tool_version }}</span>
+      <a href="https://github.com/stormlightlabs/codeplat">View Source</a>
+    </footer>
+  </main>
+</body>
+</html>
