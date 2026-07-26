@@ -244,6 +244,33 @@ impl MapReport {
                         .iter()
                         .map(|path| token_count(path))
                         .sum::<usize>()
+                    + root
+                        .manifest_metadata
+                        .iter()
+                        .map(|metadata| {
+                            token_count(&metadata.path)
+                                + usize::from(metadata.truncated)
+                                + metadata
+                                    .runtime_entry_points
+                                    .iter()
+                                    .chain(&metadata.library_exports)
+                                    .map(|target| {
+                                        target.name.as_deref().map_or(0, token_count)
+                                            + token_count(&target.declared)
+                                            + target.resolved_path.as_deref().map_or(0, token_count)
+                                    })
+                                    .sum::<usize>()
+                                + metadata
+                                    .commands
+                                    .iter()
+                                    .map(|command| {
+                                        token_count(command.kind.label())
+                                            + command.name.as_deref().map_or(0, token_count)
+                                            + token_count(&command.command)
+                                    })
+                                    .sum::<usize>()
+                        })
+                        .sum::<usize>()
                     + 4
             })
             .sum::<usize>();
@@ -347,11 +374,58 @@ pub struct ProjectRoot {
     pub reason: String,
     pub manifests: Vec<String>,
     #[serde(default)]
+    pub manifest_metadata: Vec<ManifestMetadata>,
+    #[serde(default)]
     pub landmark_total: usize,
     #[serde(default)]
     pub recommendation_total: usize,
     #[serde(default)]
     pub recommended_paths: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ManifestMetadata {
+    pub path: String,
+    #[serde(default)]
+    pub truncated: bool,
+    #[serde(default)]
+    pub runtime_entry_points: Vec<ManifestTarget>,
+    #[serde(default)]
+    pub library_exports: Vec<ManifestTarget>,
+    #[serde(default)]
+    pub commands: Vec<ManifestCommand>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ManifestTarget {
+    pub name: Option<String>,
+    pub declared: String,
+    pub resolved_path: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ManifestCommandKind {
+    Build,
+    Test,
+    Run,
+}
+
+impl ManifestCommandKind {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Build => "build",
+            Self::Test => "test",
+            Self::Run => "run",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ManifestCommand {
+    pub kind: ManifestCommandKind,
+    pub name: Option<String>,
+    pub command: String,
 }
 
 /// One file-level lexical dependency candidate.

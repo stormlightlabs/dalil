@@ -321,8 +321,7 @@ pub fn walk_files(
     for item in builder.build() {
         if files.len() >= max_entries {
             errors.push(WalkIssue::Traversal(format!(
-                "file inventory reached the {}-path limit; deeper paths were not visited",
-                max_entries
+                "file inventory reached the {max_entries}-path limit; deeper paths were not visited"
             )));
             break;
         }

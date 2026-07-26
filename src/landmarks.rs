@@ -6,8 +6,10 @@ use std::sync::{Arc, Mutex};
 use ignore::WalkBuilder;
 use ignore::gitignore::Gitignore;
 
-use crate::report::{Landmark, LandmarkKind, ProjectRoot, ProjectRootKind, ReportLimits, WorktreeState};
-use crate::security;
+use crate::report::{
+    Landmark, LandmarkKind, ManifestMetadata, ProjectRoot, ProjectRootKind, ReportLimits, WorktreeState,
+};
+use crate::{manifests, security};
 
 #[derive(Debug, Default)]
 pub struct LandmarkAnalysis {
@@ -279,6 +281,7 @@ enum ManifestRole {
 #[derive(Default)]
 struct RootInfo {
     manifests: Vec<String>,
+    manifest_metadata: Vec<ManifestMetadata>,
     families: BTreeSet<String>,
     roles: Vec<ManifestRole>,
 }
@@ -331,6 +334,7 @@ fn detect_project_roots(
     exclusions: Option<&Gitignore>, limits: &ReportLimits, limitations: &mut Vec<String>,
 ) -> Vec<ProjectRoot> {
     let mut roots = BTreeMap::<String, RootInfo>::new();
+    let known_paths = path_states.keys().cloned().collect::<BTreeSet<_>>();
     for path in path_states.keys() {
         let base_name = basename(path).to_ascii_lowercase();
         if !in_scope(path, scope_path) || is_excluded(repository_root, path, exclusions) || !is_manifest(&base_name) {
@@ -340,16 +344,20 @@ fn detect_project_roots(
         if roots.len() >= limits.max_project_roots && !roots.contains_key(&root) {
             continue;
         }
-        let role = inspect_manifest(
+        let (role, metadata) = inspect_manifest(
             repository_root,
             scope_root,
             path,
             &base_name,
             limits.max_file_bytes,
+            &known_paths,
             limitations,
         );
         let entry = roots.entry(root).or_default();
         entry.manifests.push(path.clone());
+        if let Some(metadata) = metadata {
+            entry.manifest_metadata.push(metadata);
+        }
         entry.families.insert(manifest_family(&base_name).to_owned());
         entry.roles.push(role);
     }
@@ -379,6 +387,7 @@ fn detect_project_roots(
                 kind,
                 reason,
                 manifests: info.manifests,
+                manifest_metadata: info.manifest_metadata,
                 landmark_total: 0,
                 recommendation_total: 0,
                 recommended_paths: Vec::new(),
@@ -389,19 +398,19 @@ fn detect_project_roots(
 
 fn inspect_manifest(
     repository_root: &Path, scope_root: &Path, path: &str, basename: &str, max_bytes: usize,
-    limitations: &mut Vec<String>,
-) -> ManifestRole {
+    known_paths: &BTreeSet<String>, limitations: &mut Vec<String>,
+) -> (ManifestRole, Option<ManifestMetadata>) {
     let bytes = match security::read_worktree_file_limited(repository_root, scope_root, path, max_bytes) {
         Ok(bytes) => bytes,
         Err(error) => {
             limitations.push(format!(
                 "Could not inspect manifest `{path}`: {error}. The manifest remains a bounded landmark."
             ));
-            return ManifestRole::Unknown;
+            return (ManifestRole::Unknown, None);
         }
     };
     let text = String::from_utf8_lossy(&bytes).to_ascii_lowercase();
-    match basename {
+    let role = match basename {
         "cargo.toml" => {
             if text.contains("[workspace]") {
                 ManifestRole::Workspace
@@ -427,9 +436,21 @@ fn inspect_manifest(
         }
         "pyproject.toml" | "setup.py" | "setup.cfg" | "gemfile" | "gemspec" | "build.gradle" | "build.gradle.kts"
         | "composer.json" | "mix.exs" | "go.mod" => ManifestRole::Package,
-        _ if basename.ends_with(".csproj") || basename.ends_with(".sln") => ManifestRole::Package,
+        _ if basename.ends_with(".gemspec") || basename.ends_with(".csproj") || basename.ends_with(".sln") => {
+            ManifestRole::Package
+        }
         _ => ManifestRole::Unknown,
-    }
+    };
+    let metadata = match manifests::inspect(path, basename, &bytes, known_paths) {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            limitations.push(format!(
+                "Could not parse bounded manifest metadata from `{path}`: {error}."
+            ));
+            None
+        }
+    };
+    (role, metadata)
 }
 
 fn detect_declared_submodules(
@@ -632,7 +653,8 @@ fn is_manifest(name: &str) -> bool {
             | "nx.json"
             | "go.mod"
             | "go.work"
-    ) || name.ends_with(".csproj")
+    ) || name.ends_with(".gemspec")
+        || name.ends_with(".csproj")
         || name.ends_with(".sln")
 }
 
@@ -644,6 +666,7 @@ fn manifest_family(name: &str) -> &str {
         "pyproject.toml" | "setup.py" | "setup.cfg" => "python",
         "gemfile" | "gemspec" => "ruby",
         "pom.xml" | "build.gradle" | "build.gradle.kts" | "settings.gradle" | "settings.gradle.kts" => "jvm",
+        name if name.ends_with(".gemspec") => "ruby",
         name if name.ends_with(".csproj") || name.ends_with(".sln") => "dotnet",
         _ => "other",
     }
@@ -759,6 +782,7 @@ mod tests {
                 kind: ProjectRootKind::Workspace,
                 reason: String::new(),
                 manifests: Vec::new(),
+                manifest_metadata: Vec::new(),
                 landmark_total: 0,
                 recommendation_total: 0,
                 recommended_paths: Vec::new(),
@@ -768,6 +792,7 @@ mod tests {
                 kind: ProjectRootKind::Package,
                 reason: String::new(),
                 manifests: Vec::new(),
+                manifest_metadata: Vec::new(),
                 landmark_total: 0,
                 recommendation_total: 0,
                 recommended_paths: Vec::new(),

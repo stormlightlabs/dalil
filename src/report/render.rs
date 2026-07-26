@@ -575,6 +575,68 @@ impl Render {
                     )
                     .expect("writing to a string cannot fail");
                 }
+                for metadata in &root.manifest_metadata {
+                    if metadata.truncated {
+                        writeln!(
+                            output,
+                            "  - Manifest metadata from `{}` reached its per-kind item limit.",
+                            utils::escape_inline_code(&metadata.path)
+                        )
+                        .expect("writing to a string cannot fail");
+                    }
+                    if !metadata.runtime_entry_points.is_empty() {
+                        let entries = metadata
+                            .runtime_entry_points
+                            .iter()
+                            .map(|target| {
+                                target
+                                    .resolved_path
+                                    .as_deref()
+                                    .map_or_else(|| target.declared.clone(), |path| path.to_owned())
+                            })
+                            .collect::<Vec<_>>();
+                        writeln!(
+                            output,
+                            "  - Declared runtime entry points from `{}`: {}",
+                            utils::escape_inline_code(&metadata.path),
+                            utils::inline_code_list(&entries)
+                        )
+                        .expect("writing to a string cannot fail");
+                    }
+                    if !metadata.library_exports.is_empty() {
+                        let exports = metadata
+                            .library_exports
+                            .iter()
+                            .map(|target| {
+                                target
+                                    .resolved_path
+                                    .as_deref()
+                                    .map_or_else(|| target.declared.clone(), |path| path.to_owned())
+                            })
+                            .collect::<Vec<_>>();
+                        writeln!(
+                            output,
+                            "  - Declared library exports from `{}`: {}",
+                            utils::escape_inline_code(&metadata.path),
+                            utils::inline_code_list(&exports)
+                        )
+                        .expect("writing to a string cannot fail");
+                    }
+                    if !metadata.commands.is_empty() {
+                        let commands = metadata
+                            .commands
+                            .iter()
+                            .map(|command| command.command.clone())
+                            .collect::<Vec<_>>();
+                        writeln!(
+                            output,
+                            "  - Common commands from `{}`: {}",
+                            utils::escape_inline_code(&metadata.path),
+                            utils::inline_code_list(&commands)
+                        )
+                        .expect("writing to a string cannot fail");
+                    }
+                }
             }
             for landmark in &map.landmarks {
                 writeln!(

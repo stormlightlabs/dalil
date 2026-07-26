@@ -935,6 +935,78 @@ fn briefing_prioritizes_root_manifest_and_conventional_entry_points() {
 }
 
 #[test]
+fn manifest_metadata_drives_custom_entry_points_and_common_commands() {
+    let fixture = HistoryFixtureRepository::new();
+    write_file(
+        fixture.root.join("pyproject.toml"),
+        br#"[build-system]
+requires = ["hatchling"]
+
+[project]
+name = "sample"
+import-names = ["sample"]
+
+[project.scripts]
+sample = "sample.cli:main"
+
+[tool.pytest.ini_options]
+addopts = "-q"
+"#,
+    );
+    fs::create_dir_all(fixture.root.join("src/sample")).expect("create manifest metadata fixture");
+    write_file(fixture.root.join("src/sample/__init__.py"), b"VALUE = 1\n");
+    write_file(fixture.root.join("src/sample/cli.py"), b"def main():\n    return 0\n");
+
+    let output = fixture.run(&["--no-cache", "--json"]);
+    let value: Value = serde_json::from_str(&stdout(&output)).expect("valid manifest metadata briefing JSON");
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+
+    let root = value["map"]["project_roots"]
+        .as_array()
+        .expect("project roots")
+        .iter()
+        .find(|root| root["path"] == ".")
+        .expect("root project");
+    let metadata = root["manifest_metadata"]
+        .as_array()
+        .expect("manifest metadata")
+        .iter()
+        .find(|metadata| metadata["path"] == "pyproject.toml")
+        .expect("pyproject metadata");
+    assert_eq!(
+        metadata["runtime_entry_points"][0]["resolved_path"],
+        "src/sample/cli.py"
+    );
+    assert!(
+        metadata["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|command| command["command"] == "python -m build")
+    );
+    assert!(
+        metadata["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|command| command["command"] == "pytest")
+    );
+    let runtime = value["reading_plan"]["recommendations"]
+        .as_array()
+        .expect("reading plan")
+        .iter()
+        .find(|recommendation| recommendation["purpose"] == "runtime")
+        .expect("runtime recommendation");
+    assert_eq!(runtime["path"], "src/sample/cli.py");
+    assert!(
+        runtime["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("pyproject.toml"))
+    );
+}
+
+#[test]
 fn compact_recovery_command_succeeds_without_including_classified_trees() {
     let fixture = MixedMapFixtureRepository::new();
     fs::create_dir_all(fixture.root.join("target/debug/deps")).expect("create ignored build tree");

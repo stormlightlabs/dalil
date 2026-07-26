@@ -1,6 +1,7 @@
 mod cli;
 mod history;
 mod landmarks;
+mod manifests;
 mod map;
 mod report;
 mod security;

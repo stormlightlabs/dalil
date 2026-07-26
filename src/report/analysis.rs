@@ -470,6 +470,54 @@ pub fn build_reading_plan(history: &HistoryReport, map: &MapReport) -> ReadingPl
                 },
             );
         }
+        for metadata in &root.manifest_metadata {
+            for target in &metadata.library_exports {
+                let Some(path) = target.resolved_path.as_ref() else {
+                    continue;
+                };
+                let Some(file) = source_paths.get(path.as_str()) else {
+                    continue;
+                };
+                add_reading_candidate(
+                    &mut candidates,
+                    ReadingCandidateInput {
+                        purpose: ReadingPurpose::Architecture,
+                        path: path.clone(),
+                        project_root: Some(root.path.clone()),
+                        evidence_kinds: [ReadingEvidenceKind::Landmark, ReadingEvidenceKind::ProjectTopology]
+                            .into_iter()
+                            .collect(),
+                        score: 2_900_000_000,
+                        confidence: ConfidenceTier::High,
+                        reason: manifest_target_reason("library export", target, &metadata.path),
+                        limitations: file.limitations.clone(),
+                    },
+                );
+            }
+            for target in &metadata.runtime_entry_points {
+                let Some(path) = target.resolved_path.as_ref() else {
+                    continue;
+                };
+                let Some(file) = source_paths.get(path.as_str()) else {
+                    continue;
+                };
+                add_reading_candidate(
+                    &mut candidates,
+                    ReadingCandidateInput {
+                        purpose: ReadingPurpose::Runtime,
+                        path: path.clone(),
+                        project_root: Some(root.path.clone()),
+                        evidence_kinds: [ReadingEvidenceKind::Landmark, ReadingEvidenceKind::ProjectTopology]
+                            .into_iter()
+                            .collect(),
+                        score: 2_900_000_000,
+                        confidence: ConfidenceTier::High,
+                        reason: manifest_target_reason("runtime entry point", target, &metadata.path),
+                        limitations: file.limitations.clone(),
+                    },
+                );
+            }
+        }
     }
 
     if let Some(churn) = &history.churn {
@@ -523,7 +571,7 @@ pub fn build_reading_plan(history: &HistoryReport, map: &MapReport) -> ReadingPl
                     evidence_kinds: [ReadingEvidenceKind::HistoryOverlap].into_iter().collect(),
                     score: 400_000_000u64.saturating_add(commits as u64 * 100_000),
                     confidence: ConfidenceTier::Medium,
-                    reason: format!("firefighting-language commits touched this path {} time(s)", commits),
+                    reason: format!("firefighting-language commits touched this path {commits} time(s)"),
                     limitations: file.limitations.clone(),
                 },
             );
@@ -635,8 +683,7 @@ pub fn build_reading_plan(history: &HistoryReport, map: &MapReport) -> ReadingPl
         returned: recommendations.len(),
         reason: if candidate_path_count < 5 {
             format!(
-                "only {} unique paths had retained landmark, source-map, test, runtime, or bounded history evidence",
-                candidate_path_count
+                "only {candidate_path_count} unique paths had retained landmark, source-map, test, runtime, or bounded history evidence"
             )
         } else {
             "the selected scope and safety limits left fewer than five usable paths".to_owned()
@@ -654,6 +701,14 @@ pub fn build_reading_plan(history: &HistoryReport, map: &MapReport) -> ReadingPl
         );
     }
     ReadingPlan { recommendations, omitted_project_roots, shortfall, limitations }
+}
+
+fn manifest_target_reason(kind: &str, target: &ManifestTarget, manifest: &str) -> String {
+    let name = target
+        .name
+        .as_deref()
+        .map_or_else(String::new, |name| format!(" `{name}`"));
+    format!("manifest `{manifest}` declares {kind}{name} as `{}`", target.declared)
 }
 
 fn conventional_entry_point(path: &str, project_root: Option<&str>) -> Option<(ReadingPurpose, u64, &'static str)> {

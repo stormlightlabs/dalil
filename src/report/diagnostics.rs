@@ -263,7 +263,7 @@ impl DoctorReport {
                 Ok(_) => DoctorCheck {
                     name: "schema".to_owned(),
                     status: DoctorCheckStatus::Pass,
-                    detail: format!("{} is embedded and valid JSON", SCHEMA_PATH),
+                    detail: format!("{SCHEMA_PATH} is embedded and valid JSON"),
                 },
                 Err(error) => DoctorCheck {
                     name: "schema".to_owned(),

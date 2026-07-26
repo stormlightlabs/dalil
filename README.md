@@ -102,6 +102,8 @@ An exact focus path can also include a classified `bin/` entry within the normal
 - repository landmarks for README and agent/contributor instructions, manifests and lockfiles,
   project roots, build/task entry points, test roots, CI, ownership, licenses, submodules, and
   nested repositories
+- bounded manifest metadata for declared runtime entry points, library exports, and common build,
+  test, and run commands; see [Manifest support](docs/manifests.md)
 - monorepo project-root groups with bounded source recommendations
 - a bounded ranked selection controlled by `--map-tokens` (default: 1,000)
 - parse errors, query-pack failures, grouped ambiguous lexical references, and
@@ -254,5 +256,11 @@ examples in [`schema/v1/golden`](schema/v1/golden).
 Diagnostic color can be controlled with `--color auto|always|never` or `--no-color`.
 
 Color settings never change report stdout.
+
+## Inspiration/References
+
+1. [Aider's Repo Map](https://aider.chat/docs/repomap.html)
+2. [codebase orient skill](https://github.com/DrCatHicks/learning-opportunities/tree/main/orient)
+3. [The Git Commands I Run Before Reading Any Code](https://piechowski.io/post/git-commands-before-reading-code/)
 
 [^ff]: https://newsroom.cisco.com/c/r/newsroom/en/us/a/y2024/m05/developers-spending-more-time-firefighting-issues-than-delivering-innovation.html
