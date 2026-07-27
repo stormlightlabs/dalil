@@ -30,6 +30,79 @@ fn markdown_escapes_report_content_that_could_add_control_sequences() {
 }
 
 #[test]
+fn compact_markdown_applies_the_map_token_budget_to_the_whole_report() {
+    let mut provenance = ReportProvenance::default();
+    provenance.effective_options.map.map_tokens = 100;
+    let report = Report {
+        schema_version: SCHEMA_VERSION,
+        profile: AnalysisProfile::Compact,
+        limits: ReportLimits::for_profile(AnalysisProfile::Compact),
+        command: CommandDescriptor::map(PathBuf::from(".")),
+        scope: ReportScope { selected_path: ".".to_owned() },
+        status: ReportStatus::Analyzed,
+        summary: "A concise summary that must remain available.".to_owned(),
+        provenance,
+        quality: ReportQuality::default(),
+        findings: (0..40)
+            .map(|index| Finding {
+                title: format!("finding {index}"),
+                detail: "Detailed evidence that belongs in the complete typed report.".repeat(4),
+            })
+            .collect(),
+        limitations: vec![],
+        reading_plan: None,
+        history: None,
+        map: None,
+        explain: None,
+    };
+
+    let markdown = report.render(OutputFormat::Markdown).expect("markdown renders");
+
+    assert!(crate::utils::token_count(&markdown) <= 100);
+    assert!(markdown.starts_with("# Codeplat map\n"));
+    assert!(markdown.contains("A concise summary that must remain available."));
+    assert!(markdown.contains("Report truncated at the compact Markdown token budget"));
+
+    let json = report.render(OutputFormat::Json).expect("JSON renders");
+    assert!(json.contains("finding 39"));
+    assert!(!json.contains("Report truncated at the compact Markdown token budget"));
+}
+
+#[test]
+fn evidence_markdown_is_not_projected_to_the_compact_token_budget() {
+    let mut provenance = ReportProvenance::default();
+    provenance.effective_options.map.map_tokens = 100;
+    let report = Report {
+        schema_version: SCHEMA_VERSION,
+        profile: AnalysisProfile::Evidence,
+        limits: ReportLimits::for_profile(AnalysisProfile::Evidence),
+        command: CommandDescriptor::map(PathBuf::from(".")),
+        scope: ReportScope { selected_path: ".".to_owned() },
+        status: ReportStatus::Analyzed,
+        summary: "Evidence summary.".to_owned(),
+        provenance,
+        quality: ReportQuality::default(),
+        findings: (0..40)
+            .map(|index| Finding {
+                title: format!("finding {index}"),
+                detail: "Detailed evidence remains available in evidence Markdown.".repeat(4),
+            })
+            .collect(),
+        limitations: vec![],
+        reading_plan: None,
+        history: None,
+        map: None,
+        explain: None,
+    };
+
+    let markdown = report.render(OutputFormat::Markdown).expect("markdown renders");
+
+    assert!(crate::utils::token_count(&markdown) > 100);
+    assert!(!markdown.contains("Report truncated at the compact Markdown token budget"));
+    assert!(markdown.contains("finding 39"));
+}
+
+#[test]
 fn html_is_embedded_deterministic_and_escapes_report_content() {
     let report = Report {
         schema_version: SCHEMA_VERSION,

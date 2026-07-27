@@ -62,7 +62,7 @@ evidence notes. JSON retains the complete map and history report.
 The source map accepts the same focus, token-budget, exclusion, cache, and color controls described below:
 
 ```sh
-codeplat --focus parser --focus-path src --map-tokens 500 .
+codeplat --focus parser --focus-path src --budget 500 .
 codeplat --no-cache --json .
 codeplat --profile evidence --json .
 ```
@@ -82,8 +82,12 @@ Use `--profile evidence` for a larger, still resource-limited evidence sample.
 Generated, vendored, minified, and source-map paths remain excluded in both
 profiles unless selected with an exact `--focus-path`.
 
-`--map-tokens` bounds the compact map payload; tiny budgets may return only the
-highest-ranked snippet or summaries.
+`--budget` bounds the ranked map selection in every format and the complete
+compact Markdown report. Compact Markdown keeps its summary and command-specific
+content first, then prints a truncation notice when the remaining collections do
+not fit. JSON retains the complete typed projection. Evidence-profile Markdown
+can exceed this token budget and remains subject to the hard rendered-output
+limit.
 
 ## Commands
 
@@ -109,7 +113,7 @@ An exact focus path can also include a classified `bin/` entry within the normal
 - bounded manifest metadata for declared runtime entry points, library exports, and common build,
   test, and run commands; see [Manifest support](docs/manifests.md)
 - monorepo project-root groups with bounded source recommendations
-- a bounded ranked selection controlled by `--map-tokens` (default: 1,000)
+- a bounded ranked selection controlled by `--budget` (default: 1,000)
 - parse errors, query-pack failures, grouped ambiguous lexical references, and
   unsupported/partial evidence per affected file
 - non-source landmarks, configuration, documentation, and assets as `non_source`
@@ -129,7 +133,7 @@ codeplat map --exclude 'src/generated/**' --exclude 'tests/fixtures/**'
 Map focus and cache controls are explicit:
 
 ```sh
-codeplat map --focus parser --focus-path src --map-tokens 500
+codeplat map --focus parser --focus-path src --budget 500
 codeplat map --cache always
 codeplat map --cache files --cache-file src/parser.rs
 codeplat map --cache manual
@@ -158,7 +162,7 @@ Compact analysis publishes these ceilings:
 - 100,000 reachable commits
 - 128 history evidence items per collection
 - 30 seconds of analysis work,
-- 8 MiB rendered report.
+- 8 MiB hard rendered-output limit.
 
 Landmark output is capped at 64 compact landmarks and 32 compact project roots, with totals and
 truncation metadata preserved in JSON. Evidence mode raises those caps to the published report

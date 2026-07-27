@@ -93,7 +93,7 @@ codeplat doctor [OPTIONS] [PATH]
 - Markdown is the human default. `--json` is shorthand for `--format json` and remains the machine contract.
 - `--focus` and `--focus-path` are the only task-personalization inputs and may be repeated.
 - `--profile compact|evidence` defaults to `compact`. Both profiles remain bounded.
-- `--map-tokens`, cache controls, exclusions, recursive traversal, color policy, and exit categories retain their
+- `--budget`, cache controls, exclusions, recursive traversal, color policy, and exit categories retain their
   documented behavior.
 - `--strict` rejects actionable report degradation, not ordinary compact projection by itself.
 

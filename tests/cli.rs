@@ -756,7 +756,7 @@ fn default_command_combines_history_and_ranked_source_map() {
         "Service",
         "--focus-path",
         "src",
-        "--map-tokens",
+        "--budget",
         "120",
         "--json",
     ]);
@@ -847,6 +847,10 @@ fn default_markdown_briefing_keeps_history_and_map_sections_readable() {
     assert_plain_report(&markdown);
     assert!(markdown.starts_with("# Codeplat briefing\n"));
     assert!(markdown.contains("Status: Analyzed"));
+    assert!(
+        markdown.chars().count().div_ceil(4) <= 1_000,
+        "briefing exceeded its compact Markdown token budget"
+    );
     for section in ["## History analysis", "### History observations"] {
         assert!(markdown.contains(section), "missing Markdown section: {section}");
     }
@@ -858,7 +862,7 @@ fn default_markdown_briefing_keeps_history_and_map_sections_readable() {
         "briefing was {} lines",
         markdown.lines().count()
     );
-    assert!(markdown.contains("Bug keywords: `fix`, `bug`, `broken`"));
+    assert!(markdown.contains("Detailed history evidence: use `codeplat history`"));
     assert!(markdown.contains("## Repository overview"));
     assert!(markdown.contains("## Reading plan"));
     assert!(markdown.contains("### start_here"));
@@ -904,16 +908,25 @@ fn default_briefing_history_is_concise_while_detailed_modes_remain_available() {
     let focused = fixture.run(&["--no-cache", "history"]);
     let focused_markdown = stdout(&focused);
     assert!(focused.status.success());
-    assert!(focused_markdown.contains("### Churn hotspots"));
-    assert!(focused_markdown.contains("### Contributor concentration"));
-    assert!(focused_markdown.contains("### Monthly activity"));
-    assert!(focused_markdown.contains("#### Evidence commits"));
+    assert!(focused_markdown.contains("### History observations"));
+    assert!(!focused_markdown.contains("### Churn hotspots"));
+    assert!(!focused_markdown.contains("### Contributor concentration"));
+    assert!(!focused_markdown.contains("### Monthly activity"));
+    assert!(!focused_markdown.contains("#### Evidence commits"));
 
     let evidence = fixture.run(&["--profile", "evidence", "--no-cache"]);
     let evidence_markdown = stdout(&evidence);
     assert!(evidence.status.success());
     assert!(evidence_markdown.contains("### Churn hotspots"));
     assert!(evidence_markdown.contains("### Monthly activity"));
+
+    let focused_evidence = fixture.run(&["--profile", "evidence", "history"]);
+    let focused_evidence_markdown = stdout(&focused_evidence);
+    assert!(focused_evidence.status.success());
+    assert!(focused_evidence_markdown.contains("### Churn hotspots"));
+    assert!(focused_evidence_markdown.contains("### Contributor concentration"));
+    assert!(focused_evidence_markdown.contains("### Monthly activity"));
+    assert!(focused_evidence_markdown.contains("#### Evidence commits"));
 }
 
 #[test]
@@ -2153,7 +2166,7 @@ fn map_rejects_unqualified_cross_file_edges_and_applies_focus_and_token_budget()
         "duplicate",
         "--focus-path",
         "src/one.rs",
-        "--map-tokens",
+        "--budget",
         "40",
         "--no-cache",
         "--json",
@@ -2178,15 +2191,7 @@ fn map_rejects_unqualified_cross_file_edges_and_applies_focus_and_token_budget()
             .any(|edge| { edge["source"] == "src/use.rs" && edge["symbol"] == "duplicate" })
     );
 
-    let elided = fixture.run(&[
-        "map",
-        "--focus",
-        "duplicate",
-        "--map-tokens",
-        "14",
-        "--no-cache",
-        "--json",
-    ]);
+    let elided = fixture.run(&["map", "--focus", "duplicate", "--budget", "14", "--no-cache", "--json"]);
     let elided_json: Value = serde_json::from_str(&stdout(&elided)).expect("valid elided map JSON");
     assert!(
         elided_json["map"]["selection"]["snippets"]
@@ -2224,6 +2229,12 @@ fn explain_reports_typed_focus_graph_history_and_omission_evidence() {
                     .contains("not a semantic call graph")
             })
     );
+
+    let markdown = fixture.run(&["explain", "duplicate", "--focus", "duplicate", "--no-cache"]);
+    let markdown = stdout(&markdown);
+    assert!(markdown.chars().count().div_ceil(4) <= 1_000);
+    assert!(markdown.find("### Recommendation explanation").unwrap() < markdown.find("## History analysis").unwrap());
+    assert!(markdown.contains("Target: `duplicate` (Symbol)"));
 }
 
 #[test]
@@ -3490,15 +3501,15 @@ fn markdown_snapshot_is_direct_and_readable() {
          Query pack: `rust-v1`\n\
          Inventory: 0 tracked (0 modified), 0 untracked, 0 analyzed, 0 omitted, 0 classified\n\
          \n\
-         ### Rust files\n\
-         \n\
-         No Rust files were analyzed.\n\
-         \n\
          ### Map limitations\n\
          \n\
          - Rust definitions and references are extracted lexically; only explicit same-file call evidence is graphed, and imports, types, macros, and runtime behavior are not semantically resolved.\n\
          - Reference names can have multiple lexical definition candidates; ambiguity is reported rather than treated as a semantic call edge.\n\
-         - Tracked files are eligible even when ignore rules match them, except deterministic generated/vendor/minified classifications; exact focus paths can opt in within the safety limits.\n"
+         - Tracked files are eligible even when ignore rules match them, except deterministic generated/vendor/minified classifications; exact focus paths can opt in within the safety limits.\n\
+         \n\
+         ### Rust files\n\
+         \n\
+         No Rust files were analyzed.\n"
     );
 }
 

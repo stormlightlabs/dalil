@@ -94,7 +94,7 @@ impl Render {
                         | super::LandmarkKind::PackageRoot
                 )
             })
-            .take(8)
+            .take(5)
             .collect::<Vec<_>>();
         if landmarks.is_empty() {
             writeln!(output, "Orientation landmarks: none detected in the selected scope.")
@@ -136,6 +136,7 @@ impl Render {
                 let root = recommendation
                     .project_root
                     .as_deref()
+                    .filter(|root| *root != ".")
                     .map(|root| format!(", project root `{}`", utils::escape_inline_code(root)))
                     .unwrap_or_default();
                 let evidence = recommendation
@@ -146,7 +147,7 @@ impl Render {
                     .join(", ");
                 writeln!(
                     output,
-                    "{}. `{}`{} — {} ({} confidence; evidence: {})",
+                    "{}. `{}`{} — {} ({}; {})",
                     recommendation.ordinal,
                     utils::escape_inline_code(&recommendation.path),
                     root,
@@ -155,10 +156,6 @@ impl Render {
                     evidence
                 )
                 .expect("writing to a string cannot fail");
-                for limitation in &recommendation.limitations {
-                    writeln!(output, "   - Limitation: {}", utils::sanitize_text(limitation))
-                        .expect("writing to a string cannot fail");
-                }
             }
         }
         if let Some(shortfall) = &plan.shortfall {
@@ -168,6 +165,18 @@ impl Render {
                 shortfall.returned,
                 shortfall.target_minimum,
                 utils::sanitize_text(&shortfall.reason)
+            )
+            .expect("writing to a string cannot fail");
+        }
+        let limited_recommendations = plan
+            .recommendations
+            .iter()
+            .filter(|recommendation| !recommendation.limitations.is_empty())
+            .count();
+        if limited_recommendations > 0 {
+            writeln!(
+                output,
+                "{limited_recommendations} recommendation(s) have limitations recorded in JSON."
             )
             .expect("writing to a string cannot fail");
         }
@@ -244,7 +253,17 @@ impl Render {
     }
 
     pub fn history_briefing_markdown(output: &mut String, history: &super::HistoryReport) {
-        Render::history_header(output, history);
+        writeln!(output).expect("writing to a string cannot fail");
+        writeln!(output, "## History analysis").expect("writing to a string cannot fail");
+        writeln!(output).expect("writing to a string cannot fail");
+        writeln!(
+            output,
+            "Scope `{}`: {} reachable commits ({} non-merge).",
+            utils::escape_inline_code(&history.scope_path),
+            history.commits_seen,
+            history.non_merge_commits_seen
+        )
+        .expect("writing to a string cannot fail");
         Render::section_heading(output, "History observations");
         if history.observations.is_empty() {
             writeln!(
@@ -546,6 +565,50 @@ impl Render {
             writeln!(output, "Exclusions: {}", utils::inline_code_list(&map.exclusions))
                 .expect("writing to a string cannot fail");
         }
+        if !map.findings.is_empty() {
+            Render::section_heading(output, "Map findings");
+            for finding in &map.findings {
+                let location = finding
+                    .location
+                    .as_ref()
+                    .map(Self::format_location)
+                    .unwrap_or_else(|| "unknown location".to_owned());
+                writeln!(
+                    output,
+                    "- **{}** `{}`{} — {}",
+                    finding.kind.label(),
+                    utils::escape_inline_code(&finding.path),
+                    if finding.location.is_some() { format!(" at {location}") } else { String::new() },
+                    utils::sanitize_text(&finding.detail)
+                )
+                .expect("writing to a string cannot fail");
+            }
+        }
+
+        Render::section_heading(output, "Map limitations");
+        for limitation in &map.limitations {
+            writeln!(output, "- {}", utils::sanitize_text(limitation)).expect("writing to a string cannot fail");
+        }
+
+        let mut files_by_language: BTreeMap<super::SourceLanguage, Vec<&super::SourceFile>> = BTreeMap::new();
+        for file in &map.files {
+            files_by_language.entry(file.language).or_default().push(file);
+        }
+        if files_by_language.len() <= 1 {
+            if map.files.is_empty() {
+                Render::section_heading(output, "Rust files");
+                writeln!(output, "No Rust files were analyzed.").expect("writing to a string cannot fail");
+            } else {
+                let (language, files) = files_by_language.iter().next().expect("one language group");
+                Render::section_heading(output, &format!("{} files", language.display_label()));
+                Render::source_files(output, files);
+            }
+        } else {
+            for (language, files) in &files_by_language {
+                Render::section_heading(output, &format!("{} files", language.display_label()));
+                Render::source_files(output, files);
+            }
+        }
 
         if !map.landmarks.is_empty() || !map.project_roots.is_empty() {
             Render::section_heading(output, "Repository landmarks");
@@ -717,45 +780,6 @@ impl Render {
             }
         }
 
-        let mut files_by_language: BTreeMap<super::SourceLanguage, Vec<&super::SourceFile>> = BTreeMap::new();
-        for file in &map.files {
-            files_by_language.entry(file.language).or_default().push(file);
-        }
-        if files_by_language.len() <= 1 {
-            if map.files.is_empty() {
-                Render::section_heading(output, "Rust files");
-                writeln!(output, "No Rust files were analyzed.").expect("writing to a string cannot fail");
-            } else {
-                let (language, files) = files_by_language.iter().next().expect("one language group");
-                Render::section_heading(output, &format!("{} files", language.display_label()));
-                Render::source_files(output, files);
-            }
-        } else {
-            for (language, files) in &files_by_language {
-                Render::section_heading(output, &format!("{} files", language.display_label()));
-                Render::source_files(output, files);
-            }
-        }
-        if !map.findings.is_empty() {
-            Render::section_heading(output, "Map findings");
-            for finding in &map.findings {
-                let location = finding
-                    .location
-                    .as_ref()
-                    .map(Self::format_location)
-                    .unwrap_or_else(|| "unknown location".to_owned());
-                writeln!(
-                    output,
-                    "- **{}** `{}`{} — {}",
-                    finding.kind.label(),
-                    utils::escape_inline_code(&finding.path),
-                    if finding.location.is_some() { format!(" at {location}") } else { String::new() },
-                    utils::sanitize_text(&finding.detail)
-                )
-                .expect("writing to a string cannot fail");
-            }
-        }
-
         if !map.edges.is_empty() {
             Render::section_heading(output, "Lexical dependency edges");
             for edge in &map.edges {
@@ -785,11 +809,6 @@ impl Render {
                 )
                 .expect("writing to a string cannot fail");
             }
-        }
-
-        Render::section_heading(output, "Map limitations");
-        for limitation in &map.limitations {
-            writeln!(output, "- {}", utils::sanitize_text(limitation)).expect("writing to a string cannot fail");
         }
     }
 

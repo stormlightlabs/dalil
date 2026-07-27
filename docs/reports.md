@@ -87,6 +87,13 @@ codeplat history --profile evidence --format markdown
 Collection totals and truncation reasons remain part of the report when a
 profile returns a sample.
 
+For compact Markdown, `--budget` limits the whole rendered report as well as
+the ranked structural-map selection. Codeplat writes the summary and the
+command's priority content first: the reading plan for a briefing and the
+target-specific evidence for `explain`. If the remaining sections do not fit,
+the report ends with a truncation notice. Use JSON for complete typed
+collections or `--profile evidence` for verbose Markdown.
+
 ## Output and exit status
 
 Reports go to stdout. Progress and diagnostics go to stderr, so redirecting

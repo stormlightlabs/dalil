@@ -447,9 +447,9 @@ struct MapOptions {
     #[arg(long = "focus-path", value_name = "PATH", action = ArgAction::Append)]
     focus_paths: Vec<String>,
 
-    /// Maximum estimated tokens in the selected structural map (default: 1000).
-    #[arg(long = "map-tokens", value_name = "N", default_value_t = 1_000, value_parser = clap::value_parser!(usize))]
-    map_tokens: usize,
+    /// Maximum estimated tokens in the compact report and ranked structural evidence (default: 1000).
+    #[arg(long = "budget", value_name = "N", default_value_t = 1_000, value_parser = clap::value_parser!(usize))]
+    budget: usize,
 
     /// Cache policy: auto, always, files, or manual (default: auto).
     #[arg(
@@ -486,7 +486,7 @@ impl MapOptions {
             excludes: self.excludes.clone(),
             focuses: self.focuses.clone(),
             focus_paths: self.focus_paths.clone(),
-            map_tokens: self.map_tokens,
+            map_tokens: self.budget,
             cache_mode: if self.no_cache { CacheMode::Disabled } else { self.cache_mode.into() },
             cache_files: self.cache_files.clone(),
             recursive: self.recursive,
@@ -495,8 +495,8 @@ impl MapOptions {
     }
 
     fn validate(&self) -> Result<(), ApplicationError> {
-        if self.map_tokens == 0 {
-            return Err(ApplicationError::usage("`--map-tokens` must be greater than zero"));
+        if self.budget == 0 {
+            return Err(ApplicationError::usage("`--budget` must be greater than zero"));
         }
         if self.no_cache && self.cache_mode != CacheModeOption::Auto {
             return Err(ApplicationError::usage(

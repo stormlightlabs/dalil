@@ -1246,7 +1246,17 @@ impl Report {
     /// Render a report from the shared typed model without parsing or transforming Markdown.
     pub fn render(&self, format: OutputFormat) -> Result<String, ReportError> {
         let output = match format {
-            OutputFormat::Markdown => Ok(self.render_markdown()),
+            OutputFormat::Markdown => {
+                let output = self.render_markdown();
+                if self.profile == AnalysisProfile::Compact {
+                    Ok(bound_compact_markdown(
+                        output,
+                        self.provenance.effective_options.map.map_tokens,
+                    ))
+                } else {
+                    Ok(output)
+                }
+            }
             OutputFormat::Json => {
                 let mut output = serde_json::to_string_pretty(self)?;
                 output.push('\n');
@@ -1289,6 +1299,10 @@ impl Report {
             Render::quality_markdown(&mut output, &self.quality, self.command.name);
         }
 
+        if let Some(explain) = &self.explain {
+            Render::explain_markdown(&mut output, explain);
+        }
+
         if self.command.name == CommandName::Briefing {
             if let Some(map) = &self.map {
                 Render::briefing_overview(&mut output, map);
@@ -1313,15 +1327,15 @@ impl Report {
             }
         } else {
             if let Some(history) = &self.history {
-                Render::history_markdown(&mut output, history);
+                if self.profile == AnalysisProfile::Compact && self.command.operation.is_none() {
+                    Render::history_briefing_markdown(&mut output, history);
+                } else {
+                    Render::history_markdown(&mut output, history);
+                }
             }
             if let Some(map) = &self.map {
                 Render::map_markdown(&mut output, map);
             }
-        }
-
-        if let Some(explain) = &self.explain {
-            Render::explain_markdown(&mut output, explain);
         }
 
         if !self.findings.is_empty() {
@@ -1351,4 +1365,26 @@ impl Report {
 
         output
     }
+}
+
+const COMPACT_MARKDOWN_TRUNCATION_NOTICE: &str = "\n\n_Report truncated at the compact Markdown token budget; use `--json` for complete typed collections or `--profile evidence` for verbose Markdown._\n";
+
+fn bound_compact_markdown(output: String, token_budget: usize) -> String {
+    if token_count(&output) <= token_budget {
+        return output;
+    }
+
+    let character_budget = token_budget.saturating_mul(4);
+    let notice_characters = COMPACT_MARKDOWN_TRUNCATION_NOTICE.chars().count();
+    if character_budget <= notice_characters {
+        return output.chars().take(character_budget).collect();
+    }
+
+    let content_budget = character_budget - notice_characters;
+    let mut bounded = output.chars().take(content_budget).collect::<String>();
+    if let Some(last_line_end) = bounded.rfind('\n') {
+        bounded.truncate(last_line_end);
+    }
+    bounded.push_str(COMPACT_MARKDOWN_TRUNCATION_NOTICE);
+    bounded
 }

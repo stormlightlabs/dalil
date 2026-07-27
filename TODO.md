@@ -145,6 +145,25 @@ and platform gate is green.
 
 ## Parking Lot
 
+- [x] Apply the configured token budget to the whole Markdown report, not only the ranked source
+      map. Keep compact reports within a documented ceiling, preserve the reading plan and
+      target-specific evidence first, and move exhaustive collections to JSON or an explicit
+      verbose mode.
+- [ ] Make ranked maps cover several important files before spending most of the budget on fields
+      and symbols from one file. Give entry points, public APIs, tests, and high-confidence
+      cross-file connectors enough representation to orient a reader.
+- [ ] Make `--focus` materially change the selected files and symbols when the query matches
+      available evidence. Report what matched and how it affected ranking, and say plainly when a
+      focus term had no useful match.
+- [ ] Lead `explain` with the requested path or symbol, its ranking reasons, relevant graph edges,
+      history overlap, and a concise next step. Do not repeat the full history and source-map
+      reports before the explanation.
+- [ ] Determine primary languages from the repository's actual project roots and analyzed source,
+      with enough provenance to explain the result. Small support scripts must not outweigh the
+      main application language.
+- [ ] Aggregate omitted paths by reason in Markdown and show only a few useful examples. Keep the
+      complete inventory in JSON, and ensure every omission message names the file type and policy
+      accurately.
 - [x] Read bounded manifest metadata to identify declared runtime entry points, library exports,
       and common build, test, and run commands instead of relying only on conventional filenames.
 - [ ] Detect runnable examples and classify integration or end-to-end tests separately so the reading
