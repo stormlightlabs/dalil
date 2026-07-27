@@ -3,6 +3,8 @@
 Codeplat (“code” + “plat” - a plan or map of land) is a CLI to help you orient
 yourself in a new codebase.
 
+![Codeplat HTML repository briefing shown in a browser](./assets/html-report.png)
+
 It produces an integrated briefing, or a focused report when you need only one
 evidence family:
 
