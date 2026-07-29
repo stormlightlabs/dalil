@@ -968,7 +968,7 @@ fn landmark_for_path(path: &str) -> Option<ExplainLandmark> {
             ("readme", "conventional repository orientation document")
         }
         "AGENTS.md" | "CONTRIBUTING.md" | "CLAUDE.md" => ("instructions", "repository instruction file"),
-        "Cargo.toml" | "package.json" | "pyproject.toml" | "go.mod" | "pom.xml" => {
+        "Cargo.toml" | "package.json" | "pyproject.toml" | "go.mod" | "pom.xml" | "build.zig.zon" => {
             ("manifest", "project manifest or package root")
         }
         _ if name.ends_with(".csproj") => ("manifest", "project manifest or package root"),

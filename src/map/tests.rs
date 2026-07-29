@@ -571,6 +571,177 @@ fn malformed_lua_is_partial_and_dynamic_require_is_not_import_evidence() {
 }
 
 #[test]
+fn zig_query_pack_extracts_containers_tests_imports_references_visibility_and_scopes() {
+    let source = br#"
+const helper = @import("helper.zig");
+
+pub const Api = struct {
+    value: []const u8,
+    pub const Nested = union(enum) {
+        text: []const u8,
+        code: u32,
+    };
+
+    pub fn build(comptime T: type, value: T) !Api {
+        _ = value;
+        return .{ .value = helper.render(@typeName(T)) };
+    }
+
+    fn hidden() void {}
+};
+
+test "Api build" {
+    const api = try Api.build(u8, 1);
+    _ = api.value;
+}
+
+const Duplicate = struct { value: u8 };
+const Duplicate = enum { value };
+"#;
+    let parsed = parse_source(source, &ZIG_SUPPORT);
+
+    assert_eq!(parsed.status, FileAnalysisStatus::Complete, "{parsed:?}");
+    assert!(parsed.findings.is_empty(), "{parsed:?}");
+    for (name, kind) in [
+        ("helper.zig", SymbolKind::Import),
+        ("Api", SymbolKind::Struct),
+        ("Nested", SymbolKind::Type),
+        ("value", SymbolKind::Field),
+        ("text", SymbolKind::Field),
+        ("build", SymbolKind::Function),
+        ("hidden", SymbolKind::Function),
+        ("Api build", SymbolKind::Function),
+    ] {
+        assert!(
+            parsed
+                .symbols
+                .iter()
+                .any(|symbol| symbol.name == name && symbol.kind == kind && symbol.role == SymbolRole::Definition),
+            "missing {kind:?} definition {name}: {parsed:?}"
+        );
+    }
+
+    let api = parsed
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == "Api" && symbol.kind == SymbolKind::Struct)
+        .expect("Zig container definition");
+    assert_eq!(api.visibility, SymbolVisibility::Public);
+    assert!(api.context.starts_with("pub const Api = struct"));
+    assert_eq!(
+        parsed
+            .symbols
+            .iter()
+            .filter(|symbol| {
+                symbol.name == "Api" && symbol.role == SymbolRole::Definition && symbol.location == api.location
+            })
+            .count(),
+        1,
+        "a Zig container is not also emitted as an untyped variable: {parsed:?}"
+    );
+
+    let nested = parsed
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == "Nested" && symbol.kind == SymbolKind::Type)
+        .expect("nested Zig container definition");
+    assert_eq!(nested.scope, vec!["Api"]);
+    assert_eq!(nested.visibility, SymbolVisibility::Public);
+
+    let hidden = parsed
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == "hidden" && symbol.kind == SymbolKind::Function)
+        .expect("internal Zig function definition");
+    assert_eq!(hidden.scope, vec!["Api"]);
+    assert_eq!(hidden.visibility, SymbolVisibility::Internal);
+    assert!(parsed.symbols.iter().all(|symbol| {
+        !(symbol.name == "value" && symbol.role == SymbolRole::Definition && symbol.location.start.line == 12)
+    }));
+
+    for (name, evidence) in [
+        ("render", SymbolEvidence::Call),
+        ("Api", SymbolEvidence::TypeReference),
+        ("T", SymbolEvidence::TypeReference),
+        ("value", SymbolEvidence::MemberReference),
+    ] {
+        assert!(
+            parsed.symbols.iter().any(|symbol| {
+                symbol.name == name && symbol.role == SymbolRole::Reference && symbol.evidence == evidence
+            }),
+            "missing {evidence:?} reference {name}: {parsed:?}"
+        );
+    }
+    assert!(parsed.limitations.iter().any(|limitation| {
+        limitation.contains("literal `@import`")
+            && limitation.contains("comptime evaluation")
+            && limitation.contains("error-union flow")
+    }));
+    assert_eq!(
+        parsed
+            .symbols
+            .iter()
+            .filter(|symbol| symbol.name == "Duplicate" && symbol.role == SymbolRole::Definition)
+            .count(),
+        2,
+        "duplicate Zig declarations retain distinct locations: {parsed:?}"
+    );
+}
+
+#[test]
+fn malformed_zig_is_partial_and_non_literal_import_is_not_import_evidence() {
+    let non_literal = parse_source(
+        b"const module_name = \"helper.zig\";\nconst helper = @import(module_name);\n",
+        &ZIG_SUPPORT,
+    );
+    assert_eq!(non_literal.status, FileAnalysisStatus::Complete, "{non_literal:?}");
+    assert!(
+        non_literal
+            .symbols
+            .iter()
+            .all(|symbol| symbol.kind != SymbolKind::Import)
+    );
+
+    let malformed = parse_source(b"pub fn Broken( {\n", &ZIG_SUPPORT);
+    assert_eq!(malformed.status, FileAnalysisStatus::Partial);
+    assert!(
+        malformed
+            .findings
+            .iter()
+            .any(|finding| finding.kind == MapFindingKind::ParseError)
+    );
+    assert!(
+        malformed
+            .limitations
+            .iter()
+            .any(|limitation| limitation.contains("Zig file"))
+    );
+}
+
+#[test]
+fn zig_symbol_limit_counts_unique_symbols_after_query_overlap_is_removed() {
+    let source = b"const Api = struct { marker: u8, };\nconst value: Api = undefined;\n";
+    let mut analyzer = LanguageAnalyzer::new(&ZIG_SUPPORT);
+    let limits = ReportLimits { max_symbols_per_file: 4, ..ReportLimits::for_profile(AnalysisProfile::Evidence) };
+    let parsed = parse_source_with_analyzer(source, &mut analyzer, &limits);
+
+    assert_eq!(parsed.status, FileAnalysisStatus::Complete, "{parsed:?}");
+    assert_eq!(parsed.symbols.len(), 4, "{parsed:?}");
+    assert!(
+        parsed
+            .limitations
+            .iter()
+            .all(|limitation| !limitation.contains("symbol limit"))
+    );
+    assert!(parsed.symbols.iter().any(|symbol| {
+        symbol.name == "Api" && symbol.kind == SymbolKind::Struct && symbol.role == SymbolRole::Definition
+    }));
+    assert!(parsed.symbols.iter().any(|symbol| {
+        symbol.name == "value" && symbol.kind == SymbolKind::Variable && symbol.role == SymbolRole::Definition
+    }));
+}
+
+#[test]
 fn javascript_typescript_and_jsx_extensions_select_explicit_language_variants() {
     assert_eq!(
         support_for_path(Path::new("module.js")).unwrap().language,
@@ -619,6 +790,10 @@ fn javascript_typescript_and_jsx_extensions_select_explicit_language_variants() 
     assert_eq!(
         support_for_path(Path::new("module.lua")).unwrap().language,
         SourceLanguage::Lua
+    );
+    assert_eq!(
+        support_for_path(Path::new("module.zig")).unwrap().language,
+        SourceLanguage::Zig
     );
     assert_eq!(
         support_for_path(Path::new("package.rockspec")).unwrap().language,

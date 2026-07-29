@@ -9,7 +9,7 @@ It produces an integrated briefing, or a focused report when you need only one
 evidence family:
 
 - `codeplat map` inventories the current worktree and extracts structural maps for
-  Rust, JavaScript, JSX, TypeScript, TSX, Python, Ruby, Java, C#, Go, and Lua files.
+  Rust, JavaScript, JSX, TypeScript, TSX, Python, Ruby, Java, C#, Go, Lua, and Zig files.
 - `codeplat history` summarizes five Git-history signals
   1. churn
   2. contributors
@@ -93,7 +93,7 @@ limit.
 
 ### `codeplat map [OPTIONS] [PATH]`
 
-The map command supports Rust, JavaScript, JSX, TypeScript, TSX, Python, Ruby, Java, C#, Go, and Lua source files.
+The map command supports Rust, JavaScript, JSX, TypeScript, TSX, Python, Ruby, Java, C#, Go, Lua, and Zig source files.
 
 An exact focus path can also include a classified `bin/` entry within the normal safety limits. It reports:
 
@@ -104,6 +104,8 @@ An exact focus path can also include a classified `bin/` entry within the normal
 - Go package and receiver scopes, import aliases, exported visibility, and `_test.go` declarations
 - Lua local and global functions, dot and colon methods, variables, assignments, table fields, calls, and literal
   `require` module paths
+- Zig containers, functions, variables, fields, test blocks, public declarations, calls, type uses, field access,
+  and literal `@import` paths
 - language- and import-aware lexical file edges with a resolution reason,
   confidence tier, candidate-group identity, and deterministic centrality ranking
 - optional explicit `--focus` and `--focus-path` boosts
@@ -121,8 +123,14 @@ An exact focus path can also include a classified `bin/` entry within the normal
 - analyzed and omitted counts, repository root, scope, query-pack provenance, and
   supplied exclusions.
 
-Lua module evidence is lexical. Literal `require("module.path")` calls can support file edges, but dynamic
-`require` arguments, metatable behavior, and runtime table mutation are reported as limitations rather than resolved.
+Lua & Zig module evidence is lexical.
+
+Literal `@import("path.zig")` & `require("module.path")` calls can support file edges,
+but in Lua, dynamic `require` arguments, metatable behavior, and runtime table mutation
+are reported as limitations rather than resolved.
+
+In Zig, comptime evaluation, inferred types, generic instantiation, error-union flow, and non-literal
+imports are reported as limitations rather than resolved.
 
 Exclusions can be repeated:
 

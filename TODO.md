@@ -3,13 +3,12 @@
 ## Release blockers
 
 - Generated, vendored, and minified source can still consume analysis limits and degrade recommendations.
-- Zig does not yet have first-class structural-map support.
 - Scale benchmarks do not yet enforce latency/output ceilings for ignored trees, high ambiguity, and deep history.
 - The configured Linux, macOS, Windows, Rust 1.85, and dependency-policy jobs need a green release-candidate run.
 
 ## Completed foundation
 
-Earlier completed tickets established the CLI/report contract, five history signals, seven language families,
+Earlier completed tickets established the CLI/report contract, five history signals, ten language families,
 cache modes, bounded lexical maps, the integrated briefing, the evidence-backed default reading plan,
 hostile-repository containment, report provenance/schema fixtures, history correctness, explainable lexical
 evidence, repository landmarks/topology, and the concise default history briefing.
@@ -53,16 +52,16 @@ orientation.
 
 **Acceptance criteria:**
 
-- [ ] A reviewed upstream Zig Tree-sitter grammar and versioned query pack are registered with minimal features.
-- [ ] Definitions cover functions, variables/constants, container types, fields, tests, and public declarations
+- [x] A reviewed upstream Zig Tree-sitter grammar and versioned query pack are registered with minimal features.
+- [x] Definitions cover functions, variables/constants, container types, fields, tests, and public declarations
       with accurate locations, scopes, and declaration snippets.
-- [ ] References/import evidence covers calls, identifiers, field access, type uses, and literal `@import`
+- [x] References/import evidence covers calls, identifiers, field access, type uses, and literal `@import`
       paths; compile-time and inferred semantics remain explicit limitations.
-- [ ] `pub`, nested containers, anonymous containers, error unions, generics/comptime syntax, malformed input,
+- [x] `pub`, nested containers, anonymous containers, error unions, generics/comptime syntax, malformed input,
       duplicate names, and test blocks have positive and negative conformance fixtures.
-- [ ] Zig participates in mixed-language ranking, capabilities, provenance, cache identity, Markdown, and JSON;
+- [x] Zig participates in mixed-language ranking, capabilities, provenance, cache identity, Markdown, and JSON;
       the generic reading-plan contract can consume its ranked evidence without language-specific logic.
-- [ ] README/help/roadmap language lists match implemented support.
+- [x] README/help/roadmap language lists match implemented support.
 
 **Verification:**
 
@@ -141,7 +140,7 @@ and platform gate is green.
 
 ## Frontier
 
-- Ticket 23: Add first-class Zig maps.
+- Ticket 24: Make compact quality and strict policy actionable.
 
 ## Parking Lot
 

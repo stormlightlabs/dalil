@@ -467,6 +467,15 @@ impl MixedMapFixtureRepository {
             ("src/duplicate_two.lua", "function duplicate() end\n"),
             ("src/duplicate_use.lua", "return duplicate()\n"),
             ("src/broken.lua", "local function broken(\nreturn { value = 1\n"),
+            (
+                "src/service.zig",
+                "const helper = @import(\"zig_helper.zig\");\n\npub const Service = struct {\n    value: []const u8,\n    pub const Nested = union(enum) { text: []const u8, code: u32 };\n\n    pub fn create(comptime T: type, value: T) !Service {\n        _ = value;\n        return .{ .value = helper.render(@typeName(T)) };\n    }\n};\n\ntest \"service creates a value\" {\n    const service = try Service.create(u8, 1);\n    _ = service.value;\n}\n",
+            ),
+            (
+                "src/zig_helper.zig",
+                "pub fn render(value: []const u8) []const u8 { return value; }\n",
+            ),
+            ("src/broken.zig", "pub fn Broken( {\n"),
             (".luacheckrc", "return { globals = { 'vim' } }\n"),
             (
                 "scripts/lua-tool",
@@ -1370,6 +1379,18 @@ fn capabilities_are_available_without_repository_analysis() {
     assert_eq!(lua["query_pack"], "lua-v1");
     assert_eq!(lua["definitions"], true);
     assert_eq!(lua["references"], true);
+    let zig = value["languages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|language| language["language"] == "zig")
+        .expect("Zig capability");
+    assert_eq!(zig["extensions"], serde_json::json!(["zig"]));
+    assert_eq!(zig["grammar"], "tree-sitter-zig");
+    assert_eq!(zig["grammar_version"], "1.1.2");
+    assert_eq!(zig["query_pack"], "zig-v1");
+    assert_eq!(zig["definitions"], true);
+    assert_eq!(zig["references"], true);
 }
 
 #[test]
@@ -1433,7 +1454,7 @@ fn strict_quality_uses_complete_counts_when_compact_samples_are_truncated() {
     for index in 0..8 {
         write_file(fixture.root.join(format!("a{index}.rs")), b"\0binary");
     }
-    write_file(fixture.root.join("z.zig"), b"pub fn unsupported() void {}\n");
+    write_file(fixture.root.join("z.dart"), b"void unsupported() {}\n");
 
     let output = fixture.run(&["map", "--strict", "--no-cache", "--json"]);
     let value: Value = serde_json::from_slice(&output.stdout).expect("strict compact report is valid JSON");
@@ -1480,10 +1501,7 @@ fn compact_projection_is_reported_without_becoming_actionable_quality() {
 #[test]
 fn irrelevant_unsupported_source_does_not_poison_a_briefing_but_focus_does() {
     let fixture = ClassificationFixtureRepository::new();
-    write_file(
-        fixture.root.join("src/unsupported.zig"),
-        b"pub fn unsupported() void {}\n",
-    );
+    write_file(fixture.root.join("src/unsupported.dart"), b"void unsupported() {}\n");
 
     let briefing = fixture.run(&["--strict", "--no-cache", "--json"]);
     let briefing_value: Value = serde_json::from_slice(&briefing.stdout).expect("briefing JSON");
@@ -1499,14 +1517,14 @@ fn irrelevant_unsupported_source_does_not_poison_a_briefing_but_focus_does() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|path| path == "src/unsupported.zig")
+            .any(|path| path == "src/unsupported.dart")
     );
 
     let focused = fixture.run(&[
         "map",
         "--strict",
         "--focus-path",
-        "src/unsupported.zig",
+        "src/unsupported.dart",
         "--no-cache",
         "--json",
     ]);
@@ -2836,6 +2854,7 @@ fn mixed_language_map_is_explicit_deterministic_and_keeps_other_findings() {
     assert_eq!(json["map"]["query_packs"]["ruby"], "ruby-v1");
     assert_eq!(json["map"]["query_packs"]["go"], "go-v1");
     assert_eq!(json["map"]["query_packs"]["lua"], "lua-v1");
+    assert_eq!(json["map"]["query_packs"]["zig"], "zig-v1");
 
     let files = json["map"]["files"].as_array().expect("mixed map files");
     for (path, language, extension) in [
@@ -2849,6 +2868,7 @@ fn mixed_language_map_is_explicit_deterministic_and_keeps_other_findings() {
         ("src/service.go", "go", "go"),
         ("src/service_test.go", "go", "go"),
         ("src/service.lua", "lua", "lua"),
+        ("src/service.zig", "zig", "zig"),
         (".luacheckrc", "lua", ""),
         ("scripts/lua-tool", "lua", ""),
     ] {
@@ -2866,6 +2886,13 @@ fn mixed_language_map_is_explicit_deterministic_and_keeps_other_findings() {
             .iter()
             .find(|file| file["path"] == "src/broken.js")
             .expect("malformed JavaScript file")["status"],
+        "partial"
+    );
+    assert_eq!(
+        files
+            .iter()
+            .find(|file| file["path"] == "src/broken.zig")
+            .expect("malformed Zig file")["status"],
         "partial"
     );
     assert!(
@@ -2955,6 +2982,33 @@ fn mixed_language_map_is_explicit_deterministic_and_keeps_other_findings() {
     assert!(go["symbols"].as_array().expect("Go symbols").iter().any(|symbol| {
         symbol["name"] == "NewService" && symbol["kind"] == "function" && symbol["role"] == "definition"
     }));
+    let zig = files
+        .iter()
+        .find(|file| file["path"] == "src/service.zig")
+        .expect("Zig file");
+    assert!(zig["symbols"].as_array().expect("Zig symbols").iter().any(|symbol| {
+        symbol["name"] == "Service"
+            && symbol["kind"] == "struct"
+            && symbol["role"] == "definition"
+            && symbol["visibility"] == "public"
+    }));
+    assert!(zig["symbols"].as_array().expect("Zig symbols").iter().any(|symbol| {
+        symbol["name"] == "Nested"
+            && symbol["kind"] == "type"
+            && symbol["role"] == "definition"
+            && symbol["scope"] == serde_json::json!(["Service"])
+    }));
+    assert!(
+        zig["limitations"]
+            .as_array()
+            .expect("Zig limitations")
+            .iter()
+            .any(|limitation| {
+                limitation
+                    .as_str()
+                    .is_some_and(|value| value.contains("comptime evaluation"))
+            })
+    );
     let go_test = files
         .iter()
         .find(|file| file["path"] == "src/service_test.go")
@@ -2987,7 +3041,13 @@ fn mixed_language_map_is_explicit_deterministic_and_keeps_other_findings() {
         symbol["name"] == "src.lua_helper" && symbol["kind"] == "import" && symbol["evidence"] == "import"
     }));
 
-    for path in ["src/broken.py", "src/broken.rb", "src/broken.go", "src/broken.lua"] {
+    for path in [
+        "src/broken.py",
+        "src/broken.rb",
+        "src/broken.go",
+        "src/broken.lua",
+        "src/broken.zig",
+    ] {
         let file = files
             .iter()
             .find(|file| file["path"] == path)
@@ -3034,6 +3094,7 @@ fn mixed_language_map_is_explicit_deterministic_and_keeps_other_findings() {
     assert!(markdown_stdout.contains("Ruby files"));
     assert!(markdown_stdout.contains("Go files"));
     assert!(markdown_stdout.contains("Lua files"));
+    assert!(markdown_stdout.contains("Zig files"));
     assert!(markdown_stdout.contains("src/broken.py"));
     assert!(markdown_stdout.contains("Tree-sitter reported parse errors in this Python file"));
     assert!(markdown_stdout.contains("src/broken.rb"));
@@ -3042,7 +3103,10 @@ fn mixed_language_map_is_explicit_deterministic_and_keeps_other_findings() {
     assert!(markdown_stdout.contains("Tree-sitter reported parse errors in this Go file"));
     assert!(markdown_stdout.contains("src/broken.lua"));
     assert!(markdown_stdout.contains("Tree-sitter reported parse errors in this Lua file"));
+    assert!(markdown_stdout.contains("src/broken.zig"));
+    assert!(markdown_stdout.contains("Tree-sitter reported parse errors in this Zig file"));
     assert!(markdown_stdout.contains("dynamic `require`"));
+    assert!(markdown_stdout.contains("comptime evaluation"));
     assert!(markdown_stdout.contains("query-pack provenance"));
     assert_plain_report(&markdown_stdout);
 }
@@ -3183,6 +3247,79 @@ fn lua_map_supports_literal_require_edges_provenance_focus_and_reading_plans() {
                         .is_some_and(|kinds| kinds.iter().any(|kind| kind == "source_map"))
             })
     );
+}
+
+#[test]
+fn zig_map_supports_literal_import_edges_provenance_focus_and_reading_plans() {
+    let fixture = MixedMapFixtureRepository::new();
+    let map = fixture.run(&[
+        "map",
+        "--profile",
+        "evidence",
+        "--no-cache",
+        "--focus-path",
+        "src/service.zig",
+        "--json",
+    ]);
+    let value: Value = serde_json::from_slice(&map.stdout).expect("valid focused Zig map JSON");
+    assert!(
+        map.status.success(),
+        "focused Zig map failed: {}",
+        String::from_utf8_lossy(&map.stderr)
+    );
+    assert!(map.stderr.is_empty());
+    assert_eq!(value["map"]["query_packs"]["zig"], "zig-v1");
+    assert_eq!(value["provenance"]["languages"]["zig"]["grammar"], "tree-sitter-zig");
+    assert_eq!(value["provenance"]["languages"]["zig"]["grammar_version"], "1.1.2");
+    assert_eq!(value["provenance"]["languages"]["zig"]["query_pack"], "zig-v1");
+    assert_eq!(value["map"]["ranking"][0]["path"], "src/service.zig");
+    let zig_file = value["map"]["files"]
+        .as_array()
+        .expect("focused map files")
+        .iter()
+        .find(|file| file["path"] == "src/service.zig")
+        .expect("focused Zig file");
+    assert!(
+        zig_file["symbols"]
+            .as_array()
+            .expect("focused Zig symbols")
+            .iter()
+            .any(|symbol| {
+                symbol["name"] == "service creates a value"
+                    && symbol["kind"] == "function"
+                    && symbol["role"] == "definition"
+            })
+    );
+    assert!(value["map"]["edges"].as_array().expect("Zig edges").iter().any(|edge| {
+        edge["source"] == "src/service.zig"
+            && edge["target"] == "src/zig_helper.zig"
+            && edge["symbol"] == "render"
+            && edge["resolution_reason"] == "imported_module"
+    }));
+
+    let briefing = fixture.run(&["--no-cache", "--focus-path", "src/service.zig", "--json"]);
+    let briefing_value: Value = serde_json::from_slice(&briefing.stdout).expect("valid focused Zig briefing JSON");
+    assert!(briefing.status.success());
+    assert!(
+        briefing_value["reading_plan"]["recommendations"]
+            .as_array()
+            .expect("Zig reading plan")
+            .iter()
+            .any(|recommendation| {
+                recommendation["path"] == "src/service.zig"
+                    && recommendation["evidence_kinds"]
+                        .as_array()
+                        .is_some_and(|kinds| kinds.iter().any(|kind| kind == "source_map"))
+            })
+    );
+
+    let first_cached = fixture.run(&["map", "--focus-path", "src/service.zig", "--json"]);
+    let second_cached = fixture.run(&["map", "--focus-path", "src/service.zig", "--json"]);
+    let cached_value: Value = serde_json::from_slice(&second_cached.stdout).expect("valid cached Zig map JSON");
+    assert!(first_cached.status.success());
+    assert!(second_cached.status.success());
+    assert_eq!(cached_value["provenance"]["languages"]["zig"]["query_pack"], "zig-v1");
+    assert!(cached_value["map"]["cache"]["hits"].as_u64().unwrap_or_default() > 0);
 }
 
 #[test]

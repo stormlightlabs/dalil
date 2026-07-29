@@ -40,6 +40,10 @@ pub fn lua_language() -> tree_sitter::Language {
     tree_sitter_lua::LANGUAGE.into()
 }
 
+pub fn zig_language() -> tree_sitter::Language {
+    tree_sitter_zig::LANGUAGE.into()
+}
+
 pub fn support_for_path(path: &Path) -> Option<&'static LanguageSupport> {
     let filename = path.file_name()?.to_str()?;
     if matches!(filename, ".busted" | ".luacheckrc") {

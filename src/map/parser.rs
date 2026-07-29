@@ -83,7 +83,7 @@ pub fn parse_source_with_analyzer(
         };
     };
 
-    let mut symbols = Vec::new();
+    let mut symbols = BTreeMap::new();
     let mut definition_nodes = BTreeSet::new();
     let mut cursor = QueryCursor::new();
     let mut query_failed = false;
@@ -102,25 +102,18 @@ pub fn parse_source_with_analyzer(
         query_failed = true;
     } else if let Some(definition_query) = analyzer.definition_query.as_ref() {
         let mut matches = cursor.matches(definition_query, tree.root_node(), source);
-        'definitions: while let Some(query_match) = matches.next() {
+        while let Some(query_match) = matches.next() {
             for capture in query_match.captures {
                 let capture_name = capture_name(definition_query, capture.index);
                 if capture_name.starts_with('_') {
                     continue;
                 }
-                if symbols.len() >= limits.max_symbols_per_file {
-                    symbols_truncated = true;
-                    break 'definitions;
-                }
                 let node = capture.node;
                 definition_nodes.insert(node.id());
-                symbols.push(symbol_from_capture(
-                    node,
-                    capture_name,
-                    SymbolRole::Definition,
-                    source,
-                    support,
-                ));
+                let symbol = symbol_from_capture(node, capture_name, SymbolRole::Definition, source, support);
+                if !insert_symbol(&mut symbols, symbol, support.language, limits.max_symbols_per_file) {
+                    symbols_truncated = true;
+                }
             }
         }
     } else {
@@ -140,43 +133,40 @@ pub fn parse_source_with_analyzer(
         query_failed = true;
     } else if let Some(reference_query) = analyzer.reference_query.as_ref() {
         let mut matches = cursor.matches(reference_query, tree.root_node(), source);
-        'references: while let Some(query_match) = matches.next() {
+        while let Some(query_match) = matches.next() {
             for capture in query_match.captures {
                 let capture_name = capture_name(reference_query, capture.index);
                 if capture_name.starts_with('_') {
                     continue;
                 }
-                if symbols.len() >= limits.max_symbols_per_file {
-                    symbols_truncated = true;
-                    break 'references;
-                }
                 let node = capture.node;
                 if definition_nodes.contains(&node.id()) {
                     continue;
                 }
-                symbols.push(symbol_from_capture(
-                    node,
-                    capture_name,
-                    SymbolRole::Reference,
-                    source,
-                    support,
-                ));
+                let symbol = symbol_from_capture(node, capture_name, SymbolRole::Reference, source, support);
+                if !insert_symbol(&mut symbols, symbol, support.language, limits.max_symbols_per_file) {
+                    symbols_truncated = true;
+                }
             }
         }
     } else {
         query_failed = true;
     }
 
+    let mut symbols = symbols.into_values().collect::<Vec<_>>();
     symbols.sort_by(|left, right| {
         location_key(Some(&left.location))
             .cmp(&location_key(Some(&right.location)))
             .then_with(|| left.role.label().cmp(right.role.label()))
             .then_with(|| left.name.cmp(&right.name))
+            .then_with(|| {
+                if support.language == SourceLanguage::Zig {
+                    symbol_specificity(right).cmp(&symbol_specificity(left))
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
     });
-    symbols.dedup_by(|right, left| {
-        right.name == left.name && right.kind == left.kind && right.role == left.role && right.location == left.location
-    });
-
     let syntax_truncated = collect_parse_findings(
         tree.root_node(),
         source,
@@ -204,7 +194,7 @@ pub fn parse_source_with_analyzer(
     }
     if symbols_truncated {
         limitations.push(format!(
-            "The per-file symbol limit ({}) was reached; additional syntax captures were not visited.",
+            "The per-file symbol limit ({}) was reached; additional unique symbols were omitted.",
             limits.max_symbols_per_file
         ));
     }
@@ -220,10 +210,61 @@ pub fn parse_source_with_analyzer(
                 .to_owned(),
         );
     }
+    if support.language == SourceLanguage::Zig {
+        limitations.push(
+            "Zig references are lexical: only literal `@import` paths provide module evidence; comptime evaluation, inferred types, generic instantiation, error-union flow, and non-literal imports are not resolved."
+                .to_owned(),
+        );
+    }
     if findings.len() > limits.max_findings {
         findings.truncate(limits.max_findings);
     }
     ParsedSource { symbols, findings, status, limitations }
+}
+
+type SymbolKey = (usize, usize, usize, usize, String, u8, &'static str);
+
+fn insert_symbol(
+    symbols: &mut BTreeMap<SymbolKey, SourceSymbol>, symbol: SourceSymbol, language: SourceLanguage, limit: usize,
+) -> bool {
+    let key = symbol_key(&symbol, language);
+    if let Some(existing) = symbols.get_mut(&key) {
+        if language == SourceLanguage::Zig && symbol_specificity(&symbol) > symbol_specificity(existing) {
+            *existing = symbol;
+        }
+        return true;
+    }
+    if symbols.len() >= limit {
+        return false;
+    }
+    symbols.insert(key, symbol);
+    true
+}
+
+fn symbol_key(symbol: &SourceSymbol, language: SourceLanguage) -> SymbolKey {
+    let location = &symbol.location;
+    let role = match symbol.role {
+        SymbolRole::Definition => 0,
+        SymbolRole::Reference => 1,
+    };
+    let kind = if language == SourceLanguage::Zig { "" } else { symbol.kind.label() };
+    (
+        location.start.line,
+        location.start.column,
+        location.end.line,
+        location.end.column,
+        symbol.name.clone(),
+        role,
+        kind,
+    )
+}
+
+fn symbol_specificity(symbol: &SourceSymbol) -> u8 {
+    match symbol.kind {
+        SymbolKind::Identifier | SymbolKind::Variable => 0,
+        SymbolKind::Field => 1,
+        _ => 2,
+    }
 }
 
 pub fn capture_name(query: &Query, index: u32) -> &str {
@@ -239,7 +280,7 @@ pub fn symbol_from_capture(
 ) -> SourceSymbol {
     let declaration = declaration_node(node, support.declaration_kinds);
     let scope_start = if role == SymbolRole::Definition { declaration.parent() } else { node.parent() };
-    let name = text_for_node(node, source);
+    let name = symbol_name(node, declaration, source, support);
     let kind = language_symbol_kind(node, declaration, capture_name, support.language);
     SourceSymbol {
         name: name.clone(),
@@ -253,22 +294,48 @@ pub fn symbol_from_capture(
     }
 }
 
+fn symbol_name(node: Node<'_>, declaration: Node<'_>, source: &[u8], support: &LanguageSupport) -> String {
+    if support.language == SourceLanguage::Zig && declaration.kind() == "test_declaration" {
+        return zig_test_name(declaration, source);
+    }
+    text_for_node(node, source)
+}
+
+fn zig_test_name(declaration: Node<'_>, source: &[u8]) -> String {
+    let mut cursor = declaration.walk();
+    for child in declaration.named_children(&mut cursor) {
+        if child.kind() == "string" {
+            if let Some(content) = first_descendant_of_kind(child, "string_content") {
+                return text_for_node(content, source);
+            }
+            return text_for_node(child, source);
+        }
+        if child.kind() == "identifier" {
+            return text_for_node(child, source);
+        }
+    }
+    "test".to_owned()
+}
+
 fn language_symbol_kind(
     node: Node<'_>, declaration: Node<'_>, capture_name: &str, language: SourceLanguage,
 ) -> SymbolKind {
     let kind = symbol_kind(capture_name);
-    if language != SourceLanguage::Go {
-        return kind;
-    }
-    if kind == SymbolKind::Type {
-        return match declaration.child_by_field_name("type").map(|node| node.kind()) {
-            Some("struct_type") => SymbolKind::Struct,
-            Some("interface_type") => SymbolKind::Interface,
-            _ => SymbolKind::Type,
-        };
-    }
-    if kind == SymbolKind::Field && is_call_like(node) {
-        return SymbolKind::Method;
+    match language {
+        SourceLanguage::Go => {
+            if kind == SymbolKind::Type {
+                return match declaration.child_by_field_name("type").map(|node| node.kind()) {
+                    Some("struct_type") => SymbolKind::Struct,
+                    Some("interface_type") => SymbolKind::Interface,
+                    _ => SymbolKind::Type,
+                };
+            }
+            if kind == SymbolKind::Field && is_call_like(node) {
+                return SymbolKind::Method;
+            }
+        }
+        SourceLanguage::Zig if kind == SymbolKind::Field && is_call_like(node) => return SymbolKind::Method,
+        _ => {}
     }
     kind
 }
@@ -276,6 +343,9 @@ fn language_symbol_kind(
 fn language_scope(
     node: Node<'_>, declaration: Node<'_>, scope_start: Option<Node<'_>>, source: &[u8], support: &LanguageSupport,
 ) -> Vec<String> {
+    if support.language == SourceLanguage::Zig {
+        return zig_scope(scope_start, source);
+    }
     let mut scopes = scope_for_node(scope_start, source, support.scope_kinds);
     if !matches!(support.language, SourceLanguage::Go | SourceLanguage::Lua) {
         return scopes;
@@ -310,6 +380,47 @@ fn language_scope(
         scopes.insert(0, package);
     }
     scopes
+}
+
+fn zig_scope(start: Option<Node<'_>>, source: &[u8]) -> Vec<String> {
+    let mut scopes = Vec::new();
+    let mut current = start;
+    while let Some(node) = current {
+        match node.kind() {
+            "function_declaration" => {
+                if let Some(name) = node.child_by_field_name("name") {
+                    scopes.push(text_for_node(name, source));
+                }
+            }
+            "variable_declaration" if is_zig_container_declaration(node) => {
+                if let Some(name) = zig_variable_name(node) {
+                    scopes.push(text_for_node(name, source));
+                }
+            }
+            "test_declaration" => scopes.push(zig_test_name(node, source)),
+            _ => {}
+        }
+        current = node.parent();
+    }
+    scopes.reverse();
+    scopes
+}
+
+fn is_zig_container_declaration(declaration: Node<'_>) -> bool {
+    let mut cursor = declaration.walk();
+    declaration.named_children(&mut cursor).any(|child| {
+        matches!(
+            child.kind(),
+            "struct_declaration" | "enum_declaration" | "union_declaration" | "opaque_declaration"
+        )
+    })
+}
+
+fn zig_variable_name(declaration: Node<'_>) -> Option<Node<'_>> {
+    let mut cursor = declaration.walk();
+    declaration
+        .named_children(&mut cursor)
+        .find(|child| child.kind() == "identifier")
 }
 
 fn go_package_name(node: Node<'_>, source: &[u8]) -> Option<String> {
@@ -407,6 +518,14 @@ pub fn visibility_for_node(
             return SymbolVisibility::Public;
         }
         return SymbolVisibility::Unknown;
+    }
+    if language == SourceLanguage::Zig && kind != SymbolKind::Import {
+        let declaration = context_snippet(node, source, &[]);
+        return if declaration.trim_start().starts_with("pub ") {
+            SymbolVisibility::Public
+        } else {
+            SymbolVisibility::Internal
+        };
     }
     let declaration = context_snippet(node, source, &[]).to_ascii_lowercase();
     let starts_with = declaration.trim_start();

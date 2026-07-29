@@ -279,6 +279,7 @@ pub enum SourceLanguage {
     Java,
     Go,
     Lua,
+    Zig,
     #[serde(rename = "c_sharp")]
     CSharp,
 }
@@ -296,6 +297,7 @@ impl SourceLanguage {
             Self::Java => "java",
             Self::Go => "go",
             Self::Lua => "lua",
+            Self::Zig => "zig",
             Self::CSharp => "c_sharp",
         }
     }
@@ -312,6 +314,7 @@ impl SourceLanguage {
             Self::Java => "Java",
             Self::Go => "Go",
             Self::Lua => "Lua",
+            Self::Zig => "Zig",
             Self::CSharp => "C#",
         }
     }

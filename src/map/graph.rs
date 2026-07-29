@@ -375,6 +375,7 @@ fn normalize_module_hint(value: &str) -> String {
         .trim_end_matches(".go")
         .trim_end_matches(".lua")
         .trim_end_matches(".rockspec")
+        .trim_end_matches(".zig")
         .replace("::", "/")
         .trim_matches('/')
         .to_ascii_lowercase()

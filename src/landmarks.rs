@@ -435,7 +435,7 @@ fn inspect_manifest(
             }
         }
         "pyproject.toml" | "setup.py" | "setup.cfg" | "gemfile" | "gemspec" | "build.gradle" | "build.gradle.kts"
-        | "composer.json" | "mix.exs" | "go.mod" => ManifestRole::Package,
+        | "composer.json" | "mix.exs" | "go.mod" | "build.zig.zon" => ManifestRole::Package,
         _ if basename.ends_with(".gemspec") || basename.ends_with(".csproj") || basename.ends_with(".sln") => {
             ManifestRole::Package
         }
@@ -653,6 +653,7 @@ fn is_manifest(name: &str) -> bool {
             | "nx.json"
             | "go.mod"
             | "go.work"
+            | "build.zig.zon"
     ) || name.ends_with(".gemspec")
         || name.ends_with(".csproj")
         || name.ends_with(".sln")
@@ -663,6 +664,7 @@ fn manifest_family(name: &str) -> &str {
         "cargo.toml" => "rust",
         "package.json" | "pnpm-workspace.yaml" | "pnpm-workspace.yml" | "lerna.json" | "nx.json" => "node",
         "go.mod" | "go.work" => "go",
+        "build.zig.zon" => "zig",
         "pyproject.toml" | "setup.py" | "setup.cfg" => "python",
         "gemfile" | "gemspec" => "ruby",
         "pom.xml" | "build.gradle" | "build.gradle.kts" | "settings.gradle" | "settings.gradle.kts" => "jvm",
@@ -691,7 +693,7 @@ fn is_lockfile(name: &str) -> bool {
 fn is_build_entry_point(name: &str) -> bool {
     matches!(
         name,
-        "build.rs" | "makefile" | "gnumakefile" | "pom.xml" | "build.gradle" | "build.gradle.kts"
+        "build.rs" | "build.zig" | "makefile" | "gnumakefile" | "pom.xml" | "build.gradle" | "build.gradle.kts"
     )
 }
 
@@ -757,6 +759,8 @@ mod tests {
         assert!(is_agent_instructions("agents.md"));
         assert!(is_manifest("cargo.toml"));
         assert!(is_manifest("go.mod"));
+        assert!(is_manifest("build.zig.zon"));
+        assert!(is_build_entry_point("build.zig"));
         assert!(is_lockfile("pnpm-lock.yaml"));
         assert!(is_lockfile("go.sum"));
         assert!(is_test_directory("__tests__"));
@@ -764,6 +768,7 @@ mod tests {
             ("cargo.toml", "rust"),
             ("package.json", "node"),
             ("go.mod", "go"),
+            ("build.zig.zon", "zig"),
             ("pyproject.toml", "python"),
             ("gemfile", "ruby"),
             ("pom.xml", "jvm"),
@@ -825,6 +830,34 @@ mod tests {
         );
         assert_eq!(roots.len(), 1);
         assert_eq!(roots[0].kind, ProjectRootKind::Workspace);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn detects_zig_package_manifest_root() {
+        let root = std::env::temp_dir().join(format!("codeplat-zig-landmark-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create Zig test root");
+        std::fs::write(
+            root.join("build.zig.zon"),
+            ".{ .name = \"example\", .version = \"0.1.0\" }",
+        )
+        .expect("write Zig package manifest");
+        let states = [("build.zig.zon".to_owned(), WorktreeState::Tracked)]
+            .into_iter()
+            .collect::<BTreeMap<_, _>>();
+        let roots = detect_project_roots(
+            &root,
+            &root,
+            ".",
+            &states,
+            None,
+            &ReportLimits::default(),
+            &mut Vec::new(),
+        );
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].kind, ProjectRootKind::Package);
+        assert_eq!(roots[0].manifests, ["build.zig.zon"]);
         let _ = std::fs::remove_dir_all(root);
     }
 }

@@ -1,7 +1,7 @@
 ---
 title: "Codeplat v1"
 status: "in-progress"
-updated: "2026-07-16"
+updated: "2026-07-28"
 ---
 
 ## Objective
@@ -54,7 +54,7 @@ The Rust 2024 implementation already provides:
 - all five history evidence families, bounded compact/evidence profiles, typed provenance, schema-version-1
   compatibility fixtures, concise typed history observations, repository landmarks, project roots, cache controls,
   and explainable lexical edges;
-- first-class Rust, JavaScript/JSX, TypeScript/TSX, Python, Ruby, Java, C#, Go, and Lua query packs;
+- first-class Rust, JavaScript/JSX, TypeScript/TSX, Python, Ruby, Java, C#, Go, Lua, and Zig query packs;
 - hostile-path and external-filter defenses, no-follow worktree reads, restrictive `gix` features, bounded work
   and output, package metadata, generated completions/man pages, and cross-platform release CI configuration.
 
@@ -67,7 +67,8 @@ and identified product-usability work that is being addressed incrementally:
   none;
 - compact projection is now separated from actionable quality: hard limits, incomplete history, unsafe paths, and
   relevant unsupported/partial source drive strict policy, while unrelated omissions remain discoverable;
-- Lua and Zig recur in the real project corpus but currently receive no structural map;
+- Zig now provides structural maps for containers, functions, declarations, tests, and literal imports; its limits
+  remain explicit in each report;
 - minified or generated files are now classified before compact parsing, with bounded evidence samples and safe
   explicit overrides for focused inspection.
 

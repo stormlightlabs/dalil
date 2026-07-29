@@ -516,7 +516,7 @@ pub fn analyze(path: &Path, settings: &MapSettings) -> Result<MapReport> {
                 .to_owned(),
             "Reference names can have multiple lexical definition candidates; ambiguity is reported rather than treated as a semantic call edge."
                 .to_owned(),
-            "JavaScript/JSX, TypeScript/TSX, Python, Ruby, Java, C#, Go, and Lua use explicit grammar variants; query-pack provenance is reported per language."
+            "JavaScript/JSX, TypeScript/TSX, Python, Ruby, Java, C#, Go, Lua, and Zig use explicit grammar variants; query-pack provenance is reported per language."
                 .to_owned(),
             "Tracked files are eligible even when ignore rules match them, except deterministic generated/vendor/minified classifications; exact focus paths can opt in within the safety limits."
                 .to_owned(),
@@ -692,11 +692,6 @@ pub fn analyze(path: &Path, settings: &MapSettings) -> Result<MapReport> {
     };
     bound_map_report(&mut report, settings.profile, &limits);
     Ok(report)
-}
-
-fn actionable_resource_limit(limitation: &str) -> bool {
-    !limitation.starts_with("The per-file symbol limit")
-        && (limitation.contains("resource limit") || limitation.starts_with("Syntax traversal reached the depth limit"))
 }
 
 pub fn bound_map_report(report: &mut MapReport, profile: AnalysisProfile, limits: &ReportLimits) {
@@ -890,6 +885,33 @@ pub fn bound_map_report(report: &mut MapReport, profile: AnalysisProfile, limits
     }
 }
 
+pub fn collection_summary(
+    total: usize, returned: usize, _profile: AnalysisProfile, reason: TruncationReason,
+) -> CollectionSummary {
+    if returned >= total {
+        CollectionSummary::complete(total)
+    } else {
+        CollectionSummary {
+            total,
+            returned,
+            truncated: true,
+            reason: Some(if reason == TruncationReason::CollectionLimit {
+                TruncationReason::ProfileProjection
+            } else {
+                reason
+            }),
+        }
+    }
+}
+
+pub fn bounded_text(text: &str, max_chars: usize) -> String {
+    let mut output = text.chars().take(max_chars).collect::<String>();
+    if text.chars().count() > max_chars {
+        output.push('…');
+    }
+    output
+}
+
 fn bound_evidence_output(report: &mut MapReport, max_json_bytes: usize) {
     while serde_json::to_vec(&*report).is_ok_and(|json| json.len() > max_json_bytes) {
         let symbols_before = report.files.iter().map(|file| file.symbols.len()).sum::<usize>();
@@ -951,25 +973,7 @@ fn update_output_summary(summary: &mut CollectionSummary, returned: usize) {
     }
 }
 
-pub fn collection_summary(
-    total: usize, returned: usize, _profile: AnalysisProfile, reason: TruncationReason,
-) -> CollectionSummary {
-    if returned >= total {
-        CollectionSummary::complete(total)
-    } else {
-        let reason = if reason == TruncationReason::CollectionLimit {
-            TruncationReason::ProfileProjection
-        } else {
-            reason
-        };
-        CollectionSummary { total, returned, truncated: true, reason: Some(reason) }
-    }
-}
-
-pub fn bounded_text(text: &str, max_chars: usize) -> String {
-    let mut output = text.chars().take(max_chars).collect::<String>();
-    if text.chars().count() > max_chars {
-        output.push('…');
-    }
-    output
+fn actionable_resource_limit(limitation: &str) -> bool {
+    !limitation.starts_with("The per-file symbol limit")
+        && (limitation.contains("resource limit") || limitation.starts_with("Syntax traversal reached the depth limit"))
 }

@@ -34,7 +34,7 @@ use graph::{build_lexical_edges, rank_files, select_snippets};
 use languages::{
     c_sharp_language, extension_for_path, go_language, is_extensionless_lua_entry_candidate, is_source_like_path,
     java_language, javascript_language, lua_language, lua_support_for_entry_source, python_language, ruby_language,
-    rust_language, support_for_path, supported_query_packs, tsx_language, typescript_language,
+    rust_language, support_for_path, supported_query_packs, tsx_language, typescript_language, zig_language,
 };
 use parser::*;
 use repository::*;
@@ -223,6 +223,16 @@ const LUA_DECLARATION_KINDS: &[&str] = &[
 
 const LUA_SCOPE_KINDS: &[&str] = &["function_declaration", "function_definition"];
 
+const ZIG_DECLARATION_KINDS: &[&str] = &[
+    "function_declaration",
+    "variable_declaration",
+    "container_field",
+    "test_declaration",
+    "builtin_function",
+];
+
+const ZIG_SCOPE_KINDS: &[&str] = &["function_declaration"];
+
 const RUST_SUPPORT: LanguageSupport = LanguageSupport {
     language: SourceLanguage::Rust,
     extensions: &["rs"],
@@ -344,6 +354,17 @@ const LUA_SUPPORT: LanguageSupport = LanguageSupport {
     scope_kinds: LUA_SCOPE_KINDS,
 };
 
+const ZIG_SUPPORT: LanguageSupport = LanguageSupport {
+    language: SourceLanguage::Zig,
+    extensions: &["zig"],
+    query_pack: "zig-v1",
+    grammar: zig_language,
+    definitions: include_str!("queries/zig/definitions.scm"),
+    references: include_str!("queries/zig/references.scm"),
+    declaration_kinds: ZIG_DECLARATION_KINDS,
+    scope_kinds: ZIG_SCOPE_KINDS,
+};
+
 const LANGUAGE_SUPPORT: &[LanguageSupport] = &[
     RUST_SUPPORT,
     JAVASCRIPT_SUPPORT,
@@ -356,6 +377,7 @@ const LANGUAGE_SUPPORT: &[LanguageSupport] = &[
     C_SHARP_SUPPORT,
     GO_SUPPORT,
     LUA_SUPPORT,
+    ZIG_SUPPORT,
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -774,6 +796,7 @@ fn grammar_name(language: SourceLanguage) -> &'static str {
         SourceLanguage::CSharp => "tree-sitter-c-sharp",
         SourceLanguage::Go => "tree-sitter-go",
         SourceLanguage::Lua => "tree-sitter-lua",
+        SourceLanguage::Zig => "tree-sitter-zig",
     }
 }
 
@@ -788,6 +811,7 @@ fn grammar_version(language: SourceLanguage) -> &'static str {
         SourceLanguage::CSharp => "0.23.5",
         SourceLanguage::Go => "0.25.0",
         SourceLanguage::Lua => "0.5.0",
+        SourceLanguage::Zig => "1.1.2",
     }
 }
 
