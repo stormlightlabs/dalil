@@ -1,180 +1,558 @@
-# Tickets: Codeplat V1
+# Codeplat Milestones
 
-## Release blockers
+These milestones turn [ROADMAP.md](ROADMAP.md) into buildable work. Each
+milestone groups related tickets around one user-visible outcome.
 
-- Generated, vendored, and minified source can still consume analysis limits and degrade recommendations.
-- Scale benchmarks do not yet enforce latency/output ceilings for ignored trees, high ambiguity, and deep history.
-- The configured Linux, macOS, Windows, Rust 1.85, and dependency-policy jobs need a green release-candidate run.
+## Milestone: Task-relevant retrieval
 
-## Completed foundation
+**Exit condition:** Codeplat returns and explains a small, diverse set of files
+and symbols for realistic orientation and implementation tasks.
 
-Earlier completed tickets established the CLI/report contract, five history signals, ten language families,
-cache modes, bounded lexical maps, the integrated briefing, the evidence-backed default reading plan,
-hostile-repository containment, report provenance/schema fixtures, history correctness, explainable lexical
-evidence, repository landmarks/topology, and the concise default history briefing.
+### T1 — Make ranking task-aware
 
-The packaging work added metadata/licensing, minimal `gix` features, dependency policy, cross-platform/MSRV CI,
-checksummed artifacts, generated completions/man pages, and release documentation.
+**Outcome:** A user's task changes the recommended files and symbols in a
+deterministic, explainable way.
 
-## 18. Build the default repository reading plan
-
-Make `codeplat [PATH]` lead with a practical, evidence-backed sequence of files to read
-rather than a flat ranked winner and long diagnostic sections.
-
-The same typed reading plan must be available in JSON.
-
-## 19. Make the default history briefing concise and useful
-
-Replaced exhaustive history tables in the default Markdown briefing with 3–5 distinct,
-evidence-backed observations, while preserving detailed history commands and machine evidence.
-
-## 20. Keep generated, vendored, and minified source out of the default plan
-
-Classify low-value generated/vendor/minified source before parsing so it cannot consume default
-analysis limits, recommendations, or actionable quality status.
-
-## 21. Add first-class Go maps
-
-Gave Go repositories the same bounded structural-map and reading-plan support as existing
-first-class languages.
-
-## 22. Add first-class Lua maps
-
-Gave Lua repositories bounded structural maps that handle common module patterns without
-pretending dynamic name resolution is semantic.
-
-## 23. Add first-class Zig maps
-
-**What to build:** Give Zig repositories bounded structural maps for declarations, imports, tests, and public API
-orientation.
-
-**Blocked by:** None - can start immediately
+**Blocked by:** Nothing.
 
 **Acceptance criteria:**
 
-- [x] A reviewed upstream Zig Tree-sitter grammar and versioned query pack are registered with minimal features.
-- [x] Definitions cover functions, variables/constants, container types, fields, tests, and public declarations
-      with accurate locations, scopes, and declaration snippets.
-- [x] References/import evidence covers calls, identifiers, field access, type uses, and literal `@import`
-      paths; compile-time and inferred semantics remain explicit limitations.
-- [x] `pub`, nested containers, anonymous containers, error unions, generics/comptime syntax, malformed input,
-      duplicate names, and test blocks have positive and negative conformance fixtures.
-- [x] Zig participates in mixed-language ranking, capabilities, provenance, cache identity, Markdown, and JSON;
-      the generic reading-plan contract can consume its ranked evidence without language-specific logic.
-- [x] README/help/roadmap language lists match implemented support.
+- [ ] Represent typed task seeds for symbols, paths, languages, projects,
+      change sets, and concise search terms.
+- [ ] Derive deterministic lexical seeds from task text without an LLM or
+      network service.
+- [ ] Combine seed proximity, lexical relevance, structural centrality,
+      history evidence, and explicit focus without hiding any contribution.
+- [ ] Keep a stable orientation fallback when task seeds are absent or weak.
+- [ ] Ensure `--focus`, path, symbol, and project restrictions consistently
+      affect ranking and remain visible in provenance.
+- [ ] Improve representative retrieval fixtures without crossing established
+      latency, work, or token limits.
 
-**Verification:**
+**Verification:** Add ranking fixtures where changing only the task changes the
+expected result, then run the targeted retrieval and bounded-work tests.
 
-- Run default, JSON map, focused, and capabilities commands against Zig and mixed fixtures.
-- Assert definitions, references, visibility, import evidence, limitations, and ranked evidence.
-- Run the standard workspace checks plus `cargo package --locked`.
+### T2 — Select a diverse, bounded file set
 
-## 24. Make compact quality and strict policy actionable
+**Outcome:** Recommendations cover the useful roles and project roots for a
+task without padding the result with weak files.
 
-Separate expected compact projection from conditions that make a briefing materially
-unsafe or misleading, so normal bounded output does not look like a failed analysis.
-
-## 25. Enforce V1 scale and usefulness gates
-
-**What to build:** Turn the current resource ceilings and subjective release review into repeatable evidence that
-the default briefing stays fast, bounded, and useful on realistic repositories.
-
-**Blocked by:** Tickets 19, 20, 21, 22, 23, and 24
+**Blocked by:** T1.
 
 **Acceptance criteria:**
 
-- [ ] CI-friendly benchmarks cover Codeplat, a large ignored/vendor tree, high-ambiguity sources, and synthetic
-      10k/100k-commit histories with documented latency and output ceilings.
-- [ ] Benchmark failures identify the exceeded work/output dimension and do not depend on network access or
-      private repositories.
-- [ ] A reusable release-review rubric checks reading-plan count/coverage/reasons, concise history, actionable
-      quality, stdout/stderr, and manual usefulness without reducing the result to one opaque score.
-- [ ] The release binary is rerun across the available first-party project corpus; only aggregate outcomes and
-      reproducible public/synthetic regressions are retained.
-- [ ] Small-project, Codeplat, and mixed-monorepo Markdown briefings pass recorded human review with no known P0
-      usability or correctness finding waived without rationale and expiry.
+- [ ] Select by relevance, confidence, role, subsystem, project root, language,
+      generated status, and total token cost rather than graph score alone.
+- [ ] Return three to five strong files when the repository contains enough
+      evidence; report a shortfall instead of adding filler.
+- [ ] Prevent one subsystem, language, or high-degree file from consuming the
+      result unless the task evidence warrants it.
+- [ ] Prefer runnable examples, declared entry points, gateway artifacts, and
+      recent high-confidence files when they answer the task.
+- [ ] Surface likely primary languages and explicitly report omitted relevant
+      paths when limits affect the result.
+- [ ] Preserve deterministic ordering and bounded work across compact and
+      evidence profiles.
 
-**Verification:**
+**Verification:** Add fixtures for monorepos, generated-heavy repositories,
+single-file projects, tied candidates, and repositories with fewer than three
+useful files; run the targeted retrieval and bounded-work tests.
 
-- Run the benchmark harness under documented CI time and output ceilings.
-- Run every fixture in Markdown/JSON, compact/evidence, strict/non-strict, and relevant cache modes.
-- Run the release-binary project sweep and inspect aggregate failures, recommendation coverage, partial/unsupported
-  causes, maximum output, and unexpected stderr.
-- Run all standard workspace and package checks.
+### T3 — Turn explanations into reading guidance
 
-## 26. Ship V1
+**Outcome:** `explain` tells the user why to read an item, what evidence supports
+it, and what to inspect next.
 
-**What to build:** Produce the supportable V1 release only after every product, safety, performance, packaging,
-and platform gate is green.
-
-**Blocked by:** Ticket 25
+**Blocked by:** T1 and T2.
 
 **Acceptance criteria:**
 
-- [ ] The default reading plan, concise history, generated/vendor handling, quality policy, and all ten language
-      families match README/help/schema/capabilities documentation.
-- [ ] Formatting, all-feature workspace tests, Clippy with warnings denied, docs, schema compatibility, package
-      verification, dependency policy, minimal `gix` features, generated assets, and benchmark gates pass.
-- [ ] Linux, macOS, Windows, and Rust 1.85 CI jobs pass on the release candidate.
-- [ ] Checksummed release archives are reproducible from the committed lockfile and install/uninstall/cache cleanup
-      instructions are verified.
-- [ ] No release blocker remains in this file. Any waived P0 finding has an owner, rationale, and expiry recorded
-      before release.
+- [ ] Report the strongest ranking contributions, confidence, provenance, and
+      relevant relationships for each recommendation.
+- [ ] Suggest a next file or symbol using the same bounded selection rules.
+- [ ] Provide an entry-point-to-subsystem walkthrough when the evidence supports
+      one.
+- [ ] Include concise recent-commit context when it materially changes the
+      recommendation.
+- [ ] State ambiguity, unsupported languages, omissions, and budget truncation
+      beside the affected guidance.
+- [ ] Keep Markdown and JSON semantically equivalent.
 
-**Verification:**
+**Verification:** Add golden CLI fixtures for strong, ambiguous, partial, and
+budget-limited explanations in both output formats.
 
-- `cargo fmt --all -- --check`
-- `cargo check --workspace --all-targets --all-features`
-- `cargo test --workspace --all-features`
-- `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-- `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps`
-- `cargo package --locked`
-- `cargo release-assets` followed by generated completion/man-page existence checks
-- Inspect CI, benchmark results, package contents, feature tree, dependency policy, and artifact checksums.
+## Milestone: Task-oriented context bundles
 
-## V2
+**Exit condition:** CLI consumers can request a task, symbol, path, project, or
+change and receive one bounded context bundle with orientation, relevant code,
+relationships, tests, history, uncertainty, and next reads.
 
-- Revision comparison between repository states.
-- F#, Elixir, C, and C++ language support.
-- Semantic-provider and framework-specific recommendations.
+### T4 — Deliver the context bundle end to end
 
-## Frontier
+**Outcome:** One typed request and one typed result serve orientation,
+implementation, debugging, refactoring, and review workflows.
 
-- Ticket 24: Make compact quality and strict policy actionable.
+**Blocked by:** T2 and T3.
 
-## Parking Lot
+**Acceptance criteria:**
 
-- [x] Apply the configured token budget to the whole Markdown report, not only the ranked source
-      map. Keep compact reports within a documented ceiling, preserve the reading plan and
-      target-specific evidence first, and move exhaustive collections to JSON or an explicit
-      verbose mode.
-- [ ] Make ranked maps cover several important files before spending most of the budget on fields
-      and symbols from one file. Give entry points, public APIs, tests, and high-confidence
-      cross-file connectors enough representation to orient a reader.
-- [ ] Make `--focus` materially change the selected files and symbols when the query matches
-      available evidence. Report what matched and how it affected ranking, and say plainly when a
-      focus term had no useful match.
-- [ ] Lead `explain` with the requested path or symbol, its ranking reasons, relevant graph edges,
-      history overlap, and a concise next step. Do not repeat the full history and source-map
-      reports before the explanation.
-- [ ] Determine primary languages from the repository's actual project roots and analyzed source,
-      with enough provenance to explain the result. Small support scripts must not outweigh the
-      main application language.
-- [ ] Aggregate omitted paths by reason in Markdown and show only a few useful examples. Keep the
-      complete inventory in JSON, and ensure every omission message names the file type and policy
-      accurately.
-- [x] Read bounded manifest metadata to identify declared runtime entry points, library exports,
-      and common build, test, and run commands instead of relying only on conventional filenames.
-- [ ] Detect runnable examples and classify integration or end-to-end tests separately so the reading
-      plan can prefer them as executable specifications when stronger evidence is available.
-- [ ] Add an entry-point walkthrough that follows qualified lexical call and data-flow evidence one
-      level at a time, with ambiguity and the lack of semantic resolution stated beside each hop.
-- [ ] Identify an evidence-backed gateway artifact: a short file or example that connects the repository's
-      stated purpose to its runtime path and makes the rest of the reading plan easier to understand.
-- [ ] Let `explain` recommend the next file to inspect from the current path or symbol, using
-      bounded graph, project-topology, test, and history evidence to support opportunistic exploration.
-- [ ] Offer a concise teaching-scaffold report with the repository purpose, languages, workflow or
-      module relationships, key files, and exactly two source-based synthesis exercises; include the
-      files consulted and avoid unsupported architectural claims.
-- [ ] Attach bounded recent-commit context to recommended files so readers can investigate why
-      important code changed without treating churn or commit language as a quality judgment.
+- [ ] Define a typed request for repository, task text, symbols, paths,
+      projects, changes, revision context, budget, and output profile.
+- [ ] Define a typed result containing orientation, ranked files and symbols,
+      relationships, relevant tests, history, risks, uncertainty, provenance,
+      omissions, and next reads.
+- [ ] Keep graph, parser, history, manifest, and cache details behind the
+      request/result boundary unless a consumer needs them.
+- [ ] Expose the operation through the CLI in Markdown and JSON without
+      breaking existing commands or schema compatibility promises.
+- [ ] Apply one total budget across all sections and prefer useful evidence over
+      fixed per-section quotas.
+- [ ] Produce the same semantics from cold and valid warm analysis state.
+
+**Verification:** Add unit tests for request normalization and composition,
+schema fixtures for the result, and black-box CLI tests for each request mode.
+
+### T5 — Add a source-based teaching scaffold
+
+**Outcome:** A context bundle can optionally explain an unfamiliar subsystem in
+a concise sequence grounded in repository evidence.
+
+**Blocked by:** T4.
+
+**Acceptance criteria:**
+
+- [ ] Build the scaffold only from returned files, symbols, relationships,
+      manifests, and history evidence.
+- [ ] Cover where execution or behavior starts, the main control flow, state or
+      data boundaries, relevant tests, and the next useful read.
+- [ ] Distinguish observed evidence from inferred ordering.
+- [ ] Omit unsupported sections instead of inventing a complete narrative.
+- [ ] Keep the scaffold within the request's total token budget.
+
+**Verification:** Add fixtures for a clear entry flow, multiple plausible entry
+points, and insufficient evidence; review the output against the source files.
+
+## Milestone: Change-aware review context
+
+**Exit condition:** Codeplat can compare revisions or inspect a dirty worktree
+and return bounded, explicitly uncertain context about changed symbols, nearby
+dependencies, relevant tests, ownership, and history.
+
+### T6 — Resolve change inputs safely
+
+**Outcome:** Callers can name a revision range or dirty worktree without losing
+read-only guarantees or receiving an ambiguous change set.
+
+**Blocked by:** T4.
+
+**Acceptance criteria:**
+
+- [ ] Accept base/head revisions, a revision range, or dirty-worktree state
+      through typed request fields and CLI options.
+- [ ] Resolve renamed, added, deleted, modified, and untracked paths without
+      following paths outside repository scope.
+- [ ] Derive changed symbols from bounded syntax and line evidence where the
+      language pack supports it.
+- [ ] Report unresolved revisions, unsupported files, truncation, and partial
+      work as typed uncertainty.
+- [ ] Keep all reads local and never invoke repository-controlled filters,
+      hooks, programs, or remotes.
+
+**Verification:** Add revision-range, rename, deletion, untracked-file,
+detached-head, shallow-history, hostile-path, and unsupported-language fixtures.
+
+### T7 — Return impact context
+
+**Outcome:** Reviewers receive evidence-backed inspection targets around a
+change without a prediction that the change will break them.
+
+**Blocked by:** T6.
+
+**Acceptance criteria:**
+
+- [ ] Return changed symbols, directly related files and symbols, likely tests,
+      ownership signals, and relevant history under one total budget.
+- [ ] Rank impact candidates by task relevance and evidence strength rather
+      than returning every reachable graph node.
+- [ ] Label lexical, structural, manifest, and history relationships by evidence
+      type and confidence.
+- [ ] Avoid compiler-grade claims such as definitive caller, callee, or breakage
+      when the evidence does not establish them.
+- [ ] Expose impact context through the same CLI and typed context operation.
+
+**Verification:** Add black-box fixtures for implementation changes, test-only
+changes, shared-library changes, ambiguous symbols, and unsupported languages;
+run security and budget tests.
+
+## Milestone: Incremental analysis
+
+**Exit condition:** Repeated requests reuse a persistent analysis index, refresh
+only invalidated work, and remain equivalent to a cold analysis.
+
+### T8 — Persist the analysis index
+
+**Outcome:** Expensive reusable facts survive between processes under the user
+cache without changing repository contents.
+
+**Blocked by:** T4.
+
+**Acceptance criteria:**
+
+- [ ] Define a versioned on-disk index for file fingerprints, bounded syntax
+      summaries, lexical edges, selected history facts, and repository metadata.
+- [ ] Key index identity by repository, worktree, revision or content state,
+      analysis options, language-pack identity, and tool compatibility.
+- [ ] Write atomically under the user cache and recover safely from missing,
+      partial, corrupt, incompatible, or permission-denied state.
+- [ ] Preserve explicit cache status, provenance, cleanup, and no-cache controls.
+- [ ] Do not persist source content unless a separately approved requirement
+      proves it necessary.
+
+**Verification:** Add round-trip, corruption, compatibility, concurrent-reader,
+permission, cleanup, and cold/warm equivalence tests.
+
+### T9 — Refresh only invalidated analysis
+
+**Outcome:** A small repository change causes proportionate reanalysis while
+unchanged results remain reusable.
+
+**Blocked by:** T8.
+
+**Acceptance criteria:**
+
+- [ ] Detect file, manifest, revision, worktree, option, and language-pack
+      changes that invalidate stored facts.
+- [ ] Reparse changed files and recompute only dependent lexical, structural,
+      history, and ranking state.
+- [ ] Fall back to cold analysis when invalidation cannot be proven safe.
+- [ ] Report reused, refreshed, stale, bypassed, and failed cache state without
+      making output nondeterministic.
+- [ ] Demonstrate lower warm-request latency and work without crossing memory or
+      disk ceilings.
+
+**Verification:** Mutate one input category at a time, compare every warm result
+with a cold run, and record targeted cold/warm work and latency measurements.
+
+## Milestone: Shared integration surfaces
+
+**Exit condition:** CLI, MCP, agent, and native consumers call the same bounded
+analysis operations and cannot drift in selection, evidence, uncertainty, or
+safety behavior.
+
+### T10 — Establish an embeddable core
+
+**Outcome:** In-process consumers can call stable analysis operations without
+depending on CLI parsing or renderer internals.
+
+**Blocked by:** T4 and T7.
+
+**Acceptance criteria:**
+
+- [ ] Expose orientation, context, impact, explain, search, capabilities, and
+      cache operations through typed inputs and outputs.
+- [ ] Separate analysis, storage, rendering, and transport boundaries while
+      reusing current domain types where they already fit.
+- [ ] Keep internal graph and parser structures private unless a demonstrated
+      consumer needs them.
+- [ ] Define cancellation, progress, budget, warning, and error behavior for
+      long-running calls.
+- [ ] Prove CLI output still comes from the same operations.
+
+**Verification:** Add library integration tests and compare library-derived
+results with black-box CLI JSON fixtures.
+
+### T11 — Add a bounded MCP adapter
+
+**Outcome:** MCP clients can request Codeplat context through a small task-level
+tool surface.
+
+**Blocked by:** T10.
+
+**Acceptance criteria:**
+
+- [ ] Map MCP tools to orientation, context, impact, explain, search,
+      capabilities, and cache-status operations.
+- [ ] Keep responses task-oriented and bounded; do not expose an exhaustive
+      graph endpoint.
+- [ ] Preserve typed provenance, uncertainty, omissions, budget behavior, and
+      cancellation across the transport.
+- [ ] Document local setup and the read-only safety contract.
+- [ ] Verify MCP and CLI requests with equivalent inputs return equivalent
+      semantics.
+
+**Verification:** Add protocol conformance, cancellation, oversized-request,
+error-mapping, and CLI-equivalence tests.
+
+### T12 — Ship an agent skill
+
+**Outcome:** Coding agents receive concise instructions for when and how to use
+Codeplat instead of rediscovering repository exploration workflows.
+
+**Blocked by:** T4 and T7.
+
+**Acceptance criteria:**
+
+- [ ] Cover unfamiliar-repository orientation, implementation lookup, impact
+      review, relevant-test discovery, and next-read workflows.
+- [ ] Prefer compact requests, narrow focus, and follow-up calls over exhaustive
+      output.
+- [ ] Explain uncertainty, unsupported-language behavior, and when direct source
+      inspection remains necessary.
+- [ ] Keep examples valid for the packaged CLI and avoid host-specific claims.
+- [ ] Validate the skill against representative benchmark tasks.
+
+**Verification:** Run the documented prompts against public or synthetic
+fixtures and confirm every command, option, and expected field matches the
+packaged CLI.
+
+### T13 — Add bounded host lifecycle adapters
+
+**Outcome:** Approved editors or coding hosts can inject fresh Codeplat context
+at useful lifecycle points without hidden background behavior.
+
+**Blocked by:** T9 and T10.
+
+**Acceptance criteria:**
+
+- [ ] Define explicit events such as repository open, session start, task
+      change, before edit, after edit, and before review.
+- [ ] Keep every injection small, advisory, cancellable, and controlled by the
+      host.
+- [ ] Share the persistent index across lifecycle calls without requiring a
+      daemon.
+- [ ] Add only adapters with a named host, demonstrated demand, and a stable
+      integration boundary.
+- [ ] Preserve identical analysis semantics across native, CLI, and MCP paths.
+
+**Verification:** For each approved adapter, add lifecycle, cancellation,
+stale-state, and semantic-equivalence tests before documenting support.
+
+## Milestone: Evidence-driven extensions
+
+**Exit condition:** New language, semantic, framework, or distribution
+capabilities are admitted only when measured failures or demonstrated demand
+justify their cost and their contracts remain explicit.
+
+### T14 — Assess additional language support
+
+**Outcome:** A specific language gap either produces an approved, fixture-backed
+implementation ticket or a documented decision not to add support.
+
+**Blocked by:** Nothing.
+
+**Acceptance criteria:**
+
+- [ ] Identify demand from task failures, issue evidence, or a named integration
+      rather than ecosystem popularity alone.
+- [ ] Define required symbol, relationship, manifest, entry-point, test, and
+      ambiguity behavior before implementation.
+- [ ] Require conformance, malformed-source, generated-code, and mixed-language
+      fixtures for first-class support.
+- [ ] Record expected quality and maintenance costs before adding a parser or
+      grammar dependency.
+
+**Verification:** Review the evidence and proposed fixture contract before
+creating any language implementation ticket.
+
+### T15 — Assess semantic or framework providers
+
+**Outcome:** An optional provider is added only when bounded lexical and syntax
+evidence fails a representative task and the provider materially improves it.
+
+**Blocked by:** T4.
+
+**Acceptance criteria:**
+
+- [ ] Name the retrieval or context failures the provider must fix and the
+      operations that consume its evidence.
+- [ ] Keep lexical and syntax analysis as the deterministic fallback.
+- [ ] Define offline behavior, dependency cost, cache identity, provenance,
+      confidence, timeouts, and partial-failure handling.
+- [ ] Label framework conventions as framework evidence, not compiler-resolved
+      semantics.
+- [ ] Reject providers that require repository-controlled execution or make the
+      core depend on a remote service.
+
+**Verification:** Compare the provider on focused public or synthetic fixtures
+and approve it only when the gain exceeds its latency, complexity, and
+maintenance cost.
+
+### T16 — Assess distributable query packs
+
+**Outcome:** The project has evidence for or against loading query-pack updates
+independently from the main binary.
+
+**Blocked by:** T8 and T14.
+
+**Acceptance criteria:**
+
+- [ ] Define the concrete update problem that built-in packs cannot solve.
+- [ ] Specify compatibility, signing or trust, cache identity, offline fallback,
+      rollback, and failure isolation before implementing a loader.
+- [ ] Preserve a complete safe built-in baseline when no external pack is
+      available.
+- [ ] Do not contact a registry or install packs without an explicit user
+      action.
+- [ ] Proceed to implementation only if the update benefit outweighs the new
+      supply-chain and compatibility surface.
+
+**Verification:** Review the threat model and a local proof of concept before
+creating production implementation tickets.
+
+## Milestone: Context and scale benchmarking
+
+**Exit condition:** Public or synthetic benchmarks measure retrieval quality,
+context efficiency, latency, work, memory where measurable, and output size
+across the completed feature set.
+
+### T17 — Build the context-quality benchmark
+
+**Outcome:** Retrieval and context changes can be compared against a
+reproducible baseline instead of judged from a few repository examples.
+
+**Blocked by:** T1–T16.
+
+**Acceptance criteria:**
+
+- [ ] Define fixtures for orientation, implementation search, behavior
+      tracing, bug fixes, feature extensions, refactors, change review, and
+      relevant-test discovery.
+- [ ] Use public or synthetic repositories with expected useful paths or
+      graded path rankings for each task.
+- [ ] Measure useful-file recall, precision, ranking quality, project-root
+      coverage, and relevant-symbol recall.
+- [ ] Measure returned tokens, useful files per 1,000 tokens, redundant
+      evidence, and the share of budget consumed by one file.
+- [ ] Record qualitative failure labels for missing entry points, duplicated
+      roles, irrelevant central files, weak explanations, and token waste.
+- [ ] Capture the completed feature set as a deterministic baseline and define
+      regression thresholds suitable for local and CI use.
+
+**Verification:** Run the corpus twice from cold state and once from valid warm
+state; confirm stable metrics, equivalent results, and actionable fixture-level
+failures.
+
+### T18 — Establish performance and scale gates
+
+**Outcome:** CI detects unacceptable latency, work, memory, or output growth
+before a release candidate is built.
+
+**Blocked by:** T1–T16.
+
+**Acceptance criteria:**
+
+- [ ] Add CI-friendly cases for Codeplat, a large ignored or vendor tree,
+      high-ambiguity sources, large monorepos, and synthetic 10k- and
+      100k-commit histories.
+- [ ] Exercise cold analysis, valid warm analysis, targeted invalidation,
+      context requests, impact requests, and every supported integration path.
+- [ ] Define latency, work, memory where measurable, disk, and output ceilings.
+      A failure identifies the exceeded dimension.
+- [ ] Keep every benchmark public or synthetic, deterministic, bounded, and
+      runnable without network access.
+- [ ] Define representative CI tiers so routine checks remain proportionate
+      while the full scale suite still runs before distribution.
+
+**Verification:** Run the harness under its documented CI ceilings and confirm
+intentional regressions fail with the expected dimension and fixture name.
+
+## Milestone: Product quality review
+
+**Exit condition:** The completed product passes cross-cutting correctness,
+security, compatibility, usability, and semantic-consistency review with no
+unresolved critical finding.
+
+### T19 — Review usefulness and semantic consistency
+
+**Outcome:** The completed feature set gives useful, consistent answers across
+representative repositories and every supported interface.
+
+**Blocked by:** T17 and T18.
+
+**Acceptance criteria:**
+
+- [ ] Apply a reusable review rubric to a small project, Codeplat, a mixed
+      monorepo, a generated-heavy repository, and representative change sets.
+- [ ] Review reading-plan coverage and reasons, context usefulness, impact
+      uncertainty, history usefulness, quality semantics, and token economy.
+- [ ] Confirm equivalent requests have equivalent semantics across CLI,
+      library, MCP, agent-skill, and approved native integration paths.
+- [ ] Run the completed binary across the available project corpus and retain
+      only aggregate outcomes plus public or synthetic regressions.
+- [ ] Convert confirmed correctness failures into focused regression tests and
+      resolve every critical usability finding.
+
+**Verification:** Complete the rubric, inspect aggregate corpus outcomes, and
+rerun T17 and T18 after fixes.
+
+### T20 — Audit safety and compatibility
+
+**Outcome:** The completed feature set preserves Codeplat's read-only, bounded,
+deterministic, and compatible behavior under hostile and partial conditions.
+
+**Blocked by:** T17 and T18.
+
+**Acceptance criteria:**
+
+- [ ] Exercise hostile paths, external filters, malformed source, corrupt cache,
+      unsupported languages, partial history, cancellation, and output limits.
+- [ ] Confirm every interface reports partial work, uncertainty, omissions, and
+      compatibility failures consistently.
+- [ ] Verify cold, warm, invalidated, and no-cache results remain semantically
+      equivalent where repository state is unchanged.
+- [ ] Confirm schema fixtures, public library types, MCP responses, and generated
+      assets match their documented compatibility contracts.
+- [ ] Convert every confirmed correctness or security failure into a focused
+      regression test and resolve every critical finding.
+
+**Verification:** Run the security, compatibility, schema, cache, and
+cross-interface suites, then rerun T17 and T18 after fixes.
+
+## Milestone: Distribution readiness
+
+**Exit condition:** The audited candidate is reproducibly packaged and ready
+for distribution on every supported platform.
+
+### T21 — Build the distribution candidate
+
+**Outcome:** Every supported platform produces the same complete, checksummed
+package from the audited source.
+
+**Blocked by:** T19 and T20.
+
+**Acceptance criteria:**
+
+- [ ] Pass Linux, macOS, Windows, Rust 1.85, dependency-policy, schema,
+      generated-asset, and package-content jobs on the candidate build.
+- [ ] Produce checksummed archives for every supported distribution target.
+- [ ] Confirm packaged completions, man pages, licenses, schemas, and agent
+      instructions match the candidate binary.
+- [ ] Confirm a clean rebuild reproduces the expected package contents and
+      metadata.
+
+**Verification:** Run the standard workspace, package, release-asset, and
+platform jobs against the candidate commit and inspect every archive.
+
+### T22 — Validate packaged installation and behavior
+
+**Outcome:** Users can install, run, and remove the packaged binary using the
+documented instructions and encounter no unresolved release blocker.
+
+**Blocked by:** T21.
+
+**Acceptance criteria:**
+
+- [ ] Verify install, uninstall, and cache-cleanup instructions from packaged
+      artifacts in clean environments.
+- [ ] Run representative orientation, context, impact, explain, cache, and
+      capabilities workflows from the installed binary.
+- [ ] Confirm normal successful runs keep stderr empty and all supported output
+      modes remain machine-readable where promised.
+- [ ] Record the benchmark and quality-review results associated with the
+      candidate without relying on private or untracked documents.
+- [ ] Resolve every installation, packaging, or behavior blocker found during
+      candidate validation.
+
+**Verification:** Install the packaged artifacts in clean environments, run
+representative workflows, remove them using the documented steps, and compare
+their outputs with the audited source build.
