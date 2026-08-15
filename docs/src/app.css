@@ -1,0 +1,207 @@
+@import '@fontsource-variable/google-sans';
+@import '@fontsource-variable/google-sans-code';
+@import '@fontsource-variable/ibm-plex-sans';
+
+:root {
+	color-scheme: light;
+	font-family: 'IBM Plex Sans Variable', 'IBM Plex Sans', sans-serif;
+	color: var(--ink);
+	background: var(--paper);
+	font-synthesis: none;
+	text-rendering: optimizeLegibility;
+	--ink: #141415;
+	--muted: #686367;
+	--line: #dfdbdd;
+	--paper: #fbf9f9;
+	--paper-deep: #f2eeef;
+	--surface-raised: #ffffff;
+	--on-black: #ffffff;
+	--black: #141415;
+	--black-dark: #000000;
+	--red: #ef596f;
+	--red-bright: #ff8292;
+	--header-surface: rgb(251 249 249 / 94%);
+	--code-line: #393336;
+	--code-surface: #141415;
+	--code-ink: #f8f4f5;
+	--callout-surface: #fff0f2;
+	--mark-surface: #ffc0ca;
+	--mark-ink: #141415;
+	--selection-ink: #141415;
+	--focus-soft: rgb(239 89 111 / 20%);
+	--shadow: 0 12px 30px rgb(20 20 21 / 10%);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme='light']) {
+		color-scheme: dark;
+		--ink: #f7f1f3;
+		--muted: #c5bbbf;
+		--line: #4b4548;
+		--paper: #141415;
+		--paper-deep: #242224;
+		--surface-raised: #1d1b1d;
+		--on-black: #141415;
+		--black: #f7f1f3;
+		--black-dark: #ffffff;
+		--red: #ff8da0;
+		--red-bright: #ef596f;
+		--header-surface: rgb(20 20 21 / 96%);
+		--code-line: #66585d;
+		--code-surface: #0d0d0e;
+		--code-ink: #f7f1f3;
+		--callout-surface: #372528;
+		--mark-surface: #803947;
+		--mark-ink: #fff2f4;
+		--selection-ink: #141415;
+		--focus-soft: rgb(239 89 111 / 28%);
+		--shadow: 0 16px 35px rgb(0 0 0 / 30%);
+	}
+}
+
+:root[data-theme='dark'] {
+	color-scheme: dark;
+	--ink: #f7f1f3;
+	--muted: #c5bbbf;
+	--line: #4b4548;
+	--paper: #141415;
+	--paper-deep: #242224;
+	--surface-raised: #1d1b1d;
+	--on-black: #141415;
+	--black: #f7f1f3;
+	--black-dark: #ffffff;
+	--red: #ff8da0;
+	--red-bright: #ef596f;
+	--header-surface: rgb(20 20 21 / 96%);
+	--code-line: #66585d;
+	--code-surface: #0d0d0e;
+	--code-ink: #f7f1f3;
+	--callout-surface: #372528;
+	--mark-surface: #803947;
+	--mark-ink: #fff2f4;
+	--selection-ink: #141415;
+	--focus-soft: rgb(239 89 111 / 28%);
+	--shadow: 0 16px 35px rgb(0 0 0 / 30%);
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html {
+	scroll-behavior: smooth;
+	background: var(--paper);
+}
+
+html:not(.js) .theme-toggle {
+	display: none;
+}
+
+body {
+	min-width: 320px;
+	margin: 0;
+	background: var(--paper);
+	color: var(--ink);
+	font-size: 1rem;
+	line-height: 1.65;
+}
+
+body,
+button,
+input {
+	font-family: inherit;
+}
+
+button,
+input {
+	font-size: inherit;
+}
+
+a {
+	color: var(--black-dark);
+	text-decoration-thickness: 0.08em;
+	text-underline-offset: 0.16em;
+}
+
+a:hover {
+	color: var(--red);
+}
+
+::selection {
+	background: var(--red-bright);
+	color: var(--selection-ink);
+}
+
+h1,
+h2,
+h3 {
+	font-family: 'Google Sans Variable', 'Google Sans', sans-serif;
+	font-weight: 600;
+	letter-spacing: -0.025em;
+}
+
+:focus-visible {
+	outline: 3px solid var(--red);
+	outline-offset: 3px;
+}
+
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+.skip-link {
+	position: absolute;
+	top: 0.75rem;
+	left: 1rem;
+	z-index: 20;
+	padding: 0.5rem 0.75rem;
+	background: var(--red-bright);
+	color: var(--ink);
+	transform: translateY(-180%);
+}
+
+.skip-link:focus {
+	transform: translateY(0);
+}
+
+.eyebrow {
+	margin: 0 0 0.85rem;
+	color: var(--red);
+	font-family: 'Google Sans Code Variable', 'Google Sans Code', monospace;
+	font-size: 0.7rem;
+	font-weight: 650;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+
+.button-link {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 2.75rem;
+	padding: 0.55rem 0.9rem;
+	border: 1px solid var(--black);
+	background: var(--black);
+	color: var(--on-black);
+	font-weight: 650;
+	text-decoration: none;
+}
+
+.button-link:hover {
+	background: var(--black-dark);
+	color: var(--on-black);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	html {
+		scroll-behavior: auto;
+	}
+}

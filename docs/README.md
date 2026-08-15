@@ -1,9 +1,24 @@
-# Dalil Docs
+# Dalil documentation site
 
-- [Manifest support](manifests.md): recognized project manifests, metadata-derived entry
-  points, library exports, and common commands.
-- [Report formats](reports.md): output formats (Markdown, JSON, HTML), including profiles,
-  redirection, and exit behavior.
+The Dalil documentation site is a static SvelteKit application.
 
-For installation, quick-start examples, and analysis limits, see the project
-[README](../README.md).
+## Develop
+
+From this directory:
+
+```sh
+pnpm install
+pnpm dev
+```
+
+## Check and build
+
+```sh
+pnpm check
+pnpm lint
+pnpm test
+pnpm build
+```
+
+`pnpm build` generates the static site and its Pagefind search index in
+`build/`.
