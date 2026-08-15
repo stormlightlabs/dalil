@@ -812,7 +812,7 @@ mod tests {
 
     #[test]
     fn detects_workspace_manifest_root() {
-        let root = std::env::temp_dir().join(format!("codeplat-landmark-test-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("dalil-landmark-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("create landmark test root");
         std::fs::write(root.join("Cargo.toml"), "[workspace]\n").expect("write landmark manifest");
@@ -835,7 +835,7 @@ mod tests {
 
     #[test]
     fn detects_zig_package_manifest_root() {
-        let root = std::env::temp_dir().join(format!("codeplat-zig-landmark-test-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("dalil-zig-landmark-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("create Zig test root");
         std::fs::write(

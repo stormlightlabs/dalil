@@ -1,4 +1,4 @@
-# Codeplat Docs
+# Dalil Docs
 
 - [Manifest support](manifests.md): recognized project manifests, metadata-derived entry
   points, library exports, and common commands.

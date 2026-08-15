@@ -22,7 +22,7 @@ struct FixtureRepository {
 impl FixtureRepository {
     fn new() -> Self {
         let suffix = format!(
-            "codeplat-cli-{}-{}",
+            "dalil-cli-{}-{}",
             std::process::id(),
             FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed)
         );
@@ -44,11 +44,11 @@ impl FixtureRepository {
     }
 
     fn run(&self, arguments: &[&str]) -> Output {
-        self.command(arguments).output().expect("run codeplat fixture command")
+        self.command(arguments).output().expect("run dalil fixture command")
     }
 
     fn command(&self, arguments: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_codeplat"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_dalil"));
         command
             .args(arguments)
             .current_dir(&self.root)
@@ -72,7 +72,7 @@ struct HistoryFixtureRepository {
 impl HistoryFixtureRepository {
     fn new() -> Self {
         let suffix = format!(
-            "codeplat-history-{}-{}",
+            "dalil-history-{}-{}",
             std::process::id(),
             FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed)
         );
@@ -188,7 +188,7 @@ impl HistoryFixtureRepository {
     }
 
     fn run(&self, arguments: &[&str]) -> Output {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_codeplat"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_dalil"));
         command
             .args(arguments)
             .current_dir(&self.root)
@@ -206,7 +206,7 @@ impl Drop for HistoryFixtureRepository {
 impl MapFixtureRepository {
     fn new() -> Self {
         let suffix = format!(
-            "codeplat-map-{}-{}",
+            "dalil-map-{}-{}",
             std::process::id(),
             FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed)
         );
@@ -264,7 +264,7 @@ impl MapFixtureRepository {
     }
 
     fn command(&self, arguments: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_codeplat"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_dalil"));
         command
             .args(arguments)
             .current_dir(&self.root)
@@ -294,7 +294,7 @@ struct ClassificationFixtureRepository {
 impl ClassificationFixtureRepository {
     fn new() -> Self {
         let suffix = format!(
-            "codeplat-classification-{}-{}",
+            "dalil-classification-{}-{}",
             std::process::id(),
             FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed)
         );
@@ -377,7 +377,7 @@ impl ClassificationFixtureRepository {
     }
 
     fn run(&self, arguments: &[&str]) -> Output {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_codeplat"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_dalil"));
         command
             .args(arguments)
             .current_dir(&self.root)
@@ -401,7 +401,7 @@ struct MixedMapFixtureRepository {
 impl MixedMapFixtureRepository {
     fn new() -> Self {
         let suffix = format!(
-            "codeplat-mixed-map-{}-{}",
+            "dalil-mixed-map-{}-{}",
             std::process::id(),
             FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed)
         );
@@ -519,7 +519,7 @@ impl MixedMapFixtureRepository {
     }
 
     fn command(&self, arguments: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_codeplat"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_dalil"));
         command
             .args(arguments)
             .current_dir(&self.root)
@@ -543,7 +543,7 @@ struct JavaCSharpMapFixtureRepository {
 impl JavaCSharpMapFixtureRepository {
     fn new() -> Self {
         let suffix = format!(
-            "codeplat-java-csharp-map-{}-{}",
+            "dalil-java-csharp-map-{}-{}",
             std::process::id(),
             FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed)
         );
@@ -601,7 +601,7 @@ impl JavaCSharpMapFixtureRepository {
     }
 
     fn run(&self, arguments: &[&str]) -> Output {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_codeplat"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_dalil"));
         command
             .args(arguments)
             .current_dir(&self.root)
@@ -743,13 +743,13 @@ fn root_map_and_history_help_are_complete() {
         assert!(output.status.success(), "help failed: {help}");
         assert!(output.stderr.is_empty());
         assert!(help.contains("Usage:"));
-        assert!(help.contains("Usage: codeplat"));
+        assert!(help.contains("Usage: dalil"));
         assert!(help.contains("Examples:"));
         assert!(help.contains("--format <FORMAT>"));
         assert!(help.contains("--json"));
         assert!(help.contains("--html"));
         assert!(help.contains("--open"));
-        assert!(help.contains("github.com/stormlightlabs/codeplat/issues"));
+        assert!(help.contains("github.com/stormlightlabs/dalil/issues"));
         if arguments.first().copied() == Some("map") {
             assert!(help.contains("--exclude <GLOB>"));
         }
@@ -854,7 +854,7 @@ fn default_markdown_briefing_keeps_history_and_map_sections_readable() {
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
     assert_plain_report(&markdown);
-    assert!(markdown.starts_with("# Codeplat briefing\n"));
+    assert!(markdown.starts_with("# Dalil briefing\n"));
     assert!(markdown.contains("Status: Analyzed"));
     assert!(
         markdown.chars().count().div_ceil(4) <= 1_000,
@@ -871,7 +871,7 @@ fn default_markdown_briefing_keeps_history_and_map_sections_readable() {
         "briefing was {} lines",
         markdown.lines().count()
     );
-    assert!(markdown.contains("Detailed history evidence: use `codeplat history`"));
+    assert!(markdown.contains("Detailed history evidence: use `dalil history`"));
     assert!(markdown.contains("## Repository overview"));
     assert!(markdown.contains("## Reading plan"));
     assert!(markdown.contains("### start_here"));
@@ -2487,7 +2487,7 @@ fn corrupt_cache_record_refreshes_and_cache_controls_do_not_touch_the_repository
     let fixture = MapFixtureRepository::new();
     let initial = fixture.run(&["map", "--json"]);
     assert!(initial.status.success());
-    let records = cache_json_files(&fixture.cache.join("codeplat"));
+    let records = cache_json_files(&fixture.cache.join("dalil"));
     assert_eq!(records.len(), 7);
     write_file(&records[0], b"not valid JSON\n");
 
@@ -2512,7 +2512,7 @@ fn corrupt_cache_record_refreshes_and_cache_controls_do_not_touch_the_repository
     let status_json: Value = serde_json::from_slice(&status.stdout).expect("valid cache status JSON");
     assert_eq!(status_json["records"], 7);
     assert_eq!(status_json["repositories"], 1);
-    assert!(status_json["path"].as_str().unwrap().ends_with("codeplat"));
+    assert!(status_json["path"].as_str().unwrap().ends_with("dalil"));
 
     let path = fixture.run(&["cache", "path", "--json"]);
     assert!(path.status.success());
@@ -2555,7 +2555,7 @@ fn cache_directories_and_records_are_user_private() {
     let fixture = MapFixtureRepository::new();
     let output = fixture.run(&["map", "--json"]);
     assert!(output.status.success());
-    let cache_root = fixture.cache.join("codeplat");
+    let cache_root = fixture.cache.join("dalil");
     assert_eq!(fs::metadata(&cache_root).unwrap().permissions().mode() & 0o777, 0o700);
     for record in cache_json_files(&cache_root) {
         assert_eq!(fs::metadata(record).unwrap().permissions().mode() & 0o777, 0o600);
@@ -2591,7 +2591,7 @@ fn concurrent_cache_writers_leave_only_complete_json_records() {
         });
     }
 
-    let records = cache_json_files(&fixture.cache.join("codeplat"));
+    let records = cache_json_files(&fixture.cache.join("dalil"));
     assert_eq!(records.len(), 7);
     for record in records {
         let bytes = fs::read(record).expect("read concurrent cache record");
@@ -3527,7 +3527,7 @@ fn open_writes_a_private_html_report_and_invokes_the_platform_opener() {
     fs::create_dir_all(&opener_directory).expect("create fake opener directory");
     let opener_name = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
     let opener = opener_directory.join(opener_name);
-    write_file(&opener, b"#!/bin/sh\nprintf '%s' \"$1\" > \"$CODEPLAT_OPEN_MARKER\"\n");
+    write_file(&opener, b"#!/bin/sh\nprintf '%s' \"$1\" > \"$DALIL_OPEN_MARKER\"\n");
     let mut permissions = fs::metadata(&opener).expect("fake opener metadata").permissions();
     permissions.set_mode(0o755);
     fs::set_permissions(&opener, permissions).expect("make fake opener executable");
@@ -3540,13 +3540,13 @@ fn open_writes_a_private_html_report_and_invokes_the_platform_opener() {
         .command(&["--no-cache", "--html", "--open"])
         .env("PATH", executable_path)
         .env("TMPDIR", &fixture.temporary_root)
-        .env("CODEPLAT_OPEN_MARKER", &marker)
+        .env("DALIL_OPEN_MARKER", &marker)
         .output()
         .expect("run HTML opener fixture");
 
     assert!(
         output.status.success(),
-        "codeplat failed: {}",
+        "dalil failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(output.stdout.is_empty());
@@ -3622,7 +3622,7 @@ fn markdown_snapshot_is_direct_and_readable() {
         + "\n";
     assert_eq!(
         stable_markdown,
-        "# Codeplat map\n\
+        "# Dalil map\n\
          \n\
          Schema version: 1\n\
          Scope: `.`\n\

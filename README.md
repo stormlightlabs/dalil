@@ -1,16 +1,16 @@
-# Codeplat
+# Dalil
 
-Codeplat (“code” + “plat” - a plan or map of land) is a CLI to help you orient
-yourself in a new codebase.
+Dalil (Arabic for “guide”) is a CLI to help you orient yourself in a new
+codebase.
 
-![Codeplat HTML repository briefing shown in a browser](./assets/html-report.png)
+![Dalil HTML repository briefing shown in a browser](./assets/dalil-report.png)
 
 It produces an integrated briefing, or a focused report when you need only one
 evidence family:
 
-- `codeplat map` inventories the current worktree and extracts structural maps for
+- `dalil map` inventories the current worktree and extracts structural maps for
   Rust, JavaScript, JSX, TypeScript, TSX, Python, Ruby, Java, C#, Go, Lua, and Zig files.
-- `codeplat history` summarizes five Git-history signals
+- `dalil history` summarizes five Git-history signals
   1. churn
   2. contributors
   3. bug-related clusters
@@ -22,7 +22,7 @@ evidence family:
 Install the published crate with Cargo:
 
 ```sh
-cargo install --locked codeplat
+cargo install --locked dalil
 ```
 
 To build an exact source checkout instead, use the committed lockfile:
@@ -34,37 +34,37 @@ cargo build --locked --release
 Then run it from a Git worktree:
 
 ```sh
-codeplat
-codeplat --json
-codeplat --html > codeplat-report.html
-codeplat --html --open
-codeplat map
-codeplat map --json
-codeplat map src --exclude 'src/generated/**' --json
-codeplat map --recursive --json
-codeplat history
-codeplat history contributors src --json
-codeplat explain src/map.rs --json
-codeplat explain Parser --focus Parser --json
-codeplat capabilities --json
-codeplat doctor . --json
+dalil
+dalil --json
+dalil --html > dalil-report.html
+dalil --html --open
+dalil map
+dalil map --json
+dalil map src --exclude 'src/generated/**' --json
+dalil map --recursive --json
+dalil history
+dalil history contributors src --json
+dalil explain src/map.rs --json
+dalil explain Parser --focus Parser --json
+dalil capabilities --json
+dalil doctor . --json
 ```
 
-`PATH` defaults to the current directory. `codeplat` discovers the enclosing
+`PATH` defaults to the current directory. `dalil` discovers the enclosing
 Git repository and keeps the selected scope inside that repository.
 
 ## Default briefing
 
-`codeplat [PATH]` starts with a repository overview and an ordered reading plan,
+`dalil [PATH]` starts with a repository overview and an ordered reading plan,
 then includes up to five concise, evidence-backed history observations and brief
 evidence notes. JSON retains the complete map and history report.
 
 The source map accepts the same focus, token-budget, exclusion, cache, and color controls described below:
 
 ```sh
-codeplat --focus parser --focus-path src --budget 500 .
-codeplat --no-cache --json .
-codeplat --profile evidence --json .
+dalil --focus parser --focus-path src --budget 500 .
+dalil --no-cache --json .
+dalil --profile evidence --json .
 ```
 
 The report keeps history caveats, source-map limitations, query-pack provenance,
@@ -91,7 +91,7 @@ limit.
 
 ## Commands
 
-### `codeplat map [OPTIONS] [PATH]`
+### `dalil map [OPTIONS] [PATH]`
 
 The map command supports Rust, JavaScript, JSX, TypeScript, TSX, Python, Ruby, Java, C#, Go, Lua, and Zig source files.
 
@@ -135,22 +135,22 @@ imports are reported as limitations rather than resolved.
 Exclusions can be repeated:
 
 ```sh
-codeplat map --exclude 'src/generated/**' --exclude 'tests/fixtures/**'
+dalil map --exclude 'src/generated/**' --exclude 'tests/fixtures/**'
 ```
 
 Map focus and cache controls are explicit:
 
 ```sh
-codeplat map --focus parser --focus-path src --budget 500
-codeplat map --cache always
-codeplat map --cache files --cache-file src/parser.rs
-codeplat map --cache manual
-codeplat map --no-cache
-codeplat map --recursive --no-cache
-codeplat cache path
-codeplat cache status
-codeplat cache prune
-codeplat cache clear
+dalil map --focus parser --focus-path src --budget 500
+dalil map --cache always
+dalil map --cache files --cache-file src/parser.rs
+dalil map --cache manual
+dalil map --no-cache
+dalil map --recursive --no-cache
+dalil cache path
+dalil cache status
+dalil cache prune
+dalil cache clear
 ```
 
 Profiles are selected with `--profile compact|evidence`. Compact is the default.
@@ -176,15 +176,15 @@ Landmark output is capped at 64 compact landmarks and 32 compact project roots, 
 truncation metadata preserved in JSON. Evidence mode raises those caps to the published report
 limits.
 
-Cache records are stored under `$XDG_CACHE_HOME/codeplat` (or `~/.cache/codeplat`) and
+Cache records are stored under `$XDG_CACHE_HOME/dalil` (or `~/.cache/dalil`) and
 are reusable across map scopes.
 
-### `codeplat explain <PATH-OR-SYMBOL> [PATH]`
+### `dalil explain <PATH-OR-SYMBOL> [PATH]`
 
 Explain decomposes a bounded recommendation into typed focus, graph, ranking,
 history-overlap, landmark, ambiguity, and omitted-alternative evidence.
 
-### `codeplat history [OPERATION] [OPTIONS] [PATH]`
+### `dalil history [OPERATION] [OPTIONS] [PATH]`
 
 History analysis uses committed Git data only. The available operations are:
 
@@ -201,9 +201,9 @@ The default history window is 365 days; recent contributor concentration uses 18
 Override the windows or keyword sets explicitly, for example:
 
 ```sh
-codeplat history bugs --window-days 30 --bug-keyword parser --json
-codeplat history bugs --keyword-match substring --json
-codeplat history contributors --include-emails --json
+dalil history bugs --window-days 30 --bug-keyword parser --json
+dalil history bugs --keyword-match substring --json
+dalil history contributors --include-emails --json
 ```
 
 History output presents evidence and caveats. It does not treat churn, commit counts,
@@ -233,7 +233,7 @@ resource-limited paths have no normalized rate.
 Rename continuity is currently reported as unavailable, so exact-path counts never imply that earlier
 history under another name was searched.
 
-### `codeplat capabilities --json` and `codeplat doctor [PATH]`
+### `dalil capabilities --json` and `dalil doctor [PATH]`
 
 `capabilities` reports the schema version, supported language grammars and query packs,
 query-pack validity, and active compact/evidence.
@@ -246,22 +246,22 @@ the embedded schema, query packs, and effective limits.
 Markdown is the default format. Use `--format json` or `--json` for machine-readable output:
 
 ```sh
-codeplat map --format json
-codeplat history --json
+dalil map --format json
+dalil history --json
 ```
 
 Use `--format html` or `--html` to write a standalone report for a browser:
 
 ```sh
-codeplat --html > codeplat-report.html
-codeplat history --format html > codeplat-history.html
+dalil --html > dalil-report.html
+dalil history --format html > dalil-history.html
 ```
 
 Add `--open` to write the HTML report to a private temporary file and open it
 in the default browser:
 
 ```sh
-codeplat --html --open
+dalil --html --open
 ```
 
 With Markdown or JSON, `--open` has no effect.
@@ -281,7 +281,7 @@ Machine reports include typed provenance:
 History provenance records its observed committer-date range, author-versus-committer time
 basis, current-HEAD semantics, and completeness status (`complete`, `shallow`, `missing_objects`, or `partial`).
 
-The v1 JSON schema is [`schema/v1/codeplat.json`](schema/v1/codeplat.json), with compatibility
+The v1 JSON schema is [`schema/v1/dalil.json`](schema/v1/dalil.json), with compatibility
 examples in [`schema/v1/golden`](schema/v1/golden).
 
 Diagnostic color can be controlled with `--color auto|always|never` or `--no-color`.

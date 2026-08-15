@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/stormlightlabs/codeplat/schema/v1/codeplat.json",
-  "title": "Codeplat schema version 1",
-  "description": "The additive machine-report contract for Codeplat v1. Existing fields may not be removed, retyped, or semantically reused without changing schema_version.",
+  "$id": "https://github.com/stormlightlabs/dalil/schema/v1/dalil.json",
+  "title": "Dalil schema version 1",
+  "description": "The additive machine-report contract for Dalil v1. Existing fields may not be removed, retyped, or semantically reused without changing schema_version.",
   "oneOf": [
     { "$ref": "#/$defs/analysis_report" },
     { "$ref": "#/$defs/capabilities_report" },

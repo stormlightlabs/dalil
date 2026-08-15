@@ -35,8 +35,8 @@ pub const DEFAULT_BUG_KEYWORDS: &[&str] = &["fix", "bug", "broken"];
 pub const DEFAULT_FIREFIGHTING_KEYWORDS: &[&str] = &["revert", "hotfix", "emergency", "rollback"];
 /// The package version embedded in every machine-readable report.
 pub const TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
-/// The schema file shipped with Codeplat.
-pub const SCHEMA_PATH: &str = "schema/v1/codeplat.json";
+/// The schema file shipped with Dalil.
+pub const SCHEMA_PATH: &str = "schema/v1/dalil.json";
 
 fn stable_repository_id(repository_root: &str) -> String {
     let mut digest = Sha256::new();

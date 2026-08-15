@@ -4,8 +4,8 @@ import { pathToFileURL } from 'node:url';
 import { chromium, type Browser } from 'playwright';
 
 const REPO_ROOT = join(import.meta.dir, '..');
-const REPORT_PATH = join(REPO_ROOT, 'assets', 'codeplat-report.html');
-const SCREENSHOT_PATH = join(REPO_ROOT, 'assets', 'codeplat-report.png');
+const REPORT_PATH = join(REPO_ROOT, 'assets', 'dalil-report.html');
+const SCREENSHOT_PATH = join(REPO_ROOT, 'assets', 'dalil-report.png');
 const FRAME_PATH = join(import.meta.dir, '.html-screenshot-frame.html');
 const VIEWPORT = { width: 1600, height: 1040 };
 
@@ -23,11 +23,11 @@ async function generateReport(): Promise<void> {
 	]);
 
 	if (exitCode !== 0) {
-		throw new Error(`codeplat exited with status ${exitCode}\n${stderr.trim()}`);
+		throw new Error(`dalil exited with status ${exitCode}\n${stderr.trim()}`);
 	}
 
 	if (!html.startsWith('<!doctype html>')) {
-		throw new Error('codeplat did not return an HTML report');
+		throw new Error('dalil did not return an HTML report');
 	}
 
 	await fs.mkdir(dirname(REPORT_PATH), { recursive: true });
@@ -40,7 +40,7 @@ function browserFrame(reportUrl: string): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Codeplat report preview</title>
+  <title>Dalil report preview</title>
   <style>
     * {
       box-sizing: border-box;
@@ -137,9 +137,9 @@ function browserFrame(reportUrl: string): string {
         <span class="browser__control"></span>
         <span class="browser__control"></span>
       </div>
-      <div class="browser__address">codeplat report · mariners-astrolabe</div>
+      <div class="browser__address">dalil report · mariners-astrolabe</div>
     </header>
-    <iframe src="${reportUrl}" title="Generated Codeplat report"></iframe>
+    <iframe src="${reportUrl}" title="Generated Dalil report"></iframe>
   </main>
 </body>
 </html>`;

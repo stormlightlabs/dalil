@@ -94,7 +94,7 @@ impl CapabilitiesReport {
             }
             OutputFormat::Html => super::html::render_capabilities(self),
             OutputFormat::Markdown => {
-                let mut output = String::from("# Codeplat capabilities\n\n");
+                let mut output = String::from("# Dalil capabilities\n\n");
                 writeln!(output, "Schema version: {}", self.schema_version)
                     .expect("writing capabilities to a string cannot fail");
                 writeln!(output, "Tool version: {}", self.tool_version)
@@ -260,7 +260,7 @@ impl DoctorReport {
         }
 
         checks.push(
-            match serde_json::from_str::<serde_json::Value>(include_str!("../../schema/v1/codeplat.json")) {
+            match serde_json::from_str::<serde_json::Value>(include_str!("../../schema/v1/dalil.json")) {
                 Ok(_) => DoctorCheck {
                     name: "schema".to_owned(),
                     status: DoctorCheckStatus::Pass,
@@ -327,7 +327,7 @@ impl DoctorReport {
             }
             OutputFormat::Html => super::html::render_doctor(self),
             OutputFormat::Markdown => {
-                let mut output = String::from("# Codeplat doctor\n\n");
+                let mut output = String::from("# Dalil doctor\n\n");
                 writeln!(output, "Tool version: {}", self.tool_version)
                     .expect("writing doctor output to a string cannot fail");
                 writeln!(output, "Source evidence collected: {}", self.source_evidence_collected)

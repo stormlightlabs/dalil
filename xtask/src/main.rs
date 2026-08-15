@@ -31,9 +31,9 @@ fn generate_release_assets() -> io::Result<()> {
     fs::create_dir_all(&man)?;
 
     for shell in [Shell::Bash, Shell::Elvish, Shell::Fish, Shell::PowerShell, Shell::Zsh] {
-        generate_to(shell, &mut codeplat::command(), "codeplat", &completions)?;
+        generate_to(shell, &mut dalil::command(), "dalil", &completions)?;
     }
-    render_man_pages(codeplat::command(), Vec::new(), &man)
+    render_man_pages(dalil::command(), Vec::new(), &man)
 }
 
 fn render_man_pages(command: Command, parents: Vec<String>, output: &Path) -> io::Result<()> {

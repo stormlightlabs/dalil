@@ -283,9 +283,9 @@ pub(super) fn render_capabilities(report: &CapabilitiesReport) -> Result<String,
         .collect();
     render_page(HtmlPage {
         title: "Capabilities".to_owned(),
-        eyebrow: "Codeplat / support".to_owned(),
+        eyebrow: "Dalil / support".to_owned(),
         summary: "Installed language grammars, query packs, and active report limits.".to_owned(),
-        command: "codeplat capabilities --format html".to_owned(),
+        command: "dalil capabilities --format html".to_owned(),
         captured_at: "Current installation".to_owned(),
         status: if report.query_packs_valid { "Ready" } else { "Degraded" }.to_owned(),
         status_tone: if report.query_packs_valid { "success" } else { "warning" },
@@ -338,9 +338,9 @@ pub(super) fn render_doctor(report: &DoctorReport) -> Result<String, ReportError
         .count();
     render_page(HtmlPage {
         title: "Doctor".to_owned(),
-        eyebrow: "Codeplat / support".to_owned(),
+        eyebrow: "Dalil / support".to_owned(),
         summary: "Repository discovery, cache, schema, query-pack, and safety checks.".to_owned(),
-        command: "codeplat doctor --format html".to_owned(),
+        command: "dalil doctor --format html".to_owned(),
         captured_at: "Current installation".to_owned(),
         status: if report.is_ok() { "Healthy" } else { "Needs attention" }.to_owned(),
         status_tone: if report.is_ok() { "success" } else { "warning" },
@@ -386,9 +386,9 @@ pub(super) fn render_doctor(report: &DoctorReport) -> Result<String, ReportError
 pub(crate) fn render_cache(report: &CacheControlReport) -> Result<String, ReportError> {
     render_page(HtmlPage {
         title: "Cache".to_owned(),
-        eyebrow: format!("Codeplat / {}", report.operation),
+        eyebrow: format!("Dalil / {}", report.operation),
         summary: "Retained source-analysis cache metadata and configured limits.".to_owned(),
-        command: format!("codeplat cache {} --format html", report.operation),
+        command: format!("dalil cache {} --format html", report.operation),
         captured_at: "Current installation".to_owned(),
         status: if report.exists { "Available" } else { "Not configured" }.to_owned(),
         status_tone: if report.exists { "success" } else { "warning" },
@@ -594,14 +594,14 @@ fn command_label(report: &Report) -> String {
 fn command_text(report: &Report) -> String {
     let path = &report.scope.selected_path;
     match report.command.name {
-        CommandName::Briefing => format!("codeplat --format html {path}"),
-        CommandName::Map => format!("codeplat map --format html {path}"),
+        CommandName::Briefing => format!("dalil --format html {path}"),
+        CommandName::Map => format!("dalil map --format html {path}"),
         CommandName::History => report.command.operation.map_or_else(
-            || format!("codeplat history --format html {path}"),
-            |operation| format!("codeplat history {} --format html {path}", operation.label()),
+            || format!("dalil history --format html {path}"),
+            |operation| format!("dalil history {} --format html {path}", operation.label()),
         ),
         CommandName::Explain => format!(
-            "codeplat explain {} --format html {path}",
+            "dalil explain {} --format html {path}",
             report.command.target.as_deref().unwrap_or("target")
         ),
     }

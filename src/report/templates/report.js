@@ -1,7 +1,7 @@
 (() => {
   const root = document.documentElement;
   const colorScheme = window.matchMedia("(prefers-color-scheme: dark)");
-  const storageKey = "codeplat-report-theme";
+  const storageKey = "dalil-report-theme";
   let savedTheme = null;
 
   try {

@@ -210,7 +210,7 @@ pub struct CacheFileInfo {
     repository_id: Option<String>,
 }
 
-/// Inspect or mutate only Codeplat's configured cache root.
+/// Inspect or mutate only Dalil's configured cache root.
 pub fn cache_control(command: CacheCommand) -> Result<CacheControlReport> {
     let root =
         security::configured_cache_root().map_err(|error| MapError::safety("resolving the cache root", error))?;

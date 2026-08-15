@@ -1077,7 +1077,7 @@ fn cache_file_paths_normalize_without_basename_matching_or_scope_leaks() {
 
 #[test]
 fn cache_pruning_is_count_bounded_and_path_deterministic() {
-    let root = std::env::temp_dir().join(format!("codeplat-cache-prune-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("dalil-cache-prune-{}", std::process::id()));
     let repository = root.join("repositories").join("repo");
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&repository).expect("create cache prune fixture");

@@ -1,11 +1,11 @@
-# Codeplat Milestones
+# Dalil Milestones
 
 These milestones turn [ROADMAP.md](ROADMAP.md) into buildable work. Each
 milestone groups related tickets around one user-visible outcome.
 
 ## Milestone: Task-relevant retrieval
 
-**Exit condition:** Codeplat returns and explains a small, diverse set of files
+**Exit condition:** Dalil returns and explains a small, diverse set of files
 and symbols for realistic orientation and implementation tasks.
 
 ### T1 — Make ranking task-aware
@@ -134,7 +134,7 @@ points, and insufficient evidence; review the output against the source files.
 
 ## Milestone: Change-aware review context
 
-**Exit condition:** Codeplat can compare revisions or inspect a dirty worktree
+**Exit condition:** Dalil can compare revisions or inspect a dirty worktree
 and return bounded, explicitly uncertain context about changed symbols, nearby
 dependencies, relevant tests, ownership, and history.
 
@@ -263,7 +263,7 @@ results with black-box CLI JSON fixtures.
 
 ### T11 — Add a bounded MCP adapter
 
-**Outcome:** MCP clients can request Codeplat context through a small task-level
+**Outcome:** MCP clients can request Dalil context through a small task-level
 tool surface.
 
 **Blocked by:** T10.
@@ -286,7 +286,7 @@ error-mapping, and CLI-equivalence tests.
 ### T12 — Ship an agent skill
 
 **Outcome:** Coding agents receive concise instructions for when and how to use
-Codeplat instead of rediscovering repository exploration workflows.
+Dalil instead of rediscovering repository exploration workflows.
 
 **Blocked by:** T4 and T7.
 
@@ -307,7 +307,7 @@ packaged CLI.
 
 ### T13 — Add bounded host lifecycle adapters
 
-**Outcome:** Approved editors or coding hosts can inject fresh Codeplat context
+**Outcome:** Approved editors or coding hosts can inject fresh Dalil context
 at useful lifecycle points without hidden background behavior.
 
 **Blocked by:** T9 and T10.
@@ -441,7 +441,7 @@ before a release candidate is built.
 
 **Acceptance criteria:**
 
-- [ ] Add CI-friendly cases for Codeplat, a large ignored or vendor tree,
+- [ ] Add CI-friendly cases for Dalil, a large ignored or vendor tree,
       high-ambiguity sources, large monorepos, and synthetic 10k- and
       100k-commit histories.
 - [ ] Exercise cold analysis, valid warm analysis, targeted invalidation,
@@ -471,7 +471,7 @@ representative repositories and every supported interface.
 
 **Acceptance criteria:**
 
-- [ ] Apply a reusable review rubric to a small project, Codeplat, a mixed
+- [ ] Apply a reusable review rubric to a small project, Dalil, a mixed
       monorepo, a generated-heavy repository, and representative change sets.
 - [ ] Review reading-plan coverage and reasons, context usefulness, impact
       uncertainty, history usefulness, quality semantics, and token economy.
@@ -487,7 +487,7 @@ rerun T17 and T18 after fixes.
 
 ### T20 — Audit safety and compatibility
 
-**Outcome:** The completed feature set preserves Codeplat's read-only, bounded,
+**Outcome:** The completed feature set preserves Dalil's read-only, bounded,
 deterministic, and compatible behavior under hostile and partial conditions.
 
 **Blocked by:** T17 and T18.

@@ -2,7 +2,7 @@
 title: Manifest support
 ---
 
-Codeplat treats common package, workspace, and build manifests as repository landmarks.
+Dalil treats common package, workspace, and build manifests as repository landmarks.
 
 For `Cargo.toml`, `package.json`, and `pyproject.toml`, it also reads a bounded subset
 of metadata that can point to runtime code, public library code, and common build, test,
@@ -17,17 +17,17 @@ reading plan can prefer that file over a conventional filename.
 
 ### `Cargo.toml`
 
-Codeplat reads Cargo's package and target tables:
+Dalil reads Cargo's package and target tables:
 
 - `[lib]` identifies the library target. Its `path` overrides `src/lib.rs`.
 - `[[bin]]` identifies named runtime targets. Its `path` overrides Cargo's inferred
   target path.
-- `package.autolib` and `package.autobins` control whether Codeplat considers Cargo's
+- `package.autolib` and `package.autobins` control whether Dalil considers Cargo's
   default `src/lib.rs` and `src/main.rs` targets.
 - Reports include `cargo build`, `cargo test`, and a `cargo run --bin NAME` command for
   each identified binary.
 
-Cargo can infer targets from the filesystem, so Codeplat records an inferred default
+Cargo can infer targets from the filesystem, so Dalil records an inferred default
 only when the corresponding source file exists. It does not expand workspace members,
 features, or build-script output.
 
@@ -35,7 +35,7 @@ See the [Cargo targets reference](https://doc.rust-lang.org/cargo/reference/carg
 
 ### `package.json`
 
-Codeplat reads these npm package fields:
+Dalil reads these npm package fields:
 
 - `bin` identifies installed command entry points.
 - `main`, `module`, and string paths nested under `exports` identify public module entry
@@ -43,9 +43,9 @@ Codeplat reads these npm package fields:
 - common script names identify commands: `build`, `build:*`, `test`, `test:*`, `start`,
   `dev`, `serve`, and `run`.
 - `packageManager` selects `npm`, `pnpm`, `yarn`, or `bun` for script commands when
-  declared. Codeplat uses `npm` when the field is absent or unsupported.
+  declared. Dalil uses `npm` when the field is absent or unsupported.
 
-Script bodies are not interpreted. Codeplat reports the package-manager invocation, such
+Script bodies are not interpreted. Dalil reports the package-manager invocation, such
 as `pnpm run test`, without running it.
 
 Conditional and array exports are traversed only far enough to collect bounded string
@@ -57,7 +57,7 @@ See npm's [`package.json` reference](https://docs.npmjs.com/files/package.json/)
 
 ### `pyproject.toml`
 
-Codeplat reads standardized Python packaging metadata and one common test-tool table:
+Dalil reads standardized Python packaging metadata and one common test-tool table:
 
 - `[project.scripts]` and `[project.gui-scripts]` identify installed command entry points.
 - `[project].import-names` identifies public import packages when it is present.
@@ -65,7 +65,7 @@ Codeplat reads standardized Python packaging metadata and one common test-tool t
 - `[tool.pytest]` adds the common `pytest` command.
 - `[tool.poetry.scripts]` is accepted as a compatibility source for command entry points.
 
-Python entry points name importable objects rather than files. Codeplat checks the corresponding
+Python entry points name importable objects rather than files. Dalil checks the corresponding
 module and package paths at the project root and under `src/`, then records a resolved path only
 when one exists. It does not import Python modules or invoke a build backend. See the
 [`pyproject.toml` specification](https://packaging.python.org/en/latest/specifications/pyproject-toml/)
@@ -106,7 +106,7 @@ most 16 runtime targets, 16 library targets, and 16 commands; individual names a
 declarations are capped at 512 characters. The manifest metadata's `truncated` field
 reports when an item cap discarded additional declarations.
 
-Codeplat validates declared paths as repository-relative paths and resolves them only
+Dalil validates declared paths as repository-relative paths and resolves them only
 against files already visible in the selected scope. Absolute paths, parent traversal,
 missing files, generated values, environment interpolation, plugin behavior, and
 executable configuration are left unresolved.

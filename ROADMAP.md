@@ -1,17 +1,17 @@
 ---
-title: "Codeplat roadmap"
+title: "Dalil roadmap"
 status: "in-progress"
 updated: "2026-08-13"
 ---
 
-Codeplat is a deterministic context compiler for software repositories. It turns
+Dalil is a deterministic context compiler for software repositories. It turns
 repository structure, history, task signals, and current changes into a small,
 evidence-backed map of what a person or coding agent should inspect next.
 
 The product begins with repository orientation and grows through milestones.
 Milestones define the scope and order of the work.
 
-Codeplat should answer:
+Dalil should answer:
 
 > Given this repository, task, current changes, and context budget, what is the
 > smallest useful set of evidence someone should inspect next?
@@ -80,7 +80,7 @@ acting only as a boost after global ranking. Inputs are explicit and typed:
 - relevant project roots;
 - desired evidence families and remaining context budget.
 
-The host interprets conversations and editor state. Codeplat does not scrape
+The host interprets conversations and editor state. Dalil does not scrape
 either source.
 
 ### Prefer task-shaped operations
@@ -101,14 +101,14 @@ requirements when several files are needed to understand the task.
 ### Current Command Surface
 
 ```text
-codeplat [OPTIONS] [PATH]
-codeplat map [OPTIONS] [PATH]
-codeplat history [OPTIONS] [PATH]
-codeplat history <churn|contributors|bugs|activity|firefighting> [OPTIONS] [PATH]
-codeplat explain [OPTIONS] <PATH-OR-SYMBOL> [PATH]
-codeplat cache <path|status|prune|clear>
-codeplat capabilities [--json]
-codeplat doctor [OPTIONS] [PATH]
+dalil [OPTIONS] [PATH]
+dalil map [OPTIONS] [PATH]
+dalil history [OPTIONS] [PATH]
+dalil history <churn|contributors|bugs|activity|firefighting> [OPTIONS] [PATH]
+dalil explain [OPTIONS] <PATH-OR-SYMBOL> [PATH]
+dalil cache <path|status|prune|clear>
+dalil capabilities [--json]
+dalil doctor [OPTIONS] [PATH]
 ```
 
 - `PATH` defaults to the current directory and must resolve within the
@@ -125,10 +125,10 @@ The planned task-shaped operations extend this surface without creating a
 second analysis pipeline:
 
 ```text
-codeplat orient [OPTIONS] [PATH]
-codeplat context --task <TEXT> [OPTIONS] [PATH]
-codeplat impact <REVISION-RANGE> [OPTIONS] [PATH]
-codeplat search <PATH-OR-SYMBOL> [OPTIONS] [PATH]
+dalil orient [OPTIONS] [PATH]
+dalil context --task <TEXT> [OPTIONS] [PATH]
+dalil impact <REVISION-RANGE> [OPTIONS] [PATH]
+dalil search <PATH-OR-SYMBOL> [OPTIONS] [PATH]
 ```
 
 The default command may remain the concise orientation entry point. Exact CLI
@@ -192,7 +192,7 @@ budget
 desired evidence families
 ```
 
-It composes current Codeplat evidence into an answer-shaped `ContextBundle`:
+It composes current Dalil evidence into an answer-shaped `ContextBundle`:
 
 ```text
 ContextBundle
@@ -306,7 +306,7 @@ expansion.
 
 ### Trust, Scope, and Persistent Analysis
 
-- Target repositories remain read-only. Codeplat never invokes system Git,
+- Target repositories remain read-only. Dalil never invokes system Git,
   hooks, filters, credentials, editors, pagers, repository commands, or network
   transports.
 - Tree, index, walk, and cache paths remain untrusted until validated. Worktree
@@ -352,7 +352,7 @@ API is available.
   files, edited files, identifiers, budget, and worktree changes directly.
 
 A small agent skill teaches consumers when to use each operation and when to
-fall back to source search. Codeplat narrows exploration; it does not replace
+fall back to source search. Dalil narrows exploration; it does not replace
 reading source.
 
 Lifecycle adapters may offer a small orientation notice at session start, pass
@@ -385,7 +385,7 @@ selection, invalidation, and rendering but do not replace black-box assertions.
 Required coverage includes:
 
 - semantic Markdown snapshots and JSON assertions for small projects,
-  Codeplat, mixed-language repositories, and monorepos;
+  Dalil, mixed-language repositories, and monorepos;
 - conformance fixtures for every first-class language;
 - generated, vendored, minified, malformed, high-ambiguity, ignored-tree,
   hostile-path, stale-cache, change-range, and deep-history cases;
@@ -447,7 +447,7 @@ graph, generated release assets, Linux, macOS, Windows, and Rust 1.85.
   repositories, describe lexical evidence as semantic resolution, or hide
   omitted or partial analysis to improve apparent quality.
 
-Codeplat is not an autonomous coding agent, documentation generator, vector
+Dalil is not an autonomous coding agent, documentation generator, vector
 database, project wiki, architectural memory engine, source host, general code
 quality score, language-server replacement, universal compiler-grade analyzer,
 mandatory daemon, or exhaustive MCP graph server.
@@ -478,4 +478,4 @@ mandatory daemon, or exhaustive MCP graph server.
 
 - [Implementation milestones](TODO.md)
 - [Research notes](notes/README.md)
-- [JSON schema](schema/v1/codeplat.json)
+- [JSON schema](schema/v1/dalil.json)

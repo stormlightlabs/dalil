@@ -219,13 +219,13 @@ impl Render {
                 .join(", ");
             writeln!(output, "Actionable degradation: {issues}.").expect("writing to a string cannot fail");
             let next = if quality.unsafe_paths {
-                "codeplat doctor"
+                "dalil doctor"
             } else if quality.stale {
-                "codeplat map --cache always"
+                "dalil map --cache always"
             } else if command == super::CommandName::History {
-                "codeplat history --profile evidence"
+                "dalil history --profile evidence"
             } else {
-                "codeplat map --profile evidence"
+                "dalil map --profile evidence"
             };
             writeln!(output, "Next useful command: `{next}`.").expect("writing to a string cannot fail");
         }
@@ -278,7 +278,7 @@ impl Render {
         }
         writeln!(
             output,
-            "Detailed history evidence: use `codeplat history`, a focused history subcommand, `--profile evidence`, or `--json`."
+            "Detailed history evidence: use `dalil history`, a focused history subcommand, `--profile evidence`, or `--json`."
         )
         .expect("writing to a string cannot fail");
         Render::history_limitations(output, history);
@@ -329,7 +329,7 @@ impl Render {
         }
         writeln!(
             output,
-            "Detailed structural evidence: use `codeplat map`, `codeplat explain`, or `--json`."
+            "Detailed structural evidence: use `dalil map`, `dalil explain`, or `--json`."
         )
         .expect("writing to a string cannot fail");
     }

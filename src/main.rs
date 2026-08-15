@@ -1,3 +1,3 @@
 fn main() {
-    std::process::exit(codeplat::run());
+    std::process::exit(dalil::run());
 }

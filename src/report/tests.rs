@@ -59,7 +59,7 @@ fn compact_markdown_applies_the_map_token_budget_to_the_whole_report() {
     let markdown = report.render(OutputFormat::Markdown).expect("markdown renders");
 
     assert!(crate::utils::token_count(&markdown) <= 100);
-    assert!(markdown.starts_with("# Codeplat map\n"));
+    assert!(markdown.starts_with("# Dalil map\n"));
     assert!(markdown.contains("A concise summary that must remain available."));
     assert!(markdown.contains("Report truncated at the compact Markdown token budget"));
 
@@ -142,7 +142,7 @@ fn html_is_embedded_deterministic_and_escapes_report_content() {
 #[test]
 fn schema_and_golden_v1_corpus_cover_all_report_variants() {
     let schema: serde_json::Value =
-        serde_json::from_str(include_str!("../../schema/v1/codeplat.json")).expect("schema is valid JSON");
+        serde_json::from_str(include_str!("../../schema/v1/dalil.json")).expect("schema is valid JSON");
     assert_eq!(
         schema["$defs"]["analysis_report"]["properties"]["schema_version"]["const"],
         1

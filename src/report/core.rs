@@ -1283,7 +1283,7 @@ impl Report {
             None => self.command.name.label().to_owned(),
         };
 
-        writeln!(output, "# Codeplat {command}").expect("writing to a string cannot fail");
+        writeln!(output, "# Dalil {command}").expect("writing to a string cannot fail");
         writeln!(output).expect("writing to a string cannot fail");
         writeln!(output, "Schema version: {}", self.schema_version).expect("writing to a string cannot fail");
         writeln!(

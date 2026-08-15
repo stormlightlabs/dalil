@@ -32,7 +32,7 @@ enum SubcommandName {
     Capabilities,
     /// Explain the bounded evidence behind a path or symbol recommendation.
     Explain(ExplainCommand),
-    /// Check local discovery and Codeplat support without analyzing source.
+    /// Check local discovery and Dalil support without analyzing source.
     Doctor(DoctorCommand),
 }
 
@@ -44,7 +44,7 @@ enum CacheOperation {
     Status,
     /// Remove expired and over-limit records.
     Prune,
-    /// Remove all Codeplat cache records.
+    /// Remove all Dalil cache records.
     Clear,
 }
 
@@ -240,29 +240,29 @@ struct CacheCommandCli {
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "codeplat",
+    name = "dalil",
     version,
     about = "Read-only repository orientation for people and coding agents.",
-    long_about = "Codeplat produces a concise, evidence-backed repository briefing.
+    long_about = "Dalil produces a concise, evidence-backed repository briefing.
 
 The default command combines Git-history signals with a ranked source map.
 
 Use `map` or `history` for focused reports.
 
 Examples:
-    codeplat .
-    codeplat --json .
-    codeplat --html . > codeplat-report.html
-    codeplat --html --open .
-    codeplat --focus parser --focus-path src .
-    codeplat --no-cache .
-    codeplat map --json
-    codeplat history contributors .
-    codeplat explain src/parser.rs --json
-    codeplat capabilities --json
-    codeplat doctor --json
+    dalil .
+    dalil --json .
+    dalil --html . > dalil-report.html
+    dalil --html --open .
+    dalil --focus parser --focus-path src .
+    dalil --no-cache .
+    dalil map --json
+    dalil history contributors .
+    dalil explain src/parser.rs --json
+    dalil capabilities --json
+    dalil doctor --json
 
-See https://github.com/stormlightlabs/codeplat/issues for support and bug reports.
+See https://github.com/stormlightlabs/dalil/issues for support and bug reports.
 
 Exit status:
     0  success
@@ -390,11 +390,11 @@ impl Cli {
 
 #[derive(Debug, clap::Args)]
 #[command(after_help = "Examples:
-    codeplat map
-    codeplat map --json
-    codeplat map --html > codeplat-map.html
+    dalil map
+    dalil map --json
+    dalil map --html > dalil-map.html
 
-Support: https://github.com/stormlightlabs/codeplat/issues
+Support: https://github.com/stormlightlabs/dalil/issues
 ")]
 struct MapCommand {
     #[command(flatten)]
@@ -410,13 +410,13 @@ struct MapCommand {
 
 #[derive(Debug, clap::Args)]
 #[command(after_help = "Examples:
-    codeplat explain src/parser.rs --json
-    codeplat explain Parser --focus Parser --json
+    dalil explain src/parser.rs --json
+    dalil explain Parser --focus Parser --json
 
 The explanation reports bounded focus, history, landmark, graph, ranking,
 ambiguity, and omission evidence. It is heuristic evidence, not a semantic call graph.
 
-Support: https://github.com/stormlightlabs/codeplat/issues
+Support: https://github.com/stormlightlabs/dalil/issues
 ")]
 struct ExplainCommand {
     #[command(flatten)]
@@ -517,10 +517,10 @@ impl MapOptions {
 
 #[derive(Debug, clap::Args)]
 #[command(after_help = "Examples:
-    codeplat history
-    codeplat history contributors .
+    dalil history
+    dalil history contributors .
 
-Support: https://github.com/stormlightlabs/codeplat/issues
+Support: https://github.com/stormlightlabs/dalil/issues
 ")]
 struct HistoryCommand {
     #[command(flatten)]
@@ -539,11 +539,11 @@ struct HistoryCommand {
 
 #[derive(Debug, clap::Args)]
 #[command(after_help = "Examples:
-    codeplat history churn
-    codeplat history bugs --json
-    codeplat history --html > codeplat-history.html
+    dalil history churn
+    dalil history bugs --json
+    dalil history --html > dalil-history.html
 
-Support: https://github.com/stormlightlabs/codeplat/issues
+Support: https://github.com/stormlightlabs/dalil/issues
 ")]
 struct HistoryOperationCommand {
     #[command(flatten)]
@@ -794,7 +794,7 @@ where
 
     let color_policy = cli.color_policy();
 
-    match invoke(cli, stdout, stderr, stderr_is_terminal).context("could not invoke Codeplat") {
+    match invoke(cli, stdout, stderr, stderr_is_terminal).context("could not invoke Dalil") {
         Ok(()) => ExitCategory::Success,
         Err(error) => {
             let category = error
@@ -829,7 +829,7 @@ fn invoke<W: Write, E: Write>(
     }
     if let Some(SubcommandName::Cache(cache)) = &cli.command {
         if stderr_is_terminal {
-            let _ = writeln!(stderr, "codeplat: reading cache metadata…");
+            let _ = writeln!(stderr, "dalil: reading cache metadata…");
         }
         let report = crate::map::cache_control(cache.operation.into())
             .map_err(|error| ApplicationError::Report(crate::report::ReportError::Map(error)))?;
@@ -838,7 +838,7 @@ fn invoke<W: Write, E: Write>(
         return Ok(());
     }
     if stderr_is_terminal {
-        let _ = writeln!(stderr, "codeplat: analyzing repository…");
+        let _ = writeln!(stderr, "dalil: analyzing repository…");
     }
     let strict = cli.output.strict;
     let report = Report::analyze(cli.into()).map_err(ApplicationError::Report)?;
@@ -859,12 +859,12 @@ fn deliver_output<W: Write, E: Write>(
         if format == OutputFormat::Html {
             let path = open_html_report(output.as_bytes())
                 .map_err(|(path, error)| ApplicationError::OpenReport { path, error })?;
-            let _ = writeln!(stderr, "codeplat: opened HTML report at `{}`", path.display());
+            let _ = writeln!(stderr, "dalil: opened HTML report at `{}`", path.display());
             return Ok(());
         }
         let _ = writeln!(
             stderr,
-            "codeplat: warning: `--open` only applies to HTML output; writing {format:?} to stdout"
+            "dalil: warning: `--open` only applies to HTML output; writing {format:?} to stdout"
         );
     }
     write_stdout(stdout, output.as_bytes(), label)
@@ -901,7 +901,7 @@ fn temporary_report_directory() -> PathBuf {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_nanos());
-    std::env::temp_dir().join(format!("codeplat-report-{}-{timestamp}", std::process::id()))
+    std::env::temp_dir().join(format!("dalil-report-{}-{timestamp}", std::process::id()))
 }
 
 fn create_private_directory(path: &Path) -> io::Result<()> {
@@ -960,7 +960,7 @@ fn render_cache_control(
         OutputFormat::Html => crate::report::render_cache_html(report),
         OutputFormat::Markdown => {
             let path = utils::escape_inline_code(report.path.as_deref().unwrap_or("not configured"));
-            let mut output = format!("# Codeplat cache {}\n\n", report.operation);
+            let mut output = format!("# Dalil cache {}\n\n", report.operation);
             output.push_str(&format!("Path: `{path}`\n"));
             output.push_str(&format!("Exists: {}\n", report.exists));
             output.push_str(&format!(

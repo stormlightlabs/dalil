@@ -39,10 +39,10 @@ jobs:
         if: matrix.archive == 'tar.gz'
         shell: bash
         run: |
-          archive="codeplat-${{ matrix.target }}.tar.gz"
-          package="codeplat-${{ matrix.target }}"
+          archive="dalil-${{ matrix.target }}.tar.gz"
+          package="dalil-${{ matrix.target }}"
           mkdir -p "$package/assets"
-          cp "target/${{ matrix.target }}/release/codeplat" "$package/"
+          cp "target/${{ matrix.target }}/release/dalil" "$package/"
           cp -R assets/completions assets/man "$package/assets/"
           tar -czf "$archive" "$package"
           shasum -a 256 "$archive" > "$archive.sha256"
@@ -50,18 +50,18 @@ jobs:
         if: matrix.archive == 'zip'
         shell: pwsh
         run: |
-          $archive = "codeplat-${{ matrix.target }}.zip"
-          $package = "codeplat-${{ matrix.target }}"
+          $archive = "dalil-${{ matrix.target }}.zip"
+          $package = "dalil-${{ matrix.target }}"
           New-Item -ItemType Directory -Force "$package/assets" | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/codeplat.exe" $package
+          Copy-Item "target/${{ matrix.target }}/release/dalil.exe" $package
           Copy-Item -Recurse assets/completions, assets/man "$package/assets"
           Compress-Archive -Path $package -DestinationPath $archive
           $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLower()
           "$hash  $archive" | Set-Content -NoNewline "$archive.sha256"
       - uses: actions/upload-artifact@v4
         with:
-          name: codeplat-${{ matrix.target }}
+          name: dalil-${{ matrix.target }}
           path: |
-            codeplat-${{ matrix.target }}.${{ matrix.archive }}
-            codeplat-${{ matrix.target }}.${{ matrix.archive }}.sha256
+            dalil-${{ matrix.target }}.${{ matrix.archive }}
+            dalil-${{ matrix.target }}.${{ matrix.archive }}.sha256
           if-no-files-found: error

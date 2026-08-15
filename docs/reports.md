@@ -2,7 +2,7 @@
 title: Report Formats
 ---
 
-Codeplat renders the same typed report model as Markdown, JSON, or HTML. The
+Dalil renders the same typed report model as Markdown, JSON, or HTML. The
 selected analysis profile controls how much evidence the report contains; the
 format controls how that evidence is presented.
 
@@ -12,16 +12,16 @@ Markdown is the default. It works well in a terminal, a pull request, or a text
 file.
 
 ```sh
-codeplat
-codeplat map src
-codeplat history contributors
+dalil
+dalil map src
+dalil history contributors
 ```
 
 Use `--format markdown` when a script or wrapper needs to select the default
 explicitly:
 
 ```sh
-codeplat map --format markdown > map.md
+dalil map --format markdown > map.md
 ```
 
 ## JSON
@@ -30,15 +30,15 @@ JSON is intended for scripts, coding agents, and other tools that need typed
 fields rather than formatted prose.
 
 ```sh
-codeplat --json
-codeplat map --format json > map.json
-codeplat explain Parser --json
+dalil --json
+dalil map --format json > map.json
+dalil explain Parser --json
 ```
 
 `--json` is shorthand for `--format json`.
 
 JSON reports use `schema_version: 1`. The schema is available at
-[`schema/v1/codeplat.json`](../schema/v1/codeplat.json), with compatibility
+[`schema/v1/dalil.json`](../schema/v1/dalil.json), with compatibility
 examples in [`schema/v1/golden`](../schema/v1/golden).
 
 ## HTML
@@ -47,17 +47,17 @@ HTML produces a standalone document for reading, sharing, or archiving in a
 browser.
 
 ```sh
-codeplat --html > codeplat-report.html
-codeplat history --format html > history.html
-codeplat doctor . --html > doctor.html
-codeplat --html --open
+dalil --html > dalil-report.html
+dalil history --format html > history.html
+dalil doctor . --html > doctor.html
+dalil --html --open
 ```
 
 `--html` is shorthand for `--format html`.
 
 `--open` writes the report to a private temporary file, opens it with the
 platform's default browser, and prints the temporary path to stderr. It does not
-write a second copy to stdout. On macOS, Codeplat uses `open`; on Linux and
+write a second copy to stdout. On macOS, Dalil uses `open`; on Linux and
 other Unix systems, it uses `xdg-open`. On Windows, it asks the system to open
 the file with its registered handler.
 
@@ -79,16 +79,16 @@ quick orientation. The `evidence` profile returns larger bounded collections.
 Either profile can use any report format.
 
 ```sh
-codeplat --profile compact --html > briefing.html
-codeplat map --profile evidence --json > map-evidence.json
-codeplat history --profile evidence --format markdown
+dalil --profile compact --html > briefing.html
+dalil map --profile evidence --json > map-evidence.json
+dalil history --profile evidence --format markdown
 ```
 
 Collection totals and truncation reasons remain part of the report when a
 profile returns a sample.
 
 For compact Markdown, `--budget` limits the whole rendered report as well as
-the ranked structural-map selection. Codeplat writes the summary and the
+the ranked structural-map selection. Dalil writes the summary and the
 command's priority content first: the reading plan for a briefing and the
 target-specific evidence for `explain`. If the remaining sections do not fit,
 the report ends with a truncation notice. Use JSON for complete typed
@@ -100,13 +100,13 @@ Reports go to stdout. Progress and diagnostics go to stderr, so redirecting
 stdout writes a clean report file:
 
 ```sh
-codeplat --html > report.html
+dalil --html > report.html
 ```
 
 `--color`, `--no-color`, and the `NO_COLOR` environment variable affect
 diagnostics only. Report output never contains ANSI color sequences.
 
-With `--strict`, Codeplat writes the report before returning exit status `5`
+With `--strict`, Dalil writes the report before returning exit status `5`
 when relevant evidence is stale, incomplete, resource-limited, unsafe,
 unsupported, or partial. This lets automation retain the report that explains
 the failure.
