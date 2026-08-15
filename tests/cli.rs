@@ -2239,7 +2239,7 @@ fn map_rejects_unqualified_cross_file_edges_and_applies_focus_and_token_budget()
 }
 
 #[test]
-fn explain_reports_typed_focus_graph_history_and_omission_evidence() {
+fn explain_reports_bounded_reading_guidance_in_json_and_markdown() {
     let fixture = MapFixtureRepository::new();
     let output = fixture.run(&["explain", "duplicate", "--focus", "duplicate", "--no-cache", "--json"]);
     assert!(
@@ -2253,6 +2253,16 @@ fn explain_reports_typed_focus_graph_history_and_omission_evidence() {
     assert_eq!(json["command"]["target"], "duplicate");
     assert_eq!(json["explain"]["target_kind"], "symbol");
     assert!(json["explain"]["matched_paths"].as_array().unwrap().len() >= 2);
+    assert_eq!(json["explain"]["provenance"]["profile"], "compact");
+    assert!(json["explain"]["provenance"]["source_files_analyzed"].as_u64().unwrap() >= 2);
+    assert!(json["explain"]["guidance"].as_array().unwrap().len() >= 2);
+    assert!(
+        json["explain"]["guidance"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|guidance| guidance["ranking"]["contributions"].is_object())
+    );
     assert!(
         json["explain"]["limitations"]
             .as_array()
@@ -2267,10 +2277,17 @@ fn explain_reports_typed_focus_graph_history_and_omission_evidence() {
     );
 
     let markdown = fixture.run(&["explain", "duplicate", "--focus", "duplicate", "--no-cache"]);
+    assert!(markdown.status.success());
+    assert!(markdown.stderr.is_empty());
     let markdown = stdout(&markdown);
     assert!(markdown.chars().count().div_ceil(4) <= 1_000);
-    assert!(markdown.find("### Recommendation explanation").unwrap() < markdown.find("## History analysis").unwrap());
-    assert!(markdown.contains("Target: `duplicate` (Symbol)"));
+    assert!(markdown.contains("Target: `duplicate` (symbol)"));
+    assert!(markdown.contains("Provenance:"));
+    assert!(markdown.contains("Reading guidance:"));
+    assert!(markdown.contains("ranking: score"));
+    assert!(markdown.contains("Next read:"));
+    assert!(!markdown.contains("## History analysis"));
+    assert!(!markdown.contains("## Source map"));
 }
 
 #[test]

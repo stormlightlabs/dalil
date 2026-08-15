@@ -705,6 +705,90 @@ pub struct ExplainReport {
     pub graph_edges: Vec<LexicalEdge>,
     pub ambiguity: Vec<MapFinding>,
     pub omitted_alternatives: Vec<SourceOmission>,
+    /// Reproducibility details for the evidence summarized below.
+    #[serde(default)]
+    pub provenance: ExplainProvenance,
+    /// Bounded reading guidance for every resolved path.
+    #[serde(default)]
+    pub guidance: Vec<ExplainGuidance>,
+    /// The first distinct recommendation selected by the normal reading-plan rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_read: Option<ReadingRecommendation>,
+    /// A bounded lexical route from a declared or conventional entry point.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub walkthrough: Option<ExplainWalkthrough>,
+    pub limitations: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ExplainProvenance {
+    pub task_seeds: TaskSeeds,
+    pub profile: AnalysisProfile,
+    pub source_files_analyzed: usize,
+    pub retained_relationships: usize,
+    pub history_scope: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ExplainGuidance {
+    pub path: String,
+    pub why_read: String,
+    pub confidence: ConfidenceTier,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ranking: Option<ExplainRanking>,
+    #[serde(default)]
+    pub relationships: Vec<LexicalEdge>,
+    #[serde(default)]
+    pub recent_commits: Vec<ExplainCommitContext>,
+    #[serde(default)]
+    pub ambiguity: Vec<MapFinding>,
+    #[serde(default)]
+    pub omissions: Vec<SourceOmission>,
+    #[serde(default)]
+    pub truncation: Vec<ExplainTruncation>,
+    #[serde(default)]
+    pub limitations: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ExplainCommitContext {
+    pub evidence_kind: ExplainHistoryEvidenceKind,
+    pub commit: CommitEvidence,
+    pub reason: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExplainHistoryEvidenceKind {
+    Bug,
+    Firefighting,
+}
+
+impl ExplainHistoryEvidenceKind {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Bug => "bug",
+            Self::Firefighting => "firefighting",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ExplainTruncation {
+    pub evidence: String,
+    pub total: usize,
+    pub returned: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<TruncationReason>,
+    pub detail: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ExplainWalkthrough {
+    pub entry_point: ReadingRecommendation,
+    pub target_path: String,
+    pub paths: Vec<String>,
+    pub relationships: Vec<LexicalEdge>,
     pub limitations: Vec<String>,
 }
 
@@ -721,6 +805,12 @@ pub struct ExplainRanking {
     pub focus_matches: usize,
     pub incoming_edges: usize,
     pub outgoing_edges: usize,
+    /// The strongest visible score components for this path remain explicit.
+    #[serde(default)]
+    pub contributions: RankingContributions,
+    /// Typed task, focus, history, and proximity inputs that matched this path.
+    #[serde(default)]
+    pub matched_seeds: Vec<RankingSeedMatch>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

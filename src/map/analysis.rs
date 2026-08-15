@@ -589,12 +589,20 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
     let reading_evidence = ReadingPlanEvidence {
         sources: files
             .iter()
-            .map(|file| ReadingSourceEvidence { path: file.path.clone(), limitations: file.limitations.clone() })
+            .map(|file| ReadingSourceEvidence {
+                path: file.path.clone(),
+                symbols: file.symbols.clone(),
+                limitations: file.limitations.clone(),
+            })
             .collect(),
         ranking: ranking.clone(),
         graph: edges
             .iter()
-            .map(|edge| ReadingGraphEvidence { source: edge.source.clone(), target: edge.target.clone() })
+            .map(|edge| ReadingGraphEvidence {
+                source: edge.source.clone(),
+                target: edge.target.clone(),
+                relationship: edge.clone(),
+            })
             .collect(),
         omissions: omissions.clone(),
         landmarks: topology.landmarks.clone(),

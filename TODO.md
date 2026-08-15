@@ -67,19 +67,19 @@ it, and what to inspect next.
 
 **Acceptance criteria:**
 
-- [ ] Report the strongest ranking contributions, confidence, provenance, and
+- [x] Report the strongest ranking contributions, confidence, provenance, and
       relevant relationships for each recommendation.
-- [ ] Suggest a next file or symbol using the same bounded selection rules.
-- [ ] Provide an entry-point-to-subsystem walkthrough when the evidence supports
+- [x] Suggest a next file or symbol using the same bounded selection rules.
+- [x] Provide an entry-point-to-subsystem walkthrough when the evidence supports
       one.
-- [ ] Include concise recent-commit context when it materially changes the
+- [x] Include concise recent-commit context when it materially changes the
       recommendation.
-- [ ] State ambiguity, unsupported languages, omissions, and budget truncation
+- [x] State ambiguity, unsupported languages, omissions, and budget truncation
       beside the affected guidance.
-- [ ] Keep Markdown and JSON semantically equivalent.
+- [x] Keep Markdown and JSON semantically equivalent.
 
-**Verification:** Add golden CLI fixtures for strong, ambiguous, partial, and
-budget-limited explanations in both output formats.
+**Verification:** JSON and Markdown fixtures cover strong, ambiguous, partial,
+and budget-limited guidance; run the focused report and CLI fixture tests.
 
 ## Milestone: Task-oriented context bundles
 

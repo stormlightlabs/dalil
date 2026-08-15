@@ -413,8 +413,9 @@ struct MapCommand {
     dalil explain src/parser.rs --json
     dalil explain Parser --focus Parser --json
 
-The explanation reports bounded focus, history, landmark, graph, ranking,
-ambiguity, and omission evidence. It is heuristic evidence, not a semantic call graph.
+The explanation gives per-path reading guidance with ranking contributions,
+relationships, relevant history, uncertainty, and a suggested next read. It is
+heuristic evidence, not a semantic call graph.
 
 Support: https://github.com/stormlightlabs/dalil/issues
 ")]

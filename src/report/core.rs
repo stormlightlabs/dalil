@@ -605,6 +605,16 @@ pub enum ExplainTargetKind {
     Unmatched,
 }
 
+impl ExplainTargetKind {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Path => "path",
+            Self::Symbol => "symbol",
+            Self::Unmatched => "unmatched",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StrictIssue {
@@ -746,6 +756,7 @@ pub struct ReadingPlanEvidence {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReadingSourceEvidence {
     pub path: String,
+    pub symbols: Vec<SourceSymbol>,
     pub limitations: Vec<String>,
 }
 
@@ -753,6 +764,7 @@ pub struct ReadingSourceEvidence {
 pub struct ReadingGraphEvidence {
     pub source: String,
     pub target: String,
+    pub relationship: LexicalEdge,
 }
 
 /// Typed history-analysis inputs that are also reported for reproducibility.
@@ -1143,9 +1155,8 @@ impl Report {
                     map::analyze_with_history(&path, &map_settings, Some(&history_report)).map_err(ReportError::Map)?;
                 let explain = analysis::explain_report(&target, &map_report, &history_report);
                 let summary = format!(
-                    "Explained `{target}` using {} source files and {} retained graph edges within scoped history evidence.",
-                    map_report.inventory.analyzed,
-                    map_report.edges.len(),
+                    "Explained `{target}` using {} source files and {} retained lexical relationships within scoped history evidence.",
+                    map_report.inventory.analyzed, explain.provenance.retained_relationships,
                 );
                 Ok(Self::from_parts(
                     req,
@@ -1339,7 +1350,7 @@ impl Report {
             } else if let Some(map) = &self.map {
                 Render::map_markdown(&mut output, map);
             }
-        } else {
+        } else if self.command.name != CommandName::Explain {
             if let Some(history) = &self.history {
                 if self.profile == AnalysisProfile::Compact && self.command.operation.is_none() {
                     Render::history_briefing_markdown(&mut output, history);

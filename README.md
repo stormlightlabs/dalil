@@ -192,8 +192,16 @@ are reusable across map scopes.
 
 ### `dalil explain <PATH-OR-SYMBOL> [PATH]`
 
-Explain decomposes a bounded recommendation into typed focus, graph, ranking,
-history-overlap, landmark, ambiguity, and omitted-alternative evidence.
+Explain turns a path or symbol into a reading decision. For each resolved path it
+reports why to read it, confidence, ranking contributions and matched seeds,
+lexical relationships, relevant keyword-matched commits, and any ambiguity,
+omission, partial-source, or budget limitation that qualifies the advice.
+
+It then suggests one distinct next read using the normal reading-plan selection
+rules. When retained lexical edges connect a declared or conventional runtime
+entry point to the target, it also shows that short route. The route is lexical
+evidence, not proof of runtime control flow. Markdown and JSON carry the same
+guidance.
 
 ### `dalil history [OPERATION] [OPTIONS] [PATH]`
 

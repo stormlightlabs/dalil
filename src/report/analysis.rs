@@ -23,6 +23,22 @@ struct ReadingCandidateInput {
     limitations: Vec<String>,
 }
 
+const MAX_EXPLAIN_SYMBOLS: usize = 128;
+const MAX_EXPLAIN_EDGES: usize = 128;
+const MAX_GUIDANCE_EDGES: usize = 8;
+const MAX_GUIDANCE_FINDINGS: usize = 8;
+
+struct ExplainEvidence<'a> {
+    map: &'a MapReport,
+    history: &'a HistoryReport,
+    sources: &'a [ReadingSourceEvidence],
+    ranks: &'a [FileRank],
+    edges: &'a [LexicalEdge],
+    reading_plan: &'a ReadingPlan,
+    incoming: &'a BTreeMap<String, usize>,
+    outgoing: &'a BTreeMap<String, usize>,
+}
+
 pub fn language_provenance(map: Option<&MapReport>) -> BTreeMap<String, LanguageProvenance> {
     let encountered = map.map(|report| &report.query_packs);
     map::language_capabilities()
@@ -238,13 +254,21 @@ pub fn build_reading_plan(history: &HistoryReport, map: &MapReport) -> ReadingPl
             sources: map
                 .files
                 .iter()
-                .map(|file| ReadingSourceEvidence { path: file.path.clone(), limitations: file.limitations.clone() })
+                .map(|file| ReadingSourceEvidence {
+                    path: file.path.clone(),
+                    symbols: file.symbols.clone(),
+                    limitations: file.limitations.clone(),
+                })
                 .collect(),
             ranking: map.ranking.clone(),
             graph: map
                 .edges
                 .iter()
-                .map(|edge| ReadingGraphEvidence { source: edge.source.clone(), target: edge.target.clone() })
+                .map(|edge| ReadingGraphEvidence {
+                    source: edge.source.clone(),
+                    target: edge.target.clone(),
+                    relationship: edge.clone(),
+                })
                 .collect(),
             omissions: map.omissions.clone(),
             landmarks: map.landmarks.clone(),
@@ -779,9 +803,12 @@ pub fn briefing_summary(history: &HistoryReport, map: &MapReport) -> String {
 }
 
 pub fn explain_report(target: &str, map: &MapReport, history: &HistoryReport) -> ExplainReport {
+    let sources = explain_sources(map);
+    let ranks = explain_ranks(map);
+    let edges = explain_edges(map);
     let target = target.trim().to_owned();
     let normalized_target = target.trim_start_matches("./");
-    let exact_path = map.files.iter().any(|file| file.path == normalized_target)
+    let exact_path = sources.iter().any(|file| file.path == normalized_target)
         || map.omissions.iter().any(|omission| omission.path == normalized_target)
         || (target.contains('/') && std::path::Path::new(&target).extension().is_some());
     let mut matched_paths = std::collections::BTreeSet::new();
@@ -789,7 +816,7 @@ pub fn explain_report(target: &str, map: &MapReport, history: &HistoryReport) ->
     if exact_path {
         matched_paths.insert(normalized_target.to_owned());
     }
-    for file in &map.files {
+    for file in &sources {
         for symbol in &file.symbols {
             let qualified = if symbol.scope.is_empty() {
                 symbol.name.clone()
@@ -798,7 +825,7 @@ pub fn explain_report(target: &str, map: &MapReport, history: &HistoryReport) ->
             };
             if !exact_path && (symbol.name == target || qualified == target) {
                 matched_paths.insert(file.path.clone());
-                if matched_symbols.len() < 128 {
+                if matched_symbols.len() < MAX_EXPLAIN_SYMBOLS {
                     matched_symbols.push(ExplainSymbolMatch { path: file.path.clone(), symbol: symbol.clone() });
                 }
             }
@@ -812,8 +839,7 @@ pub fn explain_report(target: &str, map: &MapReport, history: &HistoryReport) ->
         ExplainTargetKind::Unmatched
     };
 
-    let mut focus_matches = map
-        .ranking
+    let mut focus_matches = ranks
         .iter()
         .filter(|rank| matched_paths.contains(&rank.path) && rank.focus_matches > 0)
         .map(|rank| rank.path.clone())
@@ -823,30 +849,22 @@ pub fn explain_report(target: &str, map: &MapReport, history: &HistoryReport) ->
 
     let mut incoming = BTreeMap::<String, usize>::new();
     let mut outgoing = BTreeMap::<String, usize>::new();
-    for edge in &map.edges {
+    for edge in &edges {
         *incoming.entry(edge.target.clone()).or_default() += 1;
         *outgoing.entry(edge.source.clone()).or_default() += 1;
     }
-    let ranking = map
-        .ranking
+    let ranking = ranks
         .iter()
         .filter(|rank| matched_paths.contains(&rank.path))
-        .map(|rank| ExplainRanking {
-            path: rank.path.clone(),
-            score: rank.score,
-            focus_matches: rank.focus_matches,
-            incoming_edges: incoming.get(&rank.path).copied().unwrap_or_default(),
-            outgoing_edges: outgoing.get(&rank.path).copied().unwrap_or_default(),
-        })
+        .map(|rank| explain_ranking(rank, &incoming, &outgoing))
         .collect::<Vec<_>>();
 
-    let graph_edges = map
-        .edges
+    let graph_edges = edges
         .iter()
         .filter(|edge| {
             matched_paths.contains(&edge.source) || matched_paths.contains(&edge.target) || edge.symbol == target
         })
-        .take(128)
+        .take(MAX_EXPLAIN_EDGES)
         .cloned()
         .collect::<Vec<_>>();
     let ambiguity = map
@@ -885,6 +903,27 @@ pub fn explain_report(target: &str, map: &MapReport, history: &HistoryReport) ->
         .cloned()
         .collect::<Vec<_>>();
     let landmark = matched_paths.iter().find_map(|path| landmark_for_path(path));
+    let reading_plan = build_reading_plan(history, map);
+    let evidence = ExplainEvidence {
+        map,
+        history,
+        sources: &sources,
+        ranks,
+        edges: &edges,
+        reading_plan: &reading_plan,
+        incoming: &incoming,
+        outgoing: &outgoing,
+    };
+    let guidance = matched_paths
+        .iter()
+        .map(|path| explain_guidance(path, &evidence))
+        .collect::<Vec<_>>();
+    let next_read = reading_plan
+        .recommendations
+        .iter()
+        .find(|recommendation| !matched_paths.contains(&recommendation.path))
+        .cloned();
+    let walkthrough = explain_walkthrough(&matched_paths, &edges, &reading_plan);
     let mut limitations = vec![
         "This explanation describes bounded lexical evidence and ranking heuristics; it is not a semantic call graph or access check.".to_owned(),
     ];
@@ -909,8 +948,322 @@ pub fn explain_report(target: &str, map: &MapReport, history: &HistoryReport) ->
         graph_edges,
         ambiguity,
         omitted_alternatives,
+        provenance: ExplainProvenance {
+            task_seeds: map.task_seeds.clone(),
+            profile: map.profile,
+            source_files_analyzed: map.inventory.analyzed,
+            retained_relationships: edges.len(),
+            history_scope: history.scope_path.clone(),
+        },
+        guidance,
+        next_read,
+        walkthrough,
         limitations,
     }
+}
+
+fn explain_sources(map: &MapReport) -> Vec<ReadingSourceEvidence> {
+    if !map.reading_evidence.sources.is_empty() {
+        return map.reading_evidence.sources.clone();
+    }
+    map.files
+        .iter()
+        .map(|file| ReadingSourceEvidence {
+            path: file.path.clone(),
+            symbols: file.symbols.clone(),
+            limitations: file.limitations.clone(),
+        })
+        .collect()
+}
+
+fn explain_ranks(map: &MapReport) -> &[FileRank] {
+    if map.reading_evidence.ranking.is_empty() { &map.ranking } else { &map.reading_evidence.ranking }
+}
+
+fn explain_edges(map: &MapReport) -> Vec<LexicalEdge> {
+    if map.reading_evidence.graph.is_empty() {
+        map.edges.clone()
+    } else {
+        map.reading_evidence
+            .graph
+            .iter()
+            .map(|evidence| evidence.relationship.clone())
+            .collect()
+    }
+}
+
+fn explain_ranking(
+    rank: &FileRank, incoming: &BTreeMap<String, usize>, outgoing: &BTreeMap<String, usize>,
+) -> ExplainRanking {
+    ExplainRanking {
+        path: rank.path.clone(),
+        score: rank.score,
+        focus_matches: rank.focus_matches,
+        incoming_edges: incoming.get(&rank.path).copied().unwrap_or_default(),
+        outgoing_edges: outgoing.get(&rank.path).copied().unwrap_or_default(),
+        contributions: rank.contributions.clone(),
+        matched_seeds: rank.matched_seeds.clone(),
+    }
+}
+
+fn explain_guidance(path: &str, evidence: &ExplainEvidence<'_>) -> ExplainGuidance {
+    let rank = evidence.ranks.iter().find(|rank| rank.path == path);
+    let relationships = evidence
+        .edges
+        .iter()
+        .filter(|edge| edge.source == path || edge.target == path)
+        .take(MAX_GUIDANCE_EDGES)
+        .cloned()
+        .collect::<Vec<_>>();
+    let ambiguity = evidence
+        .map
+        .findings
+        .iter()
+        .filter(|finding| finding.kind == MapFindingKind::AmbiguousReference && finding.path == path)
+        .take(MAX_GUIDANCE_FINDINGS)
+        .cloned()
+        .collect::<Vec<_>>();
+    let omissions = evidence
+        .map
+        .omissions
+        .iter()
+        .filter(|omission| omission.path == path)
+        .cloned()
+        .collect::<Vec<_>>();
+    let recommendation = evidence
+        .reading_plan
+        .recommendations
+        .iter()
+        .find(|recommendation| recommendation.path == path);
+    let mut limitations = evidence
+        .sources
+        .iter()
+        .find(|file| file.path == path)
+        .map(|file| file.limitations.clone())
+        .unwrap_or_default();
+    if evidence.sources.iter().all(|file| file.path != path) && omissions.is_empty() {
+        limitations.push("No analyzed source evidence was retained for this requested path.".to_owned());
+    }
+    let confidence = recommendation.map_or_else(
+        || {
+            if rank.is_some_and(|rank| rank.focus_matches > 0 || !rank.matched_seeds.is_empty()) {
+                ConfidenceTier::High
+            } else if !relationships.is_empty() || rank.is_some() {
+                ConfidenceTier::Medium
+            } else {
+                ConfidenceTier::Low
+            }
+        },
+        |recommendation| recommendation.confidence,
+    );
+    let why_read = if let Some(recommendation) = recommendation {
+        recommendation.reason.clone()
+    } else if let Some(rank) = rank {
+        if !rank.matched_seeds.is_empty() {
+            format!(
+                "ranking matched {}",
+                rank.matched_seeds
+                    .iter()
+                    .take(3)
+                    .map(|seed| format!("{}:{}", seed.kind.label(), seed.seed))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        } else if !relationships.is_empty() {
+            format!(
+                "{} retained lexical relationship(s) connect this path to nearby source",
+                relationships.len()
+            )
+        } else {
+            "the bounded source-map ranking retained this requested path".to_owned()
+        }
+    } else if !omissions.is_empty() {
+        "the requested path was omitted, so inspect its recorded limitation before relying on nearby evidence"
+            .to_owned()
+    } else {
+        "this path resolves from the requested target, but retained analysis evidence is limited".to_owned()
+    };
+
+    ExplainGuidance {
+        path: path.to_owned(),
+        why_read,
+        confidence,
+        ranking: rank.map(|rank| explain_ranking(rank, evidence.incoming, evidence.outgoing)),
+        relationships,
+        recent_commits: explain_recent_commits(path, evidence.history),
+        ambiguity,
+        omissions,
+        truncation: explain_truncation(path, evidence.map, evidence.history),
+        limitations,
+    }
+}
+
+fn explain_recent_commits(path: &str, history: &HistoryReport) -> Vec<ExplainCommitContext> {
+    const MAX_COMMITS: usize = 3;
+
+    let mut contexts = Vec::new();
+    let mut seen = BTreeSet::new();
+    if let Some(bugs) = &history.bugs {
+        for commit in &bugs.commits {
+            if commit.paths.iter().any(|commit_path| commit_path == path) && seen.insert(commit.id.clone()) {
+                contexts.push(ExplainCommitContext {
+                    evidence_kind: ExplainHistoryEvidenceKind::Bug,
+                    commit: commit.clone(),
+                    reason: "a bounded bug-keyword commit touched this path".to_owned(),
+                });
+            }
+            if contexts.len() == MAX_COMMITS {
+                return contexts;
+            }
+        }
+    }
+    if let Some(firefighting) = &history.firefighting {
+        for commit in &firefighting.commits {
+            if commit.paths.iter().any(|commit_path| commit_path == path) && seen.insert(commit.id.clone()) {
+                contexts.push(ExplainCommitContext {
+                    evidence_kind: ExplainHistoryEvidenceKind::Firefighting,
+                    commit: commit.clone(),
+                    reason: "a bounded firefighting-keyword commit touched this path".to_owned(),
+                });
+            }
+            if contexts.len() == MAX_COMMITS {
+                break;
+            }
+        }
+    }
+    contexts
+}
+
+fn explain_truncation(path: &str, map: &MapReport, history: &HistoryReport) -> Vec<ExplainTruncation> {
+    let mut truncation = Vec::new();
+    for (evidence, summary, detail) in [
+        (
+            "ranking",
+            &map.collections.ranking,
+            "Ranking contributions may omit lower-ranked source paths under the active profile.",
+        ),
+        (
+            "relationships",
+            &map.collections.edges,
+            "Lexical relationships may omit retained candidates under the active profile.",
+        ),
+    ] {
+        if summary.truncated {
+            truncation.push(ExplainTruncation {
+                evidence: evidence.to_owned(),
+                total: summary.total,
+                returned: summary.returned,
+                reason: summary.reason,
+                detail: detail.to_owned(),
+            });
+        }
+    }
+    if map
+        .selection
+        .omitted_relevant_paths
+        .iter()
+        .any(|omission| omission.path == path)
+    {
+        truncation.push(ExplainTruncation {
+            evidence: "snippet_selection".to_owned(),
+            total: map
+                .selection
+                .shortfall
+                .as_ref()
+                .map_or(0, |shortfall| shortfall.target_minimum),
+            returned: map
+                .selection
+                .shortfall
+                .as_ref()
+                .map_or(map.selection.snippets.len(), |shortfall| shortfall.returned),
+            reason: Some(TruncationReason::OutputBudget),
+            detail: map
+                .selection
+                .omitted_relevant_paths
+                .iter()
+                .find(|omission| omission.path == path)
+                .map(|omission| omission.reason.clone())
+                .unwrap_or_default(),
+        });
+    }
+    if history.collections.commits.truncated {
+        truncation.push(ExplainTruncation {
+            evidence: "history".to_owned(),
+            total: history.collections.commits.total,
+            returned: history.collections.commits.returned,
+            reason: history.collections.commits.reason,
+            detail: "History evidence may exclude older reachable commits.".to_owned(),
+        });
+    }
+    truncation
+}
+
+fn explain_walkthrough(
+    matched_paths: &BTreeSet<String>, edges: &[LexicalEdge], reading_plan: &ReadingPlan,
+) -> Option<ExplainWalkthrough> {
+    const MAX_WALKTHROUGH_RELATIONSHIPS: usize = 3;
+
+    let entry_point = reading_plan
+        .recommendations
+        .iter()
+        .find(|recommendation| recommendation.purpose == ReadingPurpose::Runtime)?;
+    for target_path in matched_paths {
+        if target_path == &entry_point.path {
+            continue;
+        }
+        if let Some(relationships) = lexical_route(&entry_point.path, target_path, edges, MAX_WALKTHROUGH_RELATIONSHIPS)
+        {
+            let mut paths = vec![entry_point.path.clone()];
+            paths.extend(relationships.iter().map(|relationship| relationship.target.clone()));
+            return Some(ExplainWalkthrough {
+                entry_point: entry_point.clone(),
+                target_path: target_path.clone(),
+                paths,
+                relationships,
+                limitations: vec![
+                    "This is a bounded lexical route, not proof that runtime control flow executes every relationship."
+                        .to_owned(),
+                ],
+            });
+        }
+    }
+    None
+}
+
+fn lexical_route(
+    entry: &str, target: &str, edges: &[LexicalEdge], max_relationships: usize,
+) -> Option<Vec<LexicalEdge>> {
+    let mut adjacency = BTreeMap::<&str, Vec<&LexicalEdge>>::new();
+    for edge in edges {
+        adjacency.entry(&edge.source).or_default().push(edge);
+    }
+    for edges in adjacency.values_mut() {
+        edges.sort_by(|left, right| {
+            left.target
+                .cmp(&right.target)
+                .then_with(|| left.symbol.cmp(&right.symbol))
+                .then_with(|| left.candidate_group.cmp(&right.candidate_group))
+        });
+    }
+
+    let mut queue = std::collections::VecDeque::from([(entry.to_owned(), Vec::<LexicalEdge>::new())]);
+    let mut visited = BTreeSet::from([entry.to_owned()]);
+    while let Some((path, route)) = queue.pop_front() {
+        if route.len() == max_relationships {
+            continue;
+        }
+        for edge in adjacency.get(path.as_str()).into_iter().flatten() {
+            let mut next_route = route.clone();
+            next_route.push((*edge).clone());
+            if edge.target == target {
+                return Some(next_route);
+            }
+            if visited.insert(edge.target.clone()) {
+                queue.push_back((edge.target.clone(), next_route));
+            }
+        }
+    }
+    None
 }
 
 fn add_reading_candidate(
