@@ -1,14 +1,9 @@
 ---
-title: Report formats
+title: Reports
 description: Render Dalil reports as Markdown, JSON, or standalone HTML.
 section: Reference
 group: Reference
 order: 5
----
-
----
-
-title: Report Formats
 ---
 
 Dalil renders the same typed report model as Markdown, JSON, or HTML. The
@@ -76,8 +71,9 @@ stderr.
 
 The document contains its CSS, JavaScript, and complete JSON report data. The
 report remains usable without JavaScript; the script adds the **Copy JSON**
-button. Manrope and IBM Plex Sans load from Google Fonts when a network
-connection is available, with sans-serif fallbacks for offline use.
+button. Google Sans, Google Sans Code, and IBM Plex Sans load from Google Fonts
+when a network connection is available, with system font fallbacks for offline
+use.
 
 The report starts with the system light or dark theme. The theme control in the
 masthead saves a different choice when browser storage is available.

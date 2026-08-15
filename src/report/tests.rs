@@ -129,9 +129,10 @@ fn html_is_embedded_deterministic_and_escapes_report_content() {
 
     assert_eq!(first, second);
     assert!(first.starts_with("<!doctype html>"));
+    assert!(first.contains("family=Google+Sans"));
+    assert!(first.contains("family=Google+Sans+Code"));
     assert!(first.contains("family=IBM+Plex+Sans"));
-    assert!(first.contains("family=Manrope"));
-    assert!(first.contains("--font-heading: \"Manrope\""));
+    assert!(first.contains("--font-heading: \"Google Sans\""));
     assert!(first.contains("--font-body: \"IBM Plex Sans\""));
     assert!(first.contains("&lt;script&gt;alert"));
     assert!(first.contains("&lt;img src=x onerror=alert"));

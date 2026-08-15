@@ -2,6 +2,7 @@
 	import { resolve } from '$app/paths';
 	import Seo from '$lib/components/Seo.svelte';
 	import SiteHeader from '$lib/components/SiteHeader.svelte';
+	import { META } from '$lib/constants';
 	import { getDocs } from '$lib/content';
 	import { site } from '$lib/site';
 
@@ -14,11 +15,10 @@
 
 <main id="main-content" class="landing">
 	<section class="landing-hero" aria-labelledby="landing-title">
-		<p class="eyebrow">Dalil · documentation</p>
-		<h1 id="landing-title">Find your way through unfamiliar code.</h1>
+		<p class="eyebrow">CODEBASE MAPPING</p>
+		<h1 id="landing-title">{META.title}</h1>
 		<p class="landing-lede">
-			Dalil turns repository structure and Git history into an evidence-backed reading plan for humans and coding
-			agents.
+			{META.tagline}
 		</p>
 		<div class="landing-actions">
 			<a class="button-link" href={resolve('/docs/getting-started/installation/')}>Get started</a>

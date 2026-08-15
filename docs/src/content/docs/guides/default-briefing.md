@@ -1,5 +1,5 @@
 ---
-title: Read the default briefing
+title: Orient a repository
 description: Use Dalil's repository overview and reading plan to orient yourself before editing.
 section: Guides
 group: Guides

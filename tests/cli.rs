@@ -3511,7 +3511,8 @@ fn format_html_and_html_alias_render_the_same_standalone_report() {
     assert!(html.contains("Suggested reading order"));
     assert!(html.contains("Complete report data"));
     assert!(html.contains("IBM+Plex+Sans"));
-    assert!(html.contains("Manrope"));
+    assert!(html.contains("Google+Sans"));
+    assert!(html.contains("Google+Sans+Code"));
     assert!(!html.contains("linear-gradient"));
     assert_plain_report(&html);
 }

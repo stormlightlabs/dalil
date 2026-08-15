@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { META } from '$lib/constants';
+
 	interface Props {
 		width: number;
 		height: number;
@@ -36,15 +38,14 @@
 		<div style="display:flex; flex: 1; margin-top:46px; flex-direction:column;">
 			<div
 				style="display:flex; color:#ff8da0; font-family:'Google Sans'; font-size:18px; font-weight:600; letter-spacing:2.2px;">
-				REPOSITORY ORIENTATION
+				{META.title}
 			</div>
 			<div
 				style="display:flex; max-width:760px; margin-top:10px; color:#ffffff; font-family:'Google Sans'; font-size:72px; font-weight:700; letter-spacing:-2.8px; line-height:0.98;">
 				Find your way through unfamiliar code.
 			</div>
 			<div style="display:flex; max-width:610px; margin-top:20px; color:#d8cdd1; font-size:25px; line-height:1.32;">
-				Dalil turns repository structure and Git history into an evidence-backed reading plan for humans and coding
-				agents.
+				{META.tagline}
 			</div>
 		</div>
 

@@ -1,14 +1,9 @@
 ---
-title: Manifest support
-description: See which project manifests Dalil recognizes and how it derives entry points and commands.
+title: Manifests
+description: See supported manifests and how entry points & commands are derived.
 section: Reference
 group: Reference
 order: 4
----
-
----
-
-title: Manifest support
 ---
 
 Dalil treats common package, workspace, and build manifests as repository landmarks.

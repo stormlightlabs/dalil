@@ -1,4 +1,4 @@
-import fs  from 'node:fs/promises';
+import fs from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium, type Browser } from 'playwright';
@@ -58,8 +58,8 @@ function browserFrame(reportUrl: string): string {
       padding: 56px;
       overflow: hidden;
       background:
-        radial-gradient(circle at 18% 12%, rgb(145 213 200 / 24%), transparent 28%),
-        #102f32;
+        radial-gradient(circle at 18% 12%, rgb(239 89 111 / 20%), transparent 28%),
+        #141415;
       place-items: center;
     }
 
@@ -67,8 +67,8 @@ function browserFrame(reportUrl: string): string {
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background: #fffefa;
-      border: 1px solid rgb(255 255 255 / 22%);
+      background: #fbf9f9;
+      border: 1px solid rgb(255 255 255 / 18%);
       border-radius: 18px;
       box-shadow:
         0 32px 80px rgb(2 18 20 / 46%),
@@ -81,8 +81,8 @@ function browserFrame(reportUrl: string): string {
       align-items: center;
       height: 54px;
       padding: 0 18px;
-      background: #e9eee9;
-      border-bottom: 1px solid #d5ddd7;
+      background: #f2eeef;
+      border-bottom: 1px solid #dfdbdd;
     }
 
     .browser__controls {
@@ -97,7 +97,7 @@ function browserFrame(reportUrl: string): string {
     }
 
     .browser__control:nth-child(1) {
-      background: #e96745;
+      background: #ef596f;
     }
 
     .browser__control:nth-child(2) {
@@ -111,9 +111,9 @@ function browserFrame(reportUrl: string): string {
     .browser__address {
       overflow: hidden;
       padding: 8px 18px;
-      color: #496063;
-      background: #fffefa;
-      border: 1px solid #d5ddd7;
+      color: #686367;
+      background: #fbf9f9;
+      border: 1px solid #dfdbdd;
       border-radius: 9px;
       font: 500 13px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       text-align: center;
@@ -156,7 +156,7 @@ async function captureScreenshot(): Promise<void> {
 		const page = await browser.newPage({ colorScheme: 'light', deviceScaleFactor: 1, viewport: VIEWPORT });
 		await page.goto(pathToFileURL(FRAME_PATH).href, { waitUntil: 'load' });
 
-    const report = page.frameLocator('iframe');
+		const report = page.frameLocator('iframe');
 
 		await report.locator('#report-title').waitFor();
 		await report.locator('html').evaluate('() => document.fonts.ready');
