@@ -13,12 +13,15 @@ use clap::{
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 
-use crate::report::{
-    AnalysisProfile, CacheMode, CommandDescriptor, ContextRequest, ContextRevisionContext, DoctorReport,
-    HistoryOperation, HistorySettings, KeywordMatchMode, SearchQueryMode, SearchRequest, SourceLanguage, StrictIssue,
-    TaskChangeSeed, TaskSeeds,
-};
 use crate::utils;
+use crate::{
+    bundle,
+    report::{
+        AnalysisProfile, CacheMode, CommandDescriptor, ContextRequest, ContextRevisionContext, DoctorReport,
+        HistoryOperation, HistorySettings, KeywordMatchMode, SearchQueryMode, SearchRequest, SourceLanguage,
+        StrictIssue, TaskChangeSeed, TaskSeeds,
+    },
+};
 use dalil_core::{CacheCommand, CacheControlReport, MapSettings};
 
 #[derive(Debug, Subcommand)]
@@ -27,6 +30,8 @@ enum SubcommandName {
     Orient(OrientCommand),
     /// Produce only the structural repository map.
     Map(MapCommand),
+    /// Write a portable repository evidence map to `.dalil/`.
+    Export(ExportCommand),
     /// Compile one bounded, task-oriented context bundle.
     Context(ContextCommand),
     /// Inspect bounded evidence surrounding a local revision range or dirty worktree.
@@ -363,6 +368,16 @@ impl From<Cli> for CommandRequest {
                     None,
                 )
             }
+            Some(SubcommandName::Export(export)) => {
+                let ExportCommand { options, path } = export;
+                (
+                    CommandDescriptor::map(path),
+                    HistorySettings::default(),
+                    options.settings(),
+                    None,
+                    None,
+                )
+            }
             Some(SubcommandName::History(history)) => {
                 let inherited = history.options.settings();
                 match history.operation {
@@ -495,6 +510,9 @@ impl Cli {
         if let Some(SubcommandName::Map(map)) = &self.command {
             map.options.validate()?;
         }
+        if let Some(SubcommandName::Export(export)) = &self.command {
+            export.options.validate()?;
+        }
         if let Some(SubcommandName::Search(search)) = &self.command {
             search.options.validate()?;
             if search.limit == 0 || search.limit > 12 {
@@ -569,6 +587,29 @@ struct MapCommand {
         value_name = "PATH",
         default_value = ".",
         help = "Repository or subdirectory to analyze (default: current directory)."
+    )]
+    path: PathBuf,
+}
+
+#[derive(Debug, clap::Args)]
+#[command(after_help = "Examples:
+    dalil export
+    dalil export src
+
+`export` is the only command that writes to the repository. It replaces only
+`.dalil/map.json` and `.dalil/map.md`; existing task records and other files in
+`.dalil/` are left untouched.
+
+Support: https://github.com/stormlightlabs/dalil/issues
+")]
+struct ExportCommand {
+    #[command(flatten)]
+    options: MapOptions,
+
+    #[arg(
+        value_name = "PATH",
+        default_value = ".",
+        help = "Repository or subdirectory to export (default: current directory)."
     )]
     path: PathBuf,
 }
@@ -1286,6 +1327,22 @@ fn invoke<W: Write, E: Write>(
         deliver_output(output_format, open, output, stdout, stderr, "cache report")?;
         return Ok(());
     }
+    if let Some(SubcommandName::Export(command)) = &cli.command {
+        if output_format == OutputFormat::Html {
+            return Err(ApplicationError::usage("`export` supports Markdown or JSON command output, not HTML").into());
+        }
+        if stderr_is_terminal {
+            let _ = writeln!(stderr, "dalil: collecting repository evidence for export…");
+        }
+        let mut request = CommandRequest::new(CommandDescriptor::map(command.path.clone()));
+        request.map = command.options.settings();
+        request.profile = AnalysisProfile::Evidence;
+        let map = dalil_core::export(request).map_err(ApplicationError::Core)?;
+        let published = bundle::publish(&map).map_err(|error| ApplicationError::Rendering(error.to_string()))?;
+        let output = render_export_result(&published, output_format)?;
+        deliver_output(output_format, open, output, stdout, stderr, "export result")?;
+        return Ok(());
+    }
     if stderr_is_terminal {
         let _ = writeln!(stderr, "dalil: analyzing repository…");
     }
@@ -1395,6 +1452,24 @@ fn write_stdout<W: Write>(stdout: &mut W, bytes: &[u8], label: &str) -> anyhow::
         Ok(()) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
         Err(error) => Err(error).context(format!("could not flush {label} stdout")),
+    }
+}
+
+fn render_export_result(published: &bundle::PublishedBundle, format: OutputFormat) -> anyhow::Result<String> {
+    match format {
+        OutputFormat::Json => Ok(format!(
+            "{}\n",
+            serde_json::json!({
+                "snapshot_id": published.snapshot_id,
+                "directory": published.directory,
+                "files": ["map.json", "map.md"],
+            })
+        )),
+        OutputFormat::Markdown => Ok(format!(
+            "# Dalil export\n\nWrote `.dalil/map.json` and `.dalil/map.md`.\nSnapshot: `{}`\n",
+            published.snapshot_id
+        )),
+        OutputFormat::Html => unreachable!("export HTML output is rejected before rendering"),
     }
 }
 

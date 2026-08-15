@@ -6,8 +6,9 @@ description: Use Dalil to orient in an unfamiliar Git repository, find implement
 # Dalil
 
 Use Dalil before broad file searches when the repository is unfamiliar or the
-next source read is unclear. Run commands from the target Git worktree. Dalil
-reads the repository and writes its index only under the user's cache directory.
+next source read is unclear. Run commands from the target Git worktree. Normal
+analysis commands read the repository and write their index only under the user's
+cache directory. `dalil export` is the explicit repository-write command.
 
 Start small. Read the recommended source and make a follow-up request with a
 path, symbol, task, or changed path instead of requesting an exhaustive map.
@@ -68,6 +69,20 @@ dalil impact --revision-range 'HEAD~1..HEAD' --json
 
 Treat relationships as lexical, structural, manifest, or history evidence to
 inspect. They do not prove runtime behavior or predict breakage.
+
+## Export persistent evidence
+
+Use `dalil export` only when a later task needs a repository-local snapshot:
+
+```sh
+dalil export
+```
+
+It writes `.dalil/map.json` and `.dalil/map.md`. The JSON map omits task ranking
+and reading-order projections, while the Markdown file is a smaller view of the
+same snapshot. Check their shared snapshot identifier before using a pair after
+a refresh or merge. Do not assume `.dalil/` is ignored or committed; the
+repository owner chooses that policy.
 
 ## Read the limits
 

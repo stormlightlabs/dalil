@@ -14,6 +14,8 @@ pub(crate) use fixtures::*;
 
 #[path = "cli/cache.rs"]
 mod cache;
+#[path = "cli/export.rs"]
+mod export;
 #[path = "cli/history.rs"]
 mod history;
 #[path = "cli/languages.rs"]

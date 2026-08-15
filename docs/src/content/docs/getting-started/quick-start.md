@@ -12,6 +12,7 @@ Start in the Git worktree you want to understand:
 dalil
 dalil orient
 dalil map
+dalil export
 dalil context --task 'fix parser cache invalidation' --changed-path src/map/cache.rs
 dalil impact --revision-range 'HEAD~1..HEAD'
 dalil search parser
@@ -23,7 +24,9 @@ reads, project roots, runtime entry points, tests, useful history, and any
 limitations that affect the result.
 
 `dalil search --symbol CacheStore` performs an exact symbol lookup. Use
-`dalil history` after these workflows when you need focused Git evidence.
+`dalil history` after these workflows when you need focused Git evidence. Use
+`dalil export` when you need a persistent `.dalil/map.json` and `.dalil/map.md`
+for later inspection or sharing. See [repository evidence bundles](/docs/guides/repository-evidence-bundles/).
 
 ## Task Briefing Rank
 

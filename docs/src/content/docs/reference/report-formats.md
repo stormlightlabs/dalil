@@ -63,6 +63,13 @@ JSON reports use `schema_version: 1`. The schema is available at
 with compatibility examples in
 [`schema/v1/golden`](https://github.com/stormlightlabs/dalil/tree/main/schema/v1/golden).
 
+`dalil export` writes a separate task-independent map schema to
+`.dalil/map.json`. Its schema is
+[`schema/export/v1/map.json`](https://github.com/stormlightlabs/dalil/blob/main/schema/export/v1/map.json).
+The paired `.dalil/map.md` presents the same snapshot for people. See
+[repository evidence bundles](/docs/guides/repository-evidence-bundles/) for
+refresh and sharing guidance.
+
 ## HTML
 
 HTML produces a standalone document for reading, sharing, or archiving in a

@@ -132,7 +132,7 @@ credentials, pagers, editors, and network transports remain unavailable.
 
 ### 1. Repository evidence bundle
 
-Deliver `dalil export`, which writes `.dalil/map.json` and `.dalil/map.md` from
+T1 delivers `dalil export`, which writes `.dalil/map.json` and `.dalil/map.md` from
 the shared core analysis, then safely refreshes them when the repository
 changes.
 

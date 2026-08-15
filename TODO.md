@@ -6,7 +6,7 @@
 containing a portable JSON evidence map and a human-readable Markdown
 projection of the same snapshot.
 
-### T1 — Export the repository evidence map
+### T1 — Export the repository evidence map — complete
 
 **What to build:** A user can run `dalil export` to write the current repository
 map to `.dalil/map.json` and `.dalil/map.md` through one end-to-end CLI flow.
@@ -15,30 +15,30 @@ map to `.dalil/map.json` and `.dalil/map.md` through one end-to-end CLI flow.
 
 **Acceptance criteria:**
 
-- [ ] Reuse the typed core analysis and current renderers where their semantics
+- [x] Reuse the typed core analysis and current renderers where their semantics
       match. Do not reconstruct evidence from rendered output.
-- [ ] Give `map.json` a portable schema with repository identity, revision,
+- [x] Give `map.json` a portable schema with repository identity, revision,
       worktree fingerprint, projects, files, symbols, relationships,
       landmarks, tests, bounded history, quality, limitations, provenance,
       collection summaries, schema version, and producer version.
-- [ ] Keep task rankings, reading order, token allocations, teaching steps, and
+- [x] Keep task rankings, reading order, token allocations, teaching steps, and
       impact conclusions out of the canonical map.
-- [ ] Give nodes and relationships stable identifiers and deterministic order
+- [x] Give nodes and relationships stable identifiers and deterministic order
       when their repository facts are unchanged.
-- [ ] Render `map.md` from the same snapshot. It may project collections for
+- [x] Render `map.md` from the same snapshot. It may project collections for
       readability but must report totals, omissions, snapshot identity, and
       freshness metadata.
-- [ ] Write only after an explicit export request. Normal analysis commands
+- [x] Write only after an explicit export request. Normal analysis commands
       must retain their current repository-read-only behavior.
-- [ ] Refuse an unsafe repository root, destination outside the worktree,
+- [x] Refuse an unsafe repository root, destination outside the worktree,
       symlink or reparse-point component, parent traversal, and a non-directory
       `.dalil` collision.
-- [ ] Create parent directories and map files with private permissions, publish
+- [x] Create parent directories and map files with private permissions, publish
       complete temporary files atomically, and replace only Dalil-owned map
       files. Do not edit `.gitignore` or remove unknown `.dalil/` contents.
-- [ ] Give both files one snapshot identifier so readers can detect a
+- [x] Give both files one snapshot identifier so readers can detect a
       mismatched pair after an interrupted refresh.
-- [ ] Document how to export, inspect, refresh, ignore, or commit the bundle,
+- [x] Document how to export, inspect, refresh, ignore, or commit the bundle,
       including the stale-map and merge-conflict tradeoffs.
 
 **Verification:**

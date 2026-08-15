@@ -1,3 +1,4 @@
+mod bundle;
 mod cli;
 mod html;
 mod render;

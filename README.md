@@ -12,6 +12,8 @@ need more evidence:
   points, tests, useful history, and limitations.
 - `dalil map` inventories the current worktree and extracts structural maps for
   Rust, JavaScript, JSX, TypeScript, TSX, Python, Ruby, Java, C#, Go, Lua, and Zig files.
+- `dalil export` writes a task-independent evidence map to `.dalil/map.json`
+  and `.dalil/map.md`; see [repository evidence bundles](docs/src/content/docs/guides/repository-evidence-bundles.md).
 - `dalil search` finds a few path, symbol, or concept anchors for the next source read.
 - `dalil history` summarizes five Git-history signals
   1. churn
@@ -78,6 +80,7 @@ Then run it from a Git worktree:
 dalil
 dalil orient
 dalil map
+dalil export
 dalil context --task 'fix parser cache invalidation' --changed-path src/map/cache.rs --teach
 dalil impact --revision-range 'HEAD~1..HEAD'
 dalil search parser
@@ -238,7 +241,10 @@ Dalil stores per-file records and a versioned repository index under
 fingerprints, parser summaries, lexical edges, bounded history facts, and
 repository metadata. Later runs reparse changed source files and reuse unaffected
 lexical relationships. Map JSON reports reused, invalidated, refreshed, stale,
-bypassed, and failed cache state. Dalil never writes to the repository. Use
+bypassed, and failed cache state. Ordinary analysis commands do not write to the
+repository. `dalil export` is the explicit exception and writes only
+`.dalil/map.json` and `.dalil/map.md`; see the [repository evidence bundle
+guide](docs/src/content/docs/guides/repository-evidence-bundles.md). Use
 `--no-cache` to bypass both reads and writes; `dalil cache status`, `prune`, and
 `clear` manage the user-cache data.
 
@@ -432,8 +438,10 @@ Machine reports include typed provenance:
 History provenance records its observed committer-date range, author-versus-committer time
 basis, current-HEAD semantics, and completeness status (`complete`, `shallow`, `missing_objects`, or `partial`).
 
-The v1 JSON schema is [`schema/v1/dalil.json`](schema/v1/dalil.json), with compatibility
+The v1 report JSON schema is [`schema/v1/dalil.json`](schema/v1/dalil.json), with compatibility
 examples in [`schema/v1/golden`](schema/v1/golden), including a context bundle.
+`dalil export` writes the repository-map schema at
+[`schema/export/v1/map.json`](schema/export/v1/map.json).
 
 Diagnostic color can be controlled with `--color auto|always|never` or `--no-color`.
 

@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/stormlightlabs/dalil/schema/export/v1/map.json",
+  "title": "Dalil repository evidence map version 1",
+  "description": "A portable, task-independent repository evidence snapshot produced by dalil export.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "producer_version",
+    "snapshot_id",
+    "repository",
+    "revision",
+    "worktree_fingerprint",
+    "scope",
+    "projects",
+    "files",
+    "omissions",
+    "symbols",
+    "relationships",
+    "landmarks",
+    "tests",
+    "history",
+    "quality",
+    "limitations",
+    "provenance",
+    "collections"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "producer_version": { "type": "string" },
+    "snapshot_id": { "type": "string", "pattern": "^snapshot:[0-9a-f]{16}$" },
+    "repository": { "type": "object" },
+    "revision": { "type": "object" },
+    "worktree_fingerprint": { "type": "string", "pattern": "^worktree:[0-9a-f]{16}$" },
+    "scope": { "type": "string" },
+    "projects": { "type": "array", "items": { "type": "object" } },
+    "files": { "type": "array", "items": { "type": "object" } },
+    "omissions": { "type": "array", "items": { "type": "object" } },
+    "symbols": { "type": "array", "items": { "$ref": "#/$defs/identified_object" } },
+    "relationships": { "type": "array", "items": { "$ref": "#/$defs/identified_object" } },
+    "landmarks": { "type": "array", "items": { "$ref": "#/$defs/identified_object" } },
+    "tests": { "type": "array", "items": { "$ref": "#/$defs/identified_object" } },
+    "history": { "type": "object" },
+    "quality": { "type": "object" },
+    "limitations": { "type": "array", "items": { "type": "string" } },
+    "provenance": {
+      "type": "object",
+      "required": ["captured_at", "reference_time", "languages", "cache", "path_encoding", "history"],
+      "properties": {
+        "captured_at": { "type": "string" },
+        "reference_time": { "type": "string" },
+        "languages": { "type": "object" },
+        "cache": { "type": "object" },
+        "path_encoding": { "type": "object" },
+        "history": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "collections": {
+      "type": "object",
+      "required": ["projects", "files", "omissions", "symbols", "relationships", "landmarks", "tests", "history"],
+      "additionalProperties": { "type": "object" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "identified_object": {
+      "type": "object",
+      "required": ["id"],
+      "properties": { "id": { "type": "string", "pattern": "^[a-z_]+:[0-9a-f]{16}$" } },
+      "additionalProperties": true
+    }
+  }
+}

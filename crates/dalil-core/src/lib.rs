@@ -5,6 +5,7 @@
 //! models, warnings, and errors.
 
 mod api;
+mod export;
 mod history;
 mod landmarks;
 mod lifecycle;
@@ -15,6 +16,7 @@ mod security;
 mod utils;
 
 pub use api::*;
+pub use export::*;
 pub use lifecycle::*;
 pub use map::{CacheCommand, CacheControlReport, MapError, MapSettings, cache_control};
 pub use report::*;
