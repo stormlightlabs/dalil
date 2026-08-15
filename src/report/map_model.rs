@@ -550,6 +550,28 @@ pub struct MapSelection {
     pub token_budget: usize,
     pub estimated_tokens: usize,
     pub snippets: Vec<MapSnippet>,
+    /// The most common analyzed source languages, ordered by observed file count.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub primary_languages: Vec<SourceLanguage>,
+    /// Task-relevant paths omitted because the file-count or token bound won.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub omitted_relevant_paths: Vec<MapSelectionOmission>,
+    /// Present when fewer than three strong source files fit the active budget.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shortfall: Option<MapSelectionShortfall>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct MapSelectionOmission {
+    pub path: String,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct MapSelectionShortfall {
+    pub target_minimum: usize,
+    pub returned: usize,
+    pub reason: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

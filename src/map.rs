@@ -44,6 +44,7 @@ pub use cache::{CacheCommand, CacheControlReport, cache_control};
 
 const MAX_CONTEXT_CHARS: usize = 180;
 const DEFAULT_MAP_TOKENS: usize = 1_000;
+const MIN_SELECTED_FILES: usize = 3;
 const CACHE_SCHEMA_VERSION: u16 = 2;
 const CACHE_TOOL_VERSION: &str = "dalil-map-v8";
 const CACHE_MAX_RECORDS_PER_REPOSITORY: usize = 256;
@@ -824,6 +825,20 @@ struct SnippetCandidate {
     language: SourceLanguage,
     symbol: SourceSymbol,
     score: u64,
+    task_relevant: bool,
+    partial: bool,
+    generated: bool,
+    project_root: Option<String>,
+    subsystem: String,
+    role: SnippetFileRole,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum SnippetFileRole {
+    EntryPoint,
+    Gateway,
+    Test,
+    Source,
 }
 
 /// Return the compiled language/query-pack contract without inspecting a repository.

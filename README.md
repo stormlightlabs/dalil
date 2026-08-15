@@ -90,12 +90,13 @@ Use `--profile evidence` for a larger, still resource-limited evidence sample.
 Generated, vendored, minified, and source-map paths remain excluded in both
 profiles unless selected with an exact `--focus-path`.
 
-`--budget` bounds the ranked map selection in every format and the complete
-compact Markdown report. Compact Markdown keeps its summary and command-specific
-content first, then prints a truncation notice when the remaining collections do
-not fit. JSON retains the complete typed projection. Evidence-profile Markdown
-can exceed this token budget and remains subject to the hard rendered-output
-limit.
+`--budget` bounds a ranked selection of three to five strong source files and
+the complete compact Markdown report. When fewer than three files fit or have
+strong evidence, Dalil reports the shortfall instead of adding weak paths.
+Compact Markdown keeps its summary and command-specific content first, then
+prints a truncation notice when the remaining collections do not fit. JSON
+retains the complete typed projection. Evidence-profile Markdown can exceed this
+token budget and remains subject to the hard rendered-output limit.
 
 ## Commands
 

@@ -557,13 +557,14 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
     });
     let history_weights = history_ranking_weights(history);
     let ranking = rank_files(&files, &edges, &topology.project_roots, &history_weights, settings);
-    let selection_budget = if settings.profile == AnalysisProfile::Evidence || settings.map_tokens < 20 {
-        settings.map_tokens
-    } else {
-        settings.map_tokens.saturating_mul(2).div_ceil(3).max(1)
-    };
-    let mut selection = select_snippets(&files, &edges, &ranking, selection_budget, settings);
-    selection.token_budget = settings.map_tokens;
+    let selection = select_snippets(
+        &files,
+        &edges,
+        &ranking,
+        &topology.project_roots,
+        settings.map_tokens,
+        settings,
+    );
     let cache_status = cache_status(settings.cache_mode, &cache_stats);
     cache_stats.refreshed.sort();
     cache_stats.stale.sort();
@@ -798,46 +799,76 @@ pub fn bound_map_report(report: &mut MapReport, profile: AnalysisProfile, limits
             || edges_total > 256);
 
     if enforce_budget {
-        // The selection is the highest-value compact evidence. Other fields
-        // are reduced until the same requested budget accounts for every
-        // remaining data-dependent field in the map.
-        while report.compact_payload_tokens() > report.selection.token_budget {
-            if report.findings.len() > 1 {
-                report.findings.pop();
-            } else if report.selection.snippets.len() > 1 {
-                report.selection.snippets.pop();
-            } else if report.edges.len() > 1 {
-                report.edges.pop();
-            } else if report.ranking.len() > 1 {
-                report.ranking.pop();
-            } else if report.files.len() > 1 {
-                report.files.pop();
-            } else if report.omissions.len() > 1 {
-                report.omissions.pop();
-            } else {
-                report.findings.clear();
-                report.omissions.clear();
-                if report.selection.token_budget < 20 {
-                    report.edges.clear();
-                    report.ranking.clear();
+        if report.selection.token_budget < 256 {
+            // At very small budgets, retain one focusable item from each map
+            // evidence family before structural selection.
+            while report.compact_payload_tokens() > report.selection.token_budget {
+                if report.findings.len() > 1 {
+                    report.findings.pop();
+                } else if report.selection.snippets.len() > 1 {
+                    report.selection.snippets.pop();
+                } else if report.edges.len() > 1 {
+                    report.edges.pop();
+                } else if report.ranking.len() > 1 {
+                    report.ranking.pop();
+                } else if report.files.len() > 1 {
+                    report.files.pop();
+                } else if report.omissions.len() > 1 {
+                    report.omissions.pop();
                 } else {
-                    report.selection.snippets.clear();
+                    report.findings.clear();
+                    report.omissions.clear();
+                    if report.selection.token_budget < 20 {
+                        report.edges.clear();
+                        report.ranking.clear();
+                    } else {
+                        report.selection.snippets.clear();
+                    }
+                    break;
                 }
-                break;
+            }
+        } else {
+            // Preserve structural selection ahead of broad map samples.
+            // Collection summaries retain the evidence that projection removed.
+            while report.compact_payload_tokens() > report.selection.token_budget {
+                if !report.findings.is_empty() {
+                    report.findings.pop();
+                } else if !report.edges.is_empty() {
+                    report.edges.pop();
+                } else if !report.ranking.is_empty() {
+                    report.ranking.pop();
+                } else if !report.files.is_empty() {
+                    report.files.pop();
+                } else if !report.omissions.is_empty() {
+                    report.omissions.pop();
+                } else if !report.landmarks.is_empty() {
+                    report.landmarks.pop();
+                } else if !report.project_roots.is_empty() {
+                    report.project_roots.pop();
+                } else if !report.selection.snippets.is_empty() {
+                    report.selection.snippets.pop();
+                } else {
+                    break;
+                }
             }
         }
     }
 
-    report.selection.estimated_tokens = if enforce_budget {
-        report.compact_payload_tokens().min(report.selection.token_budget)
-    } else {
-        report
-            .selection
-            .snippets
-            .iter()
-            .map(|snippet| snippet.estimated_tokens)
-            .sum()
-    };
+    report.selection.estimated_tokens = report
+        .selection
+        .snippets
+        .iter()
+        .map(|snippet| snippet.estimated_tokens)
+        .sum();
+    if report.selection.snippets.len() < MIN_SELECTED_FILES && report.selection.shortfall.is_none() {
+        report.selection.shortfall = Some(MapSelectionShortfall {
+            target_minimum: MIN_SELECTED_FILES,
+            returned: report.selection.snippets.len(),
+            reason:
+                "compact report projection retained fewer than three source files within the requested token budget"
+                    .to_owned(),
+        });
+    }
     report.collections = MapCollections {
         files: collection_summary(
             files_total,

@@ -796,10 +796,11 @@ fn default_command_combines_history_and_ranked_source_map() {
     let recommendations = value["reading_plan"]["recommendations"]
         .as_array()
         .expect("briefing reading plan");
-    assert!(recommendations.len() <= 10, "recommendations: {recommendations:?}");
-    if recommendations.len() < 5 {
+    assert!(recommendations.len() <= 5, "recommendations: {recommendations:?}");
+    if recommendations.len() < 3 {
         assert!(value["reading_plan"]["shortfall"].is_object());
     }
+    assert!(value["reading_plan"]["primary_languages"].is_array());
     let paths = recommendations
         .iter()
         .map(|recommendation| recommendation["path"].as_str().expect("recommendation path"))
@@ -823,6 +824,23 @@ fn default_command_combines_history_and_ranked_source_map() {
     assert_eq!(value["map"]["query_pack"], "mixed");
     assert_eq!(value["map"]["cache"]["status"], "disabled");
     assert_eq!(value["map"]["selection"]["token_budget"], 120);
+    let snippets = value["map"]["selection"]["snippets"]
+        .as_array()
+        .expect("map selection snippets");
+    assert!(snippets.len() <= 5, "snippets: {snippets:?}");
+    if snippets.len() < 3 {
+        assert!(value["map"]["selection"]["shortfall"].is_object());
+    }
+    let snippet_paths = snippets
+        .iter()
+        .map(|snippet| snippet["path"].as_str().expect("snippet path"))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        snippet_paths.len(),
+        snippets.len(),
+        "map selection paths must be unique"
+    );
+    assert!(value["map"]["selection"]["primary_languages"].is_array());
     assert!(value["map"]["selection"]["estimated_tokens"].as_u64().unwrap() <= 120);
     for collection in [
         "files",
@@ -883,7 +901,7 @@ fn default_markdown_briefing_keeps_history_and_map_sections_readable() {
         .as_array()
         .expect("default reading plan recommendations");
     assert!(
-        (5..=10).contains(&default_recommendations.len()),
+        (3..=5).contains(&default_recommendations.len()),
         "default recommendations: {default_recommendations:?}"
     );
     assert!(!markdown.contains("\\`, \\`"));

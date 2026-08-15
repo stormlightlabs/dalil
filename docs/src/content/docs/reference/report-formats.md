@@ -46,7 +46,9 @@ With task context, JSON records normalized inputs in `map.task_seeds`. Each
 centrality, seed proximity, lexical relevance, history evidence, and focus.
 Their sum is the entry's `score`. Supply `--task`, `--symbol`, `--task-path`,
 `--language`, `--project`, `--changed-path`, `--changed-symbol`, or `--search`
-to provide task context.
+to provide task context. `map.selection` records likely primary languages,
+task-relevant paths excluded by the selection bound, and a shortfall when fewer
+than three strong source files fit the token budget.
 
 JSON reports use `schema_version: 1`. The schema is available at
 [`schema/v1/dalil.json`](https://github.com/stormlightlabs/dalil/blob/main/schema/v1/dalil.json),

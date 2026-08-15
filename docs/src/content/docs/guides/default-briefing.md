@@ -25,9 +25,11 @@ appeared in the reading plan.
 
 ## Select a profile
 
-The default `compact` profile returns selected snippets and bounded samples of
-files, symbols, edges, findings, omissions, and history evidence. Use the
-`evidence` profile for a larger, still resource-limited sample:
+The default `compact` profile returns a three-to-five-file structural selection
+when enough strong evidence fits the budget, plus bounded samples of files,
+symbols, edges, findings, omissions, and history evidence. It reports a
+shortfall when fewer than three useful source files fit. Use the `evidence`
+profile for a larger, still resource-limited sample:
 
 ```sh
 dalil --profile compact --html > briefing.html

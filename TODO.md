@@ -41,22 +41,22 @@ task without padding the result with weak files.
 
 **Acceptance criteria:**
 
-- [ ] Select by relevance, confidence, role, subsystem, project root, language,
+- [x] Select by relevance, confidence, role, subsystem, project root, language,
       generated status, and total token cost rather than graph score alone.
-- [ ] Return three to five strong files when the repository contains enough
+- [x] Return three to five strong files when the repository contains enough
       evidence; report a shortfall instead of adding filler.
-- [ ] Prevent one subsystem, language, or high-degree file from consuming the
+- [x] Prevent one subsystem, language, or high-degree file from consuming the
       result unless the task evidence warrants it.
-- [ ] Prefer runnable examples, declared entry points, gateway artifacts, and
+- [x] Prefer runnable examples, declared entry points, gateway artifacts, and
       recent high-confidence files when they answer the task.
-- [ ] Surface likely primary languages and explicitly report omitted relevant
+- [x] Surface likely primary languages and explicitly report omitted relevant
       paths when limits affect the result.
-- [ ] Preserve deterministic ordering and bounded work across compact and
+- [x] Preserve deterministic ordering and bounded work across compact and
       evidence profiles.
 
-**Verification:** Add fixtures for monorepos, generated-heavy repositories,
-single-file projects, tied candidates, and repositories with fewer than three
-useful files; run the targeted retrieval and bounded-work tests.
+**Verification:** Added deterministic selection fixtures for generated-heavy
+source, task-relevant budget omissions, tied candidates, and fewer-than-three
+shortfalls; run the targeted retrieval and bounded-work tests.
 
 ### T3 — Turn explanations into reading guidance
 

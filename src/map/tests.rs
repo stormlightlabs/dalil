@@ -1143,7 +1143,7 @@ fn snippet_selection_respects_every_tiny_token_budget() {
     }];
     let settings = MapSettings::default();
     for budget in 1..=64 {
-        let selection = select_snippets(std::slice::from_ref(&file), &[], &ranking, budget, &settings);
+        let selection = select_snippets(std::slice::from_ref(&file), &[], &ranking, &[], budget, &settings);
         assert!(selection.estimated_tokens <= budget, "budget {budget}: {selection:?}");
         assert!(
             selection
@@ -1152,6 +1152,190 @@ fn snippet_selection_respects_every_tiny_token_budget() {
                 .all(|snippet| snippet.estimated_tokens <= budget)
         );
     }
+}
+
+#[test]
+fn snippet_selection_is_diverse_and_excludes_unfocused_generated_code() {
+    let file = |path: &str| {
+        let ParsedSource { symbols, .. } = parse_source(b"pub fn selected() {}", &RUST_SUPPORT);
+        SourceFile {
+            path: path.to_owned(),
+            language: SourceLanguage::Rust,
+            extension: "rs".to_owned(),
+            worktree_state: WorktreeState::Tracked,
+            status: FileAnalysisStatus::Complete,
+            symbols,
+            limitations: Vec::new(),
+            classifications: Vec::new(),
+            classification_overridden: false,
+        }
+    };
+    let mut generated = file("src/generated/api.rs");
+    generated.classifications.push(SourceClassification {
+        kind: SourceClassificationKind::Generated,
+        reason: "generated_directory:generated".to_owned(),
+    });
+    let files = vec![
+        file("src/worker.rs"),
+        file("src/core/hub.rs"),
+        file("src/core/other.rs"),
+        file("examples/demo.rs"),
+        file("tests/worker.rs"),
+        generated,
+    ];
+    let ranking = files
+        .iter()
+        .map(|file| {
+            let (score, matched_seeds) = match file.path.as_str() {
+                "src/worker.rs" => (
+                    10_000_000,
+                    vec![RankingSeedMatch { kind: RankingSeedKind::TaskTerm, seed: "worker".to_owned() }],
+                ),
+                "src/core/hub.rs" | "src/core/other.rs" => (9_000_000, Vec::new()),
+                "examples/demo.rs" => (3_000_000, Vec::new()),
+                "tests/worker.rs" => (2_000_000, Vec::new()),
+                _ => (100_000_000, Vec::new()),
+            };
+            FileRank {
+                path: file.path.clone(),
+                score,
+                focus_matches: 0,
+                contributions: RankingContributions::default(),
+                matched_seeds,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let first = select_snippets(&files, &[], &ranking, &[], 1_000, &MapSettings::default());
+    let second = select_snippets(&files, &[], &ranking, &[], 1_000, &MapSettings::default());
+
+    assert_eq!(first, second);
+    assert!((3..=5).contains(&first.snippets.len()));
+    assert!(first.snippets.iter().any(|snippet| snippet.path == "src/worker.rs"));
+    assert_eq!(first.snippets[1].path, "src/core/hub.rs");
+    assert!(first.snippets.iter().any(|snippet| snippet.path == "examples/demo.rs"));
+    assert!(first.snippets.iter().any(|snippet| snippet.path == "tests/worker.rs"));
+    assert!(
+        first
+            .snippets
+            .iter()
+            .all(|snippet| snippet.path != "src/generated/api.rs")
+    );
+    assert_eq!(first.primary_languages, vec![SourceLanguage::Rust]);
+}
+
+#[test]
+fn snippet_selection_covers_multiple_relevant_project_roots() {
+    let file = |path: &str| {
+        let ParsedSource { symbols, .. } = parse_source(b"pub fn selected() {}", &RUST_SUPPORT);
+        SourceFile {
+            path: path.to_owned(),
+            language: SourceLanguage::Rust,
+            extension: "rs".to_owned(),
+            worktree_state: WorktreeState::Tracked,
+            status: FileAnalysisStatus::Complete,
+            symbols,
+            limitations: Vec::new(),
+            classifications: Vec::new(),
+            classification_overridden: false,
+        }
+    };
+    let files = vec![
+        file("packages/api/src/hub.rs"),
+        file("packages/api/src/other.rs"),
+        file("packages/web/src/app.rs"),
+    ];
+    let roots = vec![
+        ProjectRoot {
+            path: "packages/api".to_owned(),
+            kind: ProjectRootKind::Package,
+            reason: "fixture package".to_owned(),
+            manifests: Vec::new(),
+            manifest_metadata: Vec::new(),
+            landmark_total: 0,
+            recommendation_total: 0,
+            recommended_paths: Vec::new(),
+        },
+        ProjectRoot {
+            path: "packages/web".to_owned(),
+            kind: ProjectRootKind::Package,
+            reason: "fixture package".to_owned(),
+            manifests: Vec::new(),
+            manifest_metadata: Vec::new(),
+            landmark_total: 0,
+            recommendation_total: 0,
+            recommended_paths: Vec::new(),
+        },
+    ];
+    let ranking = files
+        .iter()
+        .map(|file| FileRank {
+            path: file.path.clone(),
+            score: match file.path.as_str() {
+                "packages/api/src/hub.rs" => 10_000_000,
+                "packages/api/src/other.rs" => 9_000_000,
+                _ => 8_000_000,
+            },
+            focus_matches: 0,
+            contributions: RankingContributions::default(),
+            matched_seeds: Vec::new(),
+        })
+        .collect::<Vec<_>>();
+
+    let selection = select_snippets(&files, &[], &ranking, &roots, 1_000, &MapSettings::default());
+
+    assert_eq!(selection.snippets.len(), 3);
+    assert!(
+        selection
+            .snippets
+            .iter()
+            .any(|snippet| snippet.path == "packages/api/src/hub.rs")
+    );
+    assert!(
+        selection
+            .snippets
+            .iter()
+            .any(|snippet| snippet.path == "packages/web/src/app.rs")
+    );
+}
+
+#[test]
+fn snippet_selection_reports_task_relevant_paths_that_do_not_fit() {
+    let ParsedSource { symbols, .. } = parse_source(b"pub fn worker() {}", &RUST_SUPPORT);
+    let file = SourceFile {
+        path: "src/worker.rs".to_owned(),
+        language: SourceLanguage::Rust,
+        extension: "rs".to_owned(),
+        worktree_state: WorktreeState::Tracked,
+        status: FileAnalysisStatus::Complete,
+        symbols,
+        limitations: Vec::new(),
+        classifications: Vec::new(),
+        classification_overridden: false,
+    };
+    let ranking = vec![FileRank {
+        path: file.path.clone(),
+        score: 1_000_000,
+        focus_matches: 0,
+        contributions: RankingContributions::default(),
+        matched_seeds: vec![RankingSeedMatch { kind: RankingSeedKind::TaskTerm, seed: "worker".to_owned() }],
+    }];
+
+    let selection = select_snippets(
+        std::slice::from_ref(&file),
+        &[],
+        &ranking,
+        &[],
+        1,
+        &MapSettings::default(),
+    );
+
+    assert_eq!(
+        selection.shortfall.as_ref().map(|shortfall| shortfall.returned),
+        Some(0)
+    );
+    assert_eq!(selection.omitted_relevant_paths.len(), 1);
+    assert_eq!(selection.omitted_relevant_paths[0].path, "src/worker.rs");
 }
 
 #[test]

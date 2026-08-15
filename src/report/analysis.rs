@@ -627,7 +627,8 @@ pub fn build_reading_plan(history: &HistoryReport, map: &MapReport) -> ReadingPl
         }
     }
 
-    if let Some(primary_root) = evidence.project_roots.iter().find(|root| root.path == ".")
+    if selected.len() < MAX_READING_RECOMMENDATIONS
+        && let Some(primary_root) = evidence.project_roots.iter().find(|root| root.path == ".")
         && let Some(manifest) = primary_root.manifests.first()
         && !selected_paths.contains(manifest)
         && let Some(candidate) = candidates.get(&(ReadingPurpose::StartHere, manifest.clone()))
@@ -637,7 +638,7 @@ pub fn build_reading_plan(history: &HistoryReport, map: &MapReport) -> ReadingPl
     }
 
     for root in &evidence.project_roots {
-        if selected.len() >= 10 {
+        if selected.len() >= MAX_READING_RECOMMENDATIONS {
             break;
         }
         if let Some(candidate) = best_candidate(
@@ -651,15 +652,6 @@ pub fn build_reading_plan(history: &HistoryReport, map: &MapReport) -> ReadingPl
         }
     }
 
-    let mut remaining = candidates.values().collect::<Vec<_>>();
-    remaining.sort_by(|left, right| candidate_order(left, right));
-    for candidate in remaining {
-        if selected.len() >= 10 || selected_paths.contains(&candidate.path) {
-            continue;
-        }
-        selected_paths.insert(candidate.path.clone());
-        selected.push(candidate.clone());
-    }
     selected.sort_by(|left, right| {
         left.purpose
             .order()
@@ -694,8 +686,8 @@ pub fn build_reading_plan(history: &HistoryReport, map: &MapReport) -> ReadingPl
         {
             omitted_project_roots.push(ReadingPlanRootOmission {
                 project_root: root.path.clone(),
-                reason: if recommendations.len() >= 10 {
-                    "the bounded ten-path plan prioritized stronger evidence or explicit focus in other roots"
+                reason: if recommendations.len() >= MAX_READING_RECOMMENDATIONS {
+                    "the bounded five-path plan prioritized stronger evidence or explicit focus in other roots"
                         .to_owned()
                 } else {
                     "eligible paths were unavailable after scope, exclusion, and safety limits".to_owned()
@@ -709,15 +701,15 @@ pub fn build_reading_plan(history: &HistoryReport, map: &MapReport) -> ReadingPl
         .map(|candidate| candidate.path.as_str())
         .collect::<BTreeSet<_>>()
         .len();
-    let shortfall = (recommendations.len() < 5).then(|| ReadingPlanShortfall {
-        target_minimum: 5,
+    let shortfall = (recommendations.len() < MIN_READING_RECOMMENDATIONS).then(|| ReadingPlanShortfall {
+        target_minimum: MIN_READING_RECOMMENDATIONS,
         returned: recommendations.len(),
-        reason: if candidate_path_count < 5 {
+        reason: if candidate_path_count < MIN_READING_RECOMMENDATIONS {
             format!(
                 "only {candidate_path_count} unique paths had retained landmark, source-map, test, runtime, or bounded history evidence"
             )
         } else {
-            "the selected scope and safety limits left fewer than five usable paths".to_owned()
+            "the selected scope and safety limits left fewer than three usable paths".to_owned()
         },
     });
 
@@ -731,8 +723,18 @@ pub fn build_reading_plan(history: &HistoryReport, map: &MapReport) -> ReadingPl
                 .to_owned(),
         );
     }
-    ReadingPlan { recommendations, omitted_project_roots, shortfall, limitations }
+    ReadingPlan {
+        recommendations,
+        primary_languages: map.selection.primary_languages.clone(),
+        omitted_project_roots,
+        omitted_relevant_paths: map.selection.omitted_relevant_paths.clone(),
+        shortfall,
+        limitations,
+    }
 }
+
+const MIN_READING_RECOMMENDATIONS: usize = 3;
+const MAX_READING_RECOMMENDATIONS: usize = 5;
 
 fn manifest_target_reason(kind: &str, target: &ManifestTarget, manifest: &str) -> String {
     let name = target

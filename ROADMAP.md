@@ -1,7 +1,7 @@
 ---
 title: "Dalil roadmap"
 status: "in-progress"
-updated: "2026-08-13"
+updated: "2026-08-15"
 ---
 
 Dalil is a deterministic context compiler for software repositories. It turns
@@ -140,8 +140,8 @@ The default Markdown order is:
 
 1. Repository overview: project roots, primary supported languages, worktree
    state, and important instructions or manifests.
-2. Reading plan: 5–10 paths when that much evidence exists, grouped under
-   `start_here`, `architecture`, `runtime`, `tests`, and
+2. Reading plan: 3–5 strong paths when that much evidence exists, grouped
+   under `start_here`, `architecture`, `runtime`, `tests`, and
    `supporting_context`.
 3. History observations: 3–5 bounded statements that identify useful evidence
    without converting heuristics into quality judgments.
@@ -150,7 +150,7 @@ The default Markdown order is:
 
 Categories with no evidence are omitted. Recommendations are unique across
 categories. A monorepo balances relevant project-root coverage with task
-relevance. When fewer than five useful paths exist, the report explains the
+relevance. When fewer than three useful paths exist, the report explains the
 shortfall instead of padding the plan.
 
 The default report does not print exhaustive history tables, symbol lists,

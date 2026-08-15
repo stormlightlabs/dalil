@@ -158,6 +158,15 @@ impl Render {
                 .expect("writing to a string cannot fail");
             }
         }
+        if !plan.primary_languages.is_empty() {
+            let languages = plan
+                .primary_languages
+                .iter()
+                .map(|language| language.display_label())
+                .collect::<Vec<_>>();
+            writeln!(output, "Likely primary languages: {}", languages.join(", "))
+                .expect("writing to a string cannot fail");
+        }
         if let Some(shortfall) = &plan.shortfall {
             writeln!(
                 output,
@@ -167,6 +176,18 @@ impl Render {
                 utils::sanitize_text(&shortfall.reason)
             )
             .expect("writing to a string cannot fail");
+        }
+        if !plan.omitted_relevant_paths.is_empty() {
+            writeln!(output, "Task-relevant paths omitted by the map bound:").expect("writing to a string cannot fail");
+            for omission in &plan.omitted_relevant_paths {
+                writeln!(
+                    output,
+                    "- `{}` — {}",
+                    utils::escape_inline_code(&omission.path),
+                    utils::sanitize_text(&omission.reason)
+                )
+                .expect("writing to a string cannot fail");
+            }
         }
         let limited_recommendations = plan
             .recommendations
@@ -782,12 +803,46 @@ impl Render {
                 }
                 writeln!(
                     output,
-                    "Ranking: {} files; map budget {} tokens, selected {}",
+                    "Ranking: {} files; map budget {} tokens, selected {} across {} file(s)",
                     map.ranking.len(),
                     map.selection.token_budget,
-                    map.selection.estimated_tokens
+                    map.selection.estimated_tokens,
+                    map.selection.snippets.len(),
                 )
                 .expect("writing to a string cannot fail");
+                if !map.selection.primary_languages.is_empty() {
+                    let languages = map
+                        .selection
+                        .primary_languages
+                        .iter()
+                        .map(|language| language.display_label())
+                        .collect::<Vec<_>>();
+                    writeln!(output, "Likely primary languages: {}", languages.join(", "))
+                        .expect("writing to a string cannot fail");
+                }
+                if let Some(shortfall) = &map.selection.shortfall {
+                    writeln!(
+                        output,
+                        "Short selection: {} of {} minimum source files — {}",
+                        shortfall.returned,
+                        shortfall.target_minimum,
+                        utils::sanitize_text(&shortfall.reason)
+                    )
+                    .expect("writing to a string cannot fail");
+                }
+                if !map.selection.omitted_relevant_paths.is_empty() {
+                    writeln!(output, "Task-relevant paths omitted by the map bound:")
+                        .expect("writing to a string cannot fail");
+                    for omission in &map.selection.omitted_relevant_paths {
+                        writeln!(
+                            output,
+                            "- `{}` — {}",
+                            utils::escape_inline_code(&omission.path),
+                            utils::sanitize_text(&omission.reason)
+                        )
+                        .expect("writing to a string cannot fail");
+                    }
+                }
                 Render::section_heading(output, "Ranked map selection");
                 if map.selection.snippets.is_empty() {
                     writeln!(output, "No structural snippets fit the map token budget.")

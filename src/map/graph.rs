@@ -403,23 +403,47 @@ fn symbol_matches_seed(symbol: &SourceSymbol, seed: &str) -> bool {
     symbol.name.eq_ignore_ascii_case(seed.trim()) || qualified.eq_ignore_ascii_case(seed.trim())
 }
 
+const MAX_SELECTED_FILES: usize = 5;
+const MAX_SELECTION_OMISSIONS: usize = 32;
+
 pub fn select_snippets(
-    files: &[SourceFile], edges: &[LexicalEdge], ranking: &[FileRank], token_budget: usize, settings: &MapSettings,
+    files: &[SourceFile], edges: &[LexicalEdge], ranking: &[FileRank], project_roots: &[ProjectRoot],
+    token_budget: usize, settings: &MapSettings,
 ) -> MapSelection {
     let seeds = settings.effective_task_seeds();
     let mut reference_counts = BTreeMap::<(String, String), u64>::new();
+    let mut graph_paths = BTreeSet::new();
     for edge in edges {
         *reference_counts
             .entry((edge.target.clone(), edge.symbol.clone()))
             .or_default() += 1;
+        graph_paths.insert(edge.source.as_str());
+        graph_paths.insert(edge.target.as_str());
     }
-    let file_scores = ranking
+    let ranks = ranking
         .iter()
-        .map(|rank| (rank.path.as_str(), rank.score))
+        .map(|rank| (rank.path.as_str(), rank))
         .collect::<BTreeMap<_, _>>();
     let mut candidates = Vec::new();
     for file in files {
-        let file_score = *file_scores.get(file.path.as_str()).unwrap_or(&0);
+        let rank = ranks.get(file.path.as_str()).copied();
+        let file_score = rank.map_or(0, |rank| rank.score);
+        let task_relevant = rank.is_some_and(file_has_direct_task_evidence);
+        let role = snippet_file_role(&file.path, project_roots);
+        let generated = !file.classifications.is_empty();
+        let strong_file = task_relevant
+            || rank.is_some_and(|rank| rank.contributions.history_evidence > 0)
+            || graph_paths.contains(file.path.as_str())
+            || role != SnippetFileRole::Source
+            || file
+                .symbols
+                .iter()
+                .any(|symbol| symbol.visibility == SymbolVisibility::Public);
+        if !strong_file || (generated && !task_relevant) {
+            continue;
+        }
+        let project_root = crate::landmarks::project_root_for_path(&file.path, project_roots);
+        let subsystem = snippet_subsystem(&file.path, project_root.as_deref());
         for symbol in file
             .symbols
             .iter()
@@ -454,40 +478,282 @@ pub fn select_snippets(
                 language: file.language,
                 symbol: symbol.clone(),
                 score: symbol_score,
+                task_relevant,
+                partial: file.status == FileAnalysisStatus::Partial,
+                generated,
+                project_root: project_root.clone(),
+                subsystem: subsystem.clone(),
+                role,
             });
         }
     }
-    candidates.sort_by(|left, right| {
-        right
-            .score
-            .cmp(&left.score)
-            .then_with(|| left.path.cmp(&right.path))
-            .then_with(|| location_key(Some(&left.symbol.location)).cmp(&location_key(Some(&right.symbol.location))))
-            .then_with(|| left.symbol.name.cmp(&right.symbol.name))
-    });
+    candidates.sort_by(snippet_candidate_order);
 
+    // Keep the strongest declaration for each file before applying diversity. A
+    // file set is more useful for orientation than five declarations from one hub.
+    let mut candidates_by_path = BTreeMap::new();
+    for candidate in candidates {
+        candidates_by_path.entry(candidate.path.clone()).or_insert(candidate);
+    }
+    let mut remaining = candidates_by_path.into_values().collect::<Vec<_>>();
+    let candidate_count = remaining.len();
+    let primary_languages = primary_languages(files);
+    let mut selected_candidates = Vec::new();
     let mut snippets = Vec::new();
     let mut estimated_tokens = 0;
-    for candidate in candidates {
-        let remaining = token_budget.saturating_sub(estimated_tokens);
-        let Some((symbol, cost, truncated)) = fit_snippet(&candidate, remaining) else {
-            continue;
+
+    while snippets.len() < MAX_SELECTED_FILES {
+        let remaining_tokens = token_budget.saturating_sub(estimated_tokens);
+        let Some((index, symbol, cost, truncated)) =
+            best_snippet_candidate(&remaining, &selected_candidates, remaining_tokens)
+        else {
+            break;
         };
-        estimated_tokens += cost;
+        let candidate = remaining.remove(index);
+        estimated_tokens = estimated_tokens.saturating_add(cost);
         snippets.push(MapSnippet {
-            path: candidate.path,
+            path: candidate.path.clone(),
             language: candidate.language,
             symbol,
             score: candidate.score,
             estimated_tokens: cost,
             truncated,
         });
-        if estimated_tokens >= token_budget {
-            break;
-        }
+        selected_candidates.push(candidate);
     }
 
-    MapSelection { token_budget, estimated_tokens, snippets }
+    let omitted_relevant_paths = remaining
+        .iter()
+        .filter(|candidate| candidate.task_relevant)
+        .take(MAX_SELECTION_OMISSIONS)
+        .map(|candidate| MapSelectionOmission {
+            path: candidate.path.clone(),
+            reason: if fit_snippet(candidate, token_budget).is_none() {
+                format!("the {token_budget}-token map budget cannot fit this declaration")
+            } else if snippets.len() == MAX_SELECTED_FILES {
+                "the five-file selection bound retained a more diverse or stronger task-relevant path".to_owned()
+            } else {
+                "the remaining map token budget could not fit this declaration".to_owned()
+            },
+        })
+        .collect::<Vec<_>>();
+    let shortfall = (snippets.len() < MIN_SELECTED_FILES).then(|| MapSelectionShortfall {
+        target_minimum: MIN_SELECTED_FILES,
+        returned: snippets.len(),
+        reason: if candidate_count < MIN_SELECTED_FILES {
+            format!("only {candidate_count} source files had strong structural or task evidence")
+        } else {
+            format!(
+                "the {}-token map budget fit only {} strong source file(s)",
+                token_budget,
+                snippets.len()
+            )
+        },
+    });
+
+    MapSelection { token_budget, estimated_tokens, snippets, primary_languages, omitted_relevant_paths, shortfall }
+}
+
+fn file_has_direct_task_evidence(rank: &FileRank) -> bool {
+    rank.matched_seeds.iter().any(|seed| {
+        matches!(
+            seed.kind,
+            RankingSeedKind::TaskTerm
+                | RankingSeedKind::SearchTerm
+                | RankingSeedKind::Symbol
+                | RankingSeedKind::Path
+                | RankingSeedKind::Language
+                | RankingSeedKind::Project
+                | RankingSeedKind::ChangePath
+                | RankingSeedKind::ChangeSymbol
+                | RankingSeedKind::Focus
+                | RankingSeedKind::FocusPath
+        )
+    })
+}
+
+fn primary_languages(files: &[SourceFile]) -> Vec<SourceLanguage> {
+    let mut counts = BTreeMap::<SourceLanguage, usize>::new();
+    for file in files {
+        if file.classifications.is_empty() {
+            *counts.entry(file.language).or_default() += 1;
+        }
+    }
+    let maximum = counts.values().copied().max().unwrap_or_default();
+    let mut languages = counts
+        .into_iter()
+        .filter(|(_, count)| *count * 3 >= maximum)
+        .collect::<Vec<_>>();
+    languages.sort_by(|(left_language, left_count), (right_language, right_count)| {
+        right_count
+            .cmp(left_count)
+            .then_with(|| left_language.cmp(right_language))
+    });
+    languages.into_iter().take(3).map(|(language, _)| language).collect()
+}
+
+fn best_snippet_candidate(
+    candidates: &[SnippetCandidate], selected: &[SnippetCandidate], token_budget: usize,
+) -> Option<(usize, SourceSymbol, usize, bool)> {
+    let diversity = SnippetDiversity::new(candidates, selected);
+    let mut best = None;
+    for (index, candidate) in candidates.iter().enumerate() {
+        let Some((symbol, cost, truncated)) = fit_snippet(candidate, token_budget) else {
+            continue;
+        };
+        let score = diversified_snippet_score(candidate, &diversity);
+        let replace = best.as_ref().is_none_or(|(best_index, _, best_cost, _)| {
+            let best_candidate = &candidates[*best_index];
+            let best_score = diversified_snippet_score(best_candidate, &diversity);
+            score > best_score
+                || (score == best_score && cost < *best_cost)
+                || (score == best_score
+                    && cost == *best_cost
+                    && snippet_candidate_order(candidate, best_candidate).is_lt())
+        });
+        if replace {
+            best = Some((index, symbol, cost, truncated));
+        }
+    }
+    best
+}
+
+struct SnippetDiversity {
+    selected_languages: BTreeSet<SourceLanguage>,
+    selected_subsystems: BTreeSet<String>,
+    selected_roots: BTreeSet<String>,
+    has_unrepresented_subsystem: bool,
+    has_unrepresented_language: bool,
+    has_unrepresented_root: bool,
+}
+
+impl SnippetDiversity {
+    fn new(candidates: &[SnippetCandidate], selected: &[SnippetCandidate]) -> Self {
+        let selected_languages = selected
+            .iter()
+            .map(|candidate| candidate.language)
+            .collect::<BTreeSet<_>>();
+        let selected_subsystems = selected
+            .iter()
+            .map(|candidate| candidate.subsystem.clone())
+            .collect::<BTreeSet<_>>();
+        let selected_roots = selected
+            .iter()
+            .filter_map(|candidate| candidate.project_root.clone())
+            .collect::<BTreeSet<_>>();
+        Self {
+            has_unrepresented_subsystem: candidates
+                .iter()
+                .any(|candidate| !selected_subsystems.contains(candidate.subsystem.as_str())),
+            has_unrepresented_language: candidates
+                .iter()
+                .any(|candidate| !selected_languages.contains(&candidate.language)),
+            has_unrepresented_root: candidates.iter().any(|candidate| {
+                candidate
+                    .project_root
+                    .as_deref()
+                    .is_some_and(|root| !selected_roots.contains(root))
+            }),
+            selected_languages,
+            selected_subsystems,
+            selected_roots,
+        }
+    }
+}
+
+fn diversified_snippet_score(candidate: &SnippetCandidate, diversity: &SnippetDiversity) -> u64 {
+    if candidate.task_relevant {
+        return candidate.score;
+    }
+
+    let mut score = candidate.score;
+    if candidate.partial {
+        score /= 2;
+    }
+    if candidate.generated {
+        score /= 4;
+    }
+    if diversity.has_unrepresented_subsystem && diversity.selected_subsystems.contains(candidate.subsystem.as_str()) {
+        score /= 3;
+    }
+    if diversity.has_unrepresented_language && diversity.selected_languages.contains(&candidate.language) {
+        score = score.saturating_mul(2) / 3;
+    }
+    if diversity.has_unrepresented_root
+        && candidate
+            .project_root
+            .as_deref()
+            .is_some_and(|root| diversity.selected_roots.contains(root))
+    {
+        score = score.saturating_mul(3) / 4;
+    }
+    score.saturating_add(match candidate.role {
+        SnippetFileRole::EntryPoint => 1_000_000,
+        SnippetFileRole::Gateway => 750_000,
+        SnippetFileRole::Test => 500_000,
+        SnippetFileRole::Source => 0,
+    })
+}
+
+fn snippet_candidate_order(left: &SnippetCandidate, right: &SnippetCandidate) -> std::cmp::Ordering {
+    right
+        .score
+        .cmp(&left.score)
+        .then_with(|| left.path.cmp(&right.path))
+        .then_with(|| location_key(Some(&left.symbol.location)).cmp(&location_key(Some(&right.symbol.location))))
+        .then_with(|| left.symbol.name.cmp(&right.symbol.name))
+}
+
+fn snippet_file_role(path: &str, project_roots: &[ProjectRoot]) -> SnippetFileRole {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    let lowercase_name = name.to_ascii_lowercase();
+    let declared_entry_point = project_roots
+        .iter()
+        .flat_map(|root| &root.manifest_metadata)
+        .any(|metadata| {
+            metadata
+                .runtime_entry_points
+                .iter()
+                .chain(&metadata.library_exports)
+                .any(|target| target.resolved_path.as_deref() == Some(path))
+        });
+    if declared_entry_point
+        || path.starts_with("examples/")
+        || path.contains("/examples/")
+        || matches!(
+            name,
+            "main.rs"
+                | "main.py"
+                | "main.rb"
+                | "main.ts"
+                | "main.js"
+                | "index.ts"
+                | "index.js"
+                | "index.tsx"
+                | "index.jsx"
+        )
+    {
+        SnippetFileRole::EntryPoint
+    } else if path.starts_with("tests/") || path.contains("/tests/") || name.ends_with("_test.go") {
+        SnippetFileRole::Test
+    } else if ["api", "gateway", "handler", "router", "server"]
+        .iter()
+        .any(|term| lowercase_name.contains(term))
+    {
+        SnippetFileRole::Gateway
+    } else {
+        SnippetFileRole::Source
+    }
+}
+
+fn snippet_subsystem(path: &str, project_root: Option<&str>) -> String {
+    let relative = project_root
+        .filter(|root| *root != ".")
+        .and_then(|root| path.strip_prefix(root).and_then(|path| path.strip_prefix('/')))
+        .unwrap_or(path);
+    relative
+        .rsplit_once('/')
+        .map_or(".".to_owned(), |(parent, _)| parent.to_owned())
 }
 
 fn is_graph_definition(symbol: &SourceSymbol) -> bool {

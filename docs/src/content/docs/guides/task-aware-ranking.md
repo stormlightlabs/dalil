@@ -79,3 +79,9 @@ The `map.task_seeds` field records the normalized inputs. Each `map.ranking`
 entry includes `matched_seeds` and score contributions for centrality, seed
 proximity, lexical relevance, history evidence, and focus. The contributions
 add up to the entry's `score`.
+
+`map.selection` returns three to five strong source files when that evidence
+fits the budget. It favors task matches, runnable entry points, tests, and
+project-root coverage over repeated files from one subsystem. JSON also lists
+likely primary languages, relevant paths omitted by the selection bound, and a
+shortfall when fewer than three useful files fit.

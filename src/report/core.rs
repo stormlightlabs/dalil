@@ -721,7 +721,11 @@ pub struct ReadingPlanShortfall {
 pub struct ReadingPlan {
     pub recommendations: Vec<ReadingRecommendation>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub primary_languages: Vec<SourceLanguage>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub omitted_project_roots: Vec<ReadingPlanRootOmission>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub omitted_relevant_paths: Vec<MapSelectionOmission>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shortfall: Option<ReadingPlanShortfall>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
