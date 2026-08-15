@@ -25,6 +25,7 @@ The repository bundle makes that substrate available outside one command run:
 .dalil/
 ├── map.json
 ├── map.md
+├── review.md
 └── tasks/
     └── <timestamp>-<task-slug>-<id>.md
 ```
@@ -32,6 +33,7 @@ The repository bundle makes that substrate available outside one command run:
 - `map.json` is the portable, versioned representation of Dalil's repository
   evidence.
 - `map.md` is the human-readable projection of the same snapshot.
+- `review.md` is an optional, compact snapshot for meaningful Git diffs.
 - Each task record preserves the original task and the orientation report
   generated for it.
 
@@ -83,6 +85,28 @@ analysis pipeline.
 The Markdown can omit low-priority detail to remain readable, but it records
 collection totals and omissions and points readers to `map.json` for the full
 portable representation.
+
+### Review snapshot
+
+The complete map is useful as local or uploaded evidence, but its size and
+incidental detail make it a poor default for version control. An explicit
+review export will write `.dalil/review.md` for repositories that want a
+generated architectural snapshot in Git.
+
+The file contains project roots, public or exported symbols, cross-project
+dependencies, runtime entry points, test roots, and grouped coverage totals.
+It uses stable relative paths, deterministic order, and one semantic fact per
+line. It excludes individual references, private symbols, source locations,
+timestamps, revision identifiers, and worktree state. A hard line and byte
+limit keeps pull-request diffs readable; overflow is summarized with totals
+and deterministic omission notices.
+
+CI can regenerate the snapshot without writing and fail when the committed
+file is missing or stale. Repositories can then ignore `map.json` and `map.md`
+while tracking only `review.md`. This follows the review pattern used by
+[API Extractor API reports](https://api-extractor.com/pages/setup/configure_api_report/)
+and Go's [one-feature-per-line API snapshots](https://go.dev/api/README), while
+keeping the full code-intelligence artifact outside Git by default.
 
 ### Task records
 
@@ -139,6 +163,11 @@ changes.
 The milestone is complete when black-box fixtures prove schema compatibility,
 semantic parity between JSON and Markdown, atomic replacement, path safety,
 deterministic unchanged exports, and clear freshness metadata.
+
+A follow-up adds the optional review snapshot and non-writing freshness check.
+The milestone is complete when its diff contains only stable public-surface and
+architectural facts, remains within its published size budget, and can be
+tracked without committing the complete evidence map.
 
 ### 2. Task orientation journal
 
@@ -205,13 +234,15 @@ cargo release-assets
 
 ## Risks and open questions
 
-- A checked-in map can become stale or create noisy merge conflicts. Freshness
-  metadata must be obvious in both formats, and documentation must leave the
-  commit decision to the repository owner.
+- A checked-in map can become stale or create noisy merge conflicts. The full
+  map stays a local or uploaded artifact by default; repositories that need a
+  versioned review surface can commit the compact snapshot and check freshness
+  in CI.
 - Stable portable identifiers can accidentally expose cache implementation
   details. Export IDs need their own versioned derivation from repository facts.
 - A map can grow too large for agents and code review. JSON collections remain
-  bounded and summarized; Markdown is a smaller projection.
+  bounded and summarized. The review snapshot has a separate hard size limit
+  and excludes reference-level detail.
 - Dirty-worktree exports can look authoritative after later edits. Every
   artifact records the exact revision and worktree state it describes.
 - Two-file publication cannot be perfectly atomic on every filesystem. The

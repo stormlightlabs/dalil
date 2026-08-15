@@ -19,16 +19,16 @@ dalil search parser
 dalil explain src/map.rs
 ```
 
-Both commands return the same orientation report: repository identity, first
-reads, project roots, runtime entry points, tests, useful history, and any
-limitations that affect the result.
+`dalil` and `dalil orient` return the same orientation report: repository
+identity, first reads, project roots, runtime entry points, tests, useful
+history, and any limitations that affect the result.
 
 `dalil search --symbol CacheStore` performs an exact symbol lookup. Use
 `dalil history` after these workflows when you need focused Git evidence. Use
 `dalil export` when you need a persistent `.dalil/map.json` and `.dalil/map.md`
 for later inspection or sharing. See [repository evidence bundles](/docs/guides/repository-evidence-bundles/).
 
-## Task Briefing Rank
+## Rank a task briefing
 
 Give Dalil a concise task description when you know what you need to change:
 

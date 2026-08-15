@@ -1,456 +1,107 @@
 # Dalil
 
-Dalil (Arabic for “guide”) is a CLI to help you orient yourself in a new
-codebase.
+Dalil (Arabic for “guide”) is a local codebase reference engine for humans and
+coding agents. It finds the files, symbols, relationships, tests, and history
+that are most useful for the task at hand.
 
 ![Dalil HTML repository briefing shown in a browser](./assets/dalil-report.png)
 
-Start with a concise orientation report, then use focused commands when you
-need more evidence:
+Dalil supports Rust, JavaScript, JSX, TypeScript, TSX, Python, Ruby, Java, C#,
+Go, Lua, and Zig. It reads local files and Git objects without running project
+code, hooks, filters, repository programs, or network transports.
 
-- `dalil` and `dalil orient` identify first reads, project roots, runtime entry
-  points, tests, useful history, and limitations.
-- `dalil map` inventories the current worktree and extracts structural maps for
-  Rust, JavaScript, JSX, TypeScript, TSX, Python, Ruby, Java, C#, Go, Lua, and Zig files.
-- `dalil export` writes a task-independent evidence map to `.dalil/map.json`
-  and `.dalil/map.md`; see [repository evidence bundles](docs/src/content/docs/guides/repository-evidence-bundles.md).
-- `dalil search` finds a few path, symbol, or concept anchors for the next source read.
-- `dalil history` summarizes five Git-history signals
-  1. churn
-  2. contributors
-  3. bug-related clusters
-  4. monthly activity
-  5. "firefighting"[^ff] language
+## Install
 
-```md
-# Dalil orient
-
-Schema version: 1
-Scope: `.`
-Status: Analyzed
-
-## Summary
-
-Selected 5 orientation read(s) across 1 important project root(s).
-
-## Repository overview
-
-Repository: `/Users/owais/Projects/StormlightLabs/OpenSource/mariners-astrolabe`
-Scope: `.`
-Worktree: modified
-Revision: `refs/heads/main` at `c613467e9f1c85ca75ae4129edffb67c4bd41923`
-Primary supported languages: Rust, TypeScript
-
-### Start here
-
-1. `README.md` — recognized readme: recognized documentation filename `readme.md` (high; landmark, project_topology)
-2. `crates/dalil-cli/src/lib.rs`, project root `crates/dalil-cli` — conventional library entry point for this project root; manifest `crates/dalil-cli/Cargo.toml` declares library export `dalil` as `src/lib.rs` (high; landmark, project_topology, source_map, graph)
-
-### Important project roots
-
-- `.` (workspace) — project root inferred from 1 manifest(s): Cargo.toml
-
-### Runtime entry points
-
-3. `crates/dalil-cli/src/main.rs`, project root `crates/dalil-cli` — conventional runtime entry point for this project root; manifest `crates/dalil-cli/Cargo.toml` declares runtime entry point `dalil` as `src/main.rs` (high; landmark, project_topology, source_map, graph)
-
-### Tests
-
-
-_Report truncated at the compact Markdown token budget; use `--json` for complete typed collections or `--profile evidence` for verbose Markdown._
-```
-
-## Quick start
-
-Install the published crate with Cargo:
+Install the published crate:
 
 ```sh
 cargo install --locked dalil
 ```
 
-To build an exact source checkout instead, use the committed lockfile:
+To build a source checkout instead:
 
 ```sh
 cargo build --locked --release
 ```
 
-Then run it from a Git worktree:
+## Quick start
+
+Run Dalil from the Git worktree you want to understand:
 
 ```sh
 dalil
-dalil orient
-dalil map
-dalil export
-dalil context --task 'fix parser cache invalidation' --changed-path src/map/cache.rs --teach
+dalil context --task 'fix parser cache invalidation' --changed-path src/map/cache.rs
 dalil impact --revision-range 'HEAD~1..HEAD'
 dalil search parser
-dalil search --symbol CacheStore
 dalil explain src/map.rs
-
-# Machine-readable forms
-dalil search parser --json
-dalil map src --exclude 'src/generated/**' --json
-dalil context --task 'review the last change' --revision-range 'HEAD~1..HEAD' --json
 ```
 
-`PATH` defaults to the current directory. `dalil` discovers the enclosing
-Git repository and keeps the selected scope inside that repository.
+`PATH` defaults to the current directory. Dalil discovers the enclosing Git
+repository and keeps analysis inside it.
 
-## Integrations
+The main workflows are:
 
-The CLI calls the typed operations in the `dalil-core` workspace crate. Native
-adapters can call those operations directly; see [the core API guide](docs/src/content/docs/guides/embeddable-core.md).
-Coding agents can use the [packaged Dalil skill](crates/dalil-cli/skills/dalil/SKILL.md).
-MCP clients can use the separate `dalil-mcp` stdio adapter; see [the MCP guide](docs/src/content/docs/integrations/mcp.md).
-`cargo install dalil` continues to install the CLI.
+- `dalil` or `dalil orient` returns a short repository briefing and reading
+  plan.
+- `dalil map` inventories source, symbols, lexical relationships, project
+  roots, entry points, tests, and other landmarks.
+- `dalil context` selects one task-shaped evidence bundle.
+- `dalil impact` prepares a review list for a revision range or dirty worktree.
+- `dalil search` finds path, symbol, or concept anchors. `dalil explain` shows
+  the evidence behind one recommendation.
+- `dalil history` reports bounded churn, contributor, bug-cluster, activity,
+  and firefighting signals.
 
-## Orientation
-
-`dalil [PATH]` and `dalil orient [PATH]` return the same `OrientationReport`.
-It includes repository identity, first reads, important project roots, runtime
-entry points, tests, useful history, next reads, and material limitations.
-Markdown omits categories without evidence. JSON contains this typed orientation
-report rather than the complete map or history analysis.
-
-Use `dalil map` for the structural map, `dalil history` for full history
-signals, and `dalil explain PATH-OR-SYMBOL` for the evidence behind one read.
-
-Orientation accepts task, focus, token-budget, exclusion, cache, and color
-controls:
+Pass `--json` for typed output or `--html` for a standalone browser report:
 
 ```sh
-dalil orient --task 'fix parser cache invalidation' --changed-path src/map/cache.rs .
-dalil context --task 'review parser cache changes' --changed-path src/map/cache.rs --symbol CacheStore --json
-dalil map --symbol parse_source --language rust --search cache --json
-dalil --focus parser --focus-path src --budget 500 .
-dalil --no-cache --json .
-dalil map --profile evidence --json .
-```
-
-`--task` derives local search terms from concise task text. Add `--symbol`,
-`--task-path`, `--language`, `--project`, `--changed-path`, `--changed-symbol`,
-or `--search` when you know relevant targets. Orientation records the reason,
-evidence kind, confidence, and limitations for each selected path. `dalil map`
-shows normalized task inputs and ranking contributions.
-
-`--budget` selects three to five strong reads when enough evidence exists. When
-fewer than three useful paths fit, orientation reports the shortfall rather than
-padding the result.
-
-Use `dalil map --profile evidence` for source files, symbols, edges, parser
-limits, and collection totals. Generated, vendored, minified, and source-map
-paths remain excluded unless selected with an exact `--focus-path`.
-
-## Commands
-
-### `dalil orient [OPTIONS] [PATH]`
-
-`dalil orient` is the named form of the default command. It returns the same
-short orientation report in Markdown and JSON. Use it when a script or guide
-benefits from naming the workflow explicitly.
-
-### `dalil map [OPTIONS] [PATH]`
-
-The map command supports Rust, JavaScript, JSX, TypeScript, TSX, Python, Ruby, Java, C#, Go, Lua, and Zig source files.
-
-An exact focus path can also include a classified `bin/` entry within the normal safety limits. It reports:
-
-- tracked, modified, and untracked worktree state
-- the selected language variant and file extension (`javascript_jsx` and `typescript_tsx` are explicit)
-- definitions and lexical references with symbol kind, visibility, syntactic
-  evidence, enclosing scope, 1-based source locations, and compact declaration context
-- Go package and receiver scopes, import aliases, exported visibility, and `_test.go` declarations
-- Lua local and global functions, dot and colon methods, variables, assignments, table fields, calls, and literal
-  `require` module paths
-- Zig containers, functions, variables, fields, test blocks, public declarations, calls, type uses, field access,
-  and literal `@import` paths
-- language- and import-aware lexical file edges with a resolution reason,
-  confidence tier, candidate-group identity, and deterministic centrality ranking
-- task-aware ranking from `--task`, symbols, paths, languages, project roots,
-  changed paths or symbols, search terms, and optional `--focus` or
-  `--focus-path` boosts
-- repository landmarks for README and agent/contributor instructions, manifests and lockfiles,
-  project roots, build/task entry points, test roots, CI, ownership, licenses, submodules, and
-  nested repositories
-- bounded manifest metadata for declared runtime entry points, library exports, and common build,
-  test, and run commands; see [Manifest support](docs/manifests.md)
-- monorepo project-root groups with bounded source recommendations
-- a bounded ranked selection controlled by `--budget` (default: 1,000)
-- parse errors, query-pack failures, grouped ambiguous lexical references, and
-  unsupported/partial evidence per affected file
-- non-source landmarks, configuration, documentation, and assets as `non_source`
-  inventory omissions rather than unsupported programming-language evidence
-- analyzed and omitted counts, repository root, scope, query-pack provenance, and
-  supplied exclusions.
-
-Lua & Zig module evidence is lexical.
-
-Literal `@import("path.zig")` & `require("module.path")` calls can support file edges,
-but in Lua, dynamic `require` arguments, metatable behavior, and runtime table mutation
-are reported as limitations rather than resolved.
-
-In Zig, comptime evaluation, inferred types, generic instantiation, error-union flow, and non-literal
-imports are reported as limitations rather than resolved.
-
-Exclusions can be repeated:
-
-```sh
-dalil map --exclude 'src/generated/**' --exclude 'tests/fixtures/**'
-```
-
-Map focus and cache controls are explicit:
-
-```sh
-dalil map --focus parser --focus-path src --budget 500
-dalil map --cache always
-dalil map --cache files --cache-file src/parser.rs
-dalil map --cache manual
-dalil map --no-cache
-dalil map --recursive --no-cache
-dalil cache path
-dalil cache status
-dalil cache prune
-dalil cache clear
-```
-
-Profiles are selected with `--profile compact|evidence`. Compact is the default.
-
-Nested repositories and checked-out submodules are boundaries by default. Use `--recursive` when
-their source should be included; the boundary landmark remains in the report either way.
-
-Compact analysis publishes these ceilings:
-
-- 4,096 files
-- 1 MiB per file
-- 64 MiB of source bytes
-- 2,048 syntax levels
-- 20,000 symbols
-- 32 lexical candidates per reference,
-- 2,000 edges/findings
-- 100,000 reachable commits
-- 128 history evidence items per collection
-- 30 seconds of analysis work,
-- 8 MiB hard rendered-output limit.
-
-Landmark output is capped at 64 compact landmarks and 32 compact project roots, with totals and
-truncation metadata preserved in JSON. Evidence mode raises those caps to the published report
-limits.
-
-Dalil stores per-file records and a versioned repository index under
-`$XDG_CACHE_HOME/dalil` (or `~/.cache/dalil`). The index records file
-fingerprints, parser summaries, lexical edges, bounded history facts, and
-repository metadata. Later runs reparse changed source files and reuse unaffected
-lexical relationships. Map JSON reports reused, invalidated, refreshed, stale,
-bypassed, and failed cache state. Ordinary analysis commands do not write to the
-repository. `dalil export` is the explicit exception and writes only
-`.dalil/map.json` and `.dalil/map.md`; see the [repository evidence bundle
-guide](docs/src/content/docs/guides/repository-evidence-bundles.md). Use
-`--no-cache` to bypass both reads and writes; `dalil cache status`, `prune`, and
-`clear` manage the user-cache data.
-
-### `dalil search <QUERY> [OPTIONS] [PATH]`
-
-Search starts a source read when you do not know the target yet. A plain query
-matches paths, retained symbols, and source context. `--symbol NAME` performs an
-exact symbol lookup:
-
-```sh
-dalil search parser
-dalil search --symbol CacheStore --json
-dalil search cache --limit 3 --budget 600
-```
-
-The result contains up to five anchors by default. Each anchor has a path,
-reason, evidence kind, confidence, limitations, and a score. A directly related
-file or test appears only when retained lexical evidence makes it a useful next
-read. Search reports a shortfall when strong matches are missing or the shared
-result and token budget ends selection. It does not provide caller, callee,
-centrality, path-finding, or graph-query modes.
-
-### `dalil explain <PATH-OR-SYMBOL> [PATH]`
-
-Explain turns a path or symbol into a reading decision. For each resolved path it
-reports why to read it, confidence, ranking contributions and matched seeds,
-lexical relationships, relevant keyword-matched commits, and any ambiguity,
-omission, partial-source, or budget limitation that qualifies the advice.
-
-It then suggests one distinct next read using the normal reading-plan selection
-rules. When retained lexical edges connect a declared or conventional runtime
-entry point to the target, it also shows that short route. The route is lexical
-evidence, not proof of runtime control flow. Markdown and JSON carry the same
-guidance.
-
-### `dalil context [OPTIONS] [PATH]`
-
-`context` compiles one task-shaped bundle from the normal source map and history
-analysis. Its JSON result contains the normalized request, orientation,
-recommended files and symbols, lexical relationships, relevant tests, history,
-risks, uncertainty, provenance, omissions, and next reads. It does not embed
-the raw map or history reports. Add `--teach` to request a short teaching
-scaffold for an unfamiliar subsystem.
-
-```sh
-dalil context --task 'fix parser cache invalidation'
-dalil context --task 'review cache changes' --changed-path src/map/cache.rs --symbol CacheStore --json
-dalil context --task 'inspect local edits' --dirty-worktree --budget 750
-```
-
-Use the same task options as `dalil map`: `--symbol`, `--task-path`,
-`--language`, `--project`, `--changed-path`, `--changed-symbol`, and `--search`.
-`--base` and `--head` compare local revisions (an omitted endpoint defaults to
-`HEAD`). `--revision-range` accepts one `base..head` range. `--dirty-worktree`
-compares the local index with the worktree and includes untracked paths. The
-bundle records added, deleted, modified, renamed, and untracked paths, plus
-symbols whose source locations overlap changed lines when a supported parser
-can inspect the current source.
-
-Dalil resolves revisions through its embedded Git library. It does not call the
-Git executable, hooks, filters, repository programs, or remotes. Unresolved
-revisions, unsafe paths, parser gaps, missing objects, and bounded traversal are
-reported as typed `change_resolution.uncertainty` entries in JSON.
-
-`--teach` uses only files, symbols, lexical relationships, tests, and next
-reads already selected for the bundle. Under a tight budget, it prioritizes a
-runtime recommendation before generic orientation files. Each teaching step
-records direct observations and labels its reading order as `inferred` or
-`ambiguous`. Dalil omits a step when the selected evidence does not support it.
-
-`--budget` applies to the bundle's selected evidence rather than fixed section
-quotas. The result's `context.budget` describes the estimated token use and any
-projection. If the scaffold cannot fit with the selected source evidence, it is
-omitted and the budget is marked truncated.
-
-### `dalil impact [OPTIONS] [PATH]`
-
-`impact` uses the same local revision and dirty-worktree inputs as `context` to
-prepare a bounded review list around a change:
-
-```sh
-dalil impact --revision-range 'HEAD~1..HEAD'
-dalil impact --dirty-worktree --task 'review parser changes' --json
-```
-
-The report includes changed symbols, inspection targets, likely tests,
-ownership configuration, and relevant path history under one budget. Every
-relationship is labeled as lexical, structural, manifest, or history evidence
-with a confidence tier. A relationship is evidence to inspect, not a claim that
-one path definitively calls another or that the change will break code.
-
-`impact` reads revisions through Dalil's embedded Git library. It never invokes
-Git, hooks, filters, repository programs, or remotes.
-
-## Evidence inspection
-
-### `dalil history [OPERATION] [OPTIONS] [PATH]`
-
-History analysis uses committed Git data only. The available operations are:
-
-```text
-history                 all five signals
-history churn           changed-path frequency
-history contributors    author concentration
-history bugs            fix-related path clusters and churn overlap
-history activity        author-date commits grouped by month
-history firefighting    revert, hotfix, emergency, and rollback language
-```
-
-The default history window is 365 days; recent contributor concentration uses 180 days.
-Override the windows or keyword sets explicitly, for example:
-
-```sh
-dalil history bugs --window-days 30 --bug-keyword parser --json
-dalil history bugs --keyword-match substring --json
-dalil history contributors --include-emails --json
-```
-
-History output presents evidence and caveats. It does not treat churn, commit counts,
-or commit-message matches as objective quality scores.
-
-Bug and firefighting keywords use case-insensitive word-aware matching by default, and each
-evidence commit records the terms it matched.
-
-`--keyword-match substring` enables the former substring behavior explicitly.
-
-Contributor concentration applies the `.mailmap` stored at the analyzed HEAD and records
-raw-to-canonical identity mappings.
-
-Compact output omits email addresses unless `--include-emails` is supplied.
-
-Missing names are grouped as `Unknown`, and email matching is case-insensitive.
-
-Churn keeps absolute commit counts and adds a rate per KiB using each path's current HEAD blob
-size.
-
-Empty, binary, generated, deleted, oversized, and resource-limited paths are labelled
-explicitly.
-
-Generated text is retained in normalization; empty, binary, deleted, oversized, and
-resource-limited paths have no normalized rate.
-
-Rename continuity is currently reported as unavailable, so exact-path counts never imply that earlier
-history under another name was searched.
-
-### `dalil capabilities --json` and `dalil doctor [PATH]`
-
-`capabilities` reports the schema version, supported language grammars and query packs,
-query-pack validity, and active compact/evidence.
-
-`doctor` checks repository discovery, path-safety support, cache location and permissions,
-the embedded schema, query packs, and effective limits.
-
-## Output
-
-Markdown is the default format. Use `--format json` or `--json` for machine-readable output:
-
-```sh
-dalil map --format json
-dalil history --json
-```
-
-Use `--format html` or `--html` to write a standalone report for a browser:
-
-```sh
+dalil map --profile evidence --json > map.json
 dalil --html > dalil-report.html
-dalil history --format html > dalil-history.html
-```
-
-Add `--open` to write the HTML report to a private temporary file and open it
-in the default browser:
-
-```sh
 dalil --html --open
 ```
 
-With Markdown or JSON, `--open` has no effect.
+Reports go to stdout and diagnostics go to stderr, so redirection writes a
+clean report file.
 
-Reports go to stdout without ANSI escape sequences and diagnostics go to stderr.
+## Repository evidence bundles
 
-Machine reports include typed provenance:
+`dalil export` writes a persistent snapshot under `.dalil/`:
 
-- the effective request and limits
-- stable repository identity
-- resolved HEAD reference/OID
-- worktree state
-- language/query-pack versions,
-- cache state
-- a UTC capture-date marker
+```text
+.dalil/
+├── map.json
+└── map.md
+```
 
-History provenance records its observed committer-date range, author-versus-committer time
-basis, current-HEAD semantics, and completeness status (`complete`, `shallow`, `missing_objects`, or `partial`).
+`map.json` is the complete portable evidence map. `map.md` is a shorter view of
+the same snapshot. Treat both as generated working data by default: ignore them
+locally or upload them as CI artifacts unless the repository has a specific
+reason to version the full map.
 
-The v1 report JSON schema is [`schema/v1/dalil.json`](schema/v1/dalil.json), with compatibility
-examples in [`schema/v1/golden`](schema/v1/golden), including a context bundle.
-`dalil export` writes the repository-map schema at
-[`schema/export/v1/map.json`](schema/export/v1/map.json).
+See [repository evidence bundles](docs/src/content/docs/guides/repository-evidence-bundles.md)
+for refresh, freshness, sharing, and Git guidance.
 
-Diagnostic color can be controlled with `--color auto|always|never` or `--no-color`.
+## Integrations
 
-Color settings never change report stdout.
+The CLI calls typed operations in `dalil-core`. Native adapters can use the
+[core API](docs/src/content/docs/guides/embeddable-core.md), coding agents can
+install the [Dalil skill](crates/dalil-cli/skills/dalil/SKILL.md), and MCP
+clients can run the separate [`dalil-mcp` adapter](docs/src/content/docs/integrations/mcp.md).
 
-## Inspiration/References
+## Documentation
 
-1. [Aider's Repo Map](https://aider.chat/docs/repomap.html)
-2. [codebase orient skill](https://github.com/DrCatHicks/learning-opportunities/tree/main/orient)
-3. [The Git Commands I Run Before Reading Any Code](https://piechowski.io/post/git-commands-before-reading-code/)
+- [Installation](docs/src/content/docs/getting-started/installation.md)
+- [Quick start](docs/src/content/docs/getting-started/quick-start.md)
+- [Repository orientation](docs/src/content/docs/guides/default-briefing.md)
+- [Task-shaped context bundles](docs/src/content/docs/guides/context-bundles.md)
+- [Source analysis, limits, and caching](docs/src/content/docs/reference/source-analysis.md)
+- [Git-history evidence](docs/src/content/docs/reference/history.md)
+- [Manifests and entry points](docs/src/content/docs/reference/manifests.md)
+- [Report formats and schemas](docs/src/content/docs/reference/report-formats.md)
+- [Agent integration](docs/src/content/docs/integrations/agents.md)
 
-[^ff]: https://newsroom.cisco.com/c/r/newsroom/en/us/a/y2024/m05/developers-spending-more-time-firefighting-issues-than-delivering-innovation.html
+## Inspiration
+
+- [Aider's repository map](https://aider.chat/docs/repomap.html)
+- [codebase orient skill](https://github.com/DrCatHicks/learning-opportunities/tree/main/orient)
+- [The Git Commands I Run Before Reading Any Code](https://piechowski.io/post/git-commands-before-reading-code/)

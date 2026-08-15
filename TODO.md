@@ -52,6 +52,44 @@ map to `.dalil/map.json` and `.dalil/map.md` through one end-to-end CLI flow.
 - Run the standard format, workspace test, Clippy, documentation, package, and
   release-asset checks from ROADMAP.md.
 
+### T1.1 — Add a reviewable repository snapshot
+
+**What to build:** A user can generate a compact `.dalil/review.md` whose Git
+diff shows changes to the repository's public surface and architecture without
+committing the complete evidence map.
+
+**Blocked by:** T1.
+
+**Acceptance criteria:**
+
+- [ ] Add `dalil export --review` to write the review snapshot and
+      `dalil export --review --check` to regenerate and compare it without
+      changing repository files.
+- [ ] Render one stable fact per line: project roots, public or exported
+      symbols, cross-project dependencies, runtime entry points, test roots,
+      and grouped coverage or omission totals.
+- [ ] Omit individual references, private and local symbols, source locations,
+      absolute paths, timestamps, revision identifiers, worktree state, and
+      full ignored-file inventories.
+- [ ] Sort every section deterministically and cap the result at 2,000 lines or
+      200 KiB. Record totals and deterministic omissions when the cap applies.
+- [ ] Make check mode return a distinct non-zero status when the committed
+      snapshot is missing or stale, with a command that refreshes it.
+- [ ] Keep `.dalil/map.json` and `.dalil/map.md` independent of the review
+      snapshot so repositories can ignore the complete map while committing
+      only `.dalil/review.md`.
+- [ ] Document the intended Git workflow, selective `.gitignore` rules, merge
+      behavior, generated-file notice, and the difference between the review
+      snapshot and the portable evidence map.
+
+**Verification:**
+
+- Add compiled-CLI fixtures for first write, unchanged check, semantic change,
+  irrelevant private change, deterministic overflow, and missing snapshot.
+- Assert that unchanged semantic input is byte-identical, private source churn
+  does not alter the review snapshot, and check mode never writes.
+- Run the standard verification commands from ROADMAP.md.
+
 ## Milestone: Task orientation journal
 
 **Exit condition:** An export with task text appends one durable task record

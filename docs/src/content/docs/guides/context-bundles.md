@@ -93,3 +93,19 @@ adding ungrounded summary text.
 
 Markdown and JSON describe the same bundle. Markdown can be trimmed to the
 compact report budget; use JSON when a consumer needs every selected field.
+
+## Review a change
+
+`dalil impact` accepts the same revision and dirty-worktree inputs as
+`context`, then prepares a review list around the change:
+
+```sh
+dalil impact --revision-range 'HEAD~1..HEAD'
+dalil impact --dirty-worktree --task 'review parser changes' --json
+```
+
+The report includes changed symbols, inspection targets, likely tests,
+ownership configuration, and relevant path history under one budget. It labels
+each relationship as lexical, structural, manifest, or history evidence with a
+confidence tier. These relationships identify code to inspect; they do not
+prove that one path calls another or that a change will cause a failure.

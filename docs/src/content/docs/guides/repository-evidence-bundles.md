@@ -53,16 +53,18 @@ relying on an older bundle.
 
 ## Keep or share it
 
-Choose the policy that fits the repository:
+Treat the complete bundle as generated working data by default:
 
-- Add `.dalil/` to `.gitignore` when the bundle is local working context.
-- Commit it when reviewers or other agents need a versioned snapshot. Refresh it
-  with the related source change.
-- Do not commit it when paths, commit subjects, or repository structure should
-  remain local.
+- Add `.dalil/` to `.gitignore` when the bundle is local context.
+- Upload it as a CI artifact when another job or tool needs the full snapshot.
+- Commit it only when the repository has a specific need for a versioned full
+  map and accepts large diffs and merge conflicts.
 
-A committed map can create merge conflicts and becomes stale between refreshes.
-Dalil does not edit `.gitignore` or choose this policy for you.
+Dalil's output is deterministic when its repository facts are unchanged, but
+determinism does not make a large artifact easy to review. A committed map also
+becomes stale after source changes. Dalil does not edit `.gitignore` or choose
+the repository's storage policy. Prefer the complete bundle as local or
+uploaded evidence rather than a required source-controlled file.
 
 ## Write boundary
 
