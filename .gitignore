@@ -31,3 +31,4 @@ rustc-ice-*.txt
 # Generated release documentation; keep assets/ available for authored files.
 /assets/completions/
 /assets/man/
+.thndrs/
