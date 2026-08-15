@@ -1372,6 +1372,8 @@ fn task_text_changes_ranking_and_retains_its_contributions() {
 
     assert_eq!(parser_ranking[0].path, "src/parser.rs");
     assert_eq!(render_ranking[0].path, "src/render.rs");
+    assert!(parser_ranking[0].contributions.centrality > parser_ranking[1].contributions.centrality);
+    assert!(render_ranking[0].contributions.centrality > render_ranking[1].contributions.centrality);
     assert!(parser_ranking[0].contributions.lexical_relevance > 0);
     assert!(
         parser_ranking[0]

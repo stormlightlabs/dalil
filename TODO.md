@@ -69,38 +69,8 @@ to start without exposing the complete repository analysis by default.
 
 ### R3 — Add bounded search
 
-**Outcome:** A user can find a few strong path, symbol, or concept anchors for a
+A user can find a few strong path, symbol, or concept anchors for a
 subsequent context request or source read.
-
-**Blocked by:** R2.
-
-**Acceptance criteria:**
-
-- [x] Accept plain queries and an explicit symbol query through the CLI and
-      typed operation.
-- [x] Return a small ranked set of matching paths and symbols with a reason,
-      evidence, confidence, and limitations for each result.
-- [x] Reuse the recommendation fields already needed by orientation, context,
-      impact, and explain where they fit instead of introducing parallel result
-      meanings.
-- [x] Include a directly related file or test only when it helps anchor the
-      next read.
-- [x] Apply one result and token budget with deterministic ordering and an
-      explicit shortfall when strong matches do not exist.
-- [x] Do not expose graph traversal, callers, paths, centrality, or a general
-      graph query language as public search modes.
-- [x] Lead the quick start with orientation, repository mapping, task context,
-      change impact, search, and explanation examples.
-- [x] Keep focused `history` usage in an evidence-inspection section while
-      retaining its documented behavior.
-- [x] Keep README usage concise and link to detailed guides where needed.
-- [x] Keep help, README examples, generated man pages, and completions aligned
-      with the packaged command surface.
-
-**Verification:** CLI coverage exercises path, exact-symbol, concept,
-ambiguous-symbol, missing, and budget-limited queries in Markdown and JSON.
-The release-asset generator verifies help, man pages, and completions use the
-packaged command and option spelling.
 
 ## Milestone: Incremental analysis
 
@@ -109,49 +79,13 @@ only invalidated work, and remain equivalent to a cold analysis.
 
 ### T8 — Persist the analysis index
 
-**Outcome:** Expensive reusable facts survive between processes under the user
+Expensive reusable facts survive between processes under the user
 cache without changing repository contents.
-
-**Blocked by:** T4.
-
-**Acceptance criteria:**
-
-- [x] Define a versioned on-disk index for file fingerprints, bounded syntax
-      summaries, lexical edges, selected history facts, and repository metadata.
-- [x] Key index identity by repository, worktree, revision or content state,
-      analysis options, language-pack identity, and tool compatibility.
-- [x] Write atomically under the user cache and recover safely from missing,
-      partial, corrupt, incompatible, or permission-denied state.
-- [x] Preserve explicit cache status, provenance, cleanup, and no-cache controls.
-- [x] Do not persist source content unless a separately approved requirement
-      proves it necessary.
-
-**Verification:** Round-trip, corruption, concurrent-writer, permission,
-cleanup, and cold/warm-equivalence coverage runs through the CLI cache boundary.
-The index uses the existing private, atomic cache writer and a distinct index
-status in map and context provenance.
 
 ### T9 — Refresh only invalidated analysis
 
-**Outcome:** A small repository change causes proportionate reanalysis while
+A small repository change causes proportionate reanalysis while
 unchanged results remain reusable.
-
-**Blocked by:** T8 and R3.
-
-**Acceptance criteria:**
-
-- [x] Detect file, manifest, revision, worktree, option, and language-pack
-      changes that invalidate stored facts.
-- [x] Reparse changed files and recompute only dependent lexical, structural,
-      history, and ranking state.
-- [x] Fall back to cold analysis when invalidation cannot be proven safe.
-- [x] Report reused, refreshed, stale, bypassed, and failed cache state without
-      making output nondeterministic.
-- [x] Demonstrate lower warm-request latency and work without crossing memory or
-      disk ceilings.
-
-**Verification:** Mutate one input category at a time, compare every warm result
-with a cold run, and record targeted cold/warm work and latency measurements.
 
 ## Milestone: Shared integration surfaces
 
@@ -161,54 +95,12 @@ safety behavior.
 
 ### T10 — Establish an embeddable core
 
-**Outcome:** In-process consumers can call stable analysis operations without
+In-process consumers can call stable analysis operations without
 depending on CLI parsing or renderer internals.
-
-**Blocked by:** T4, T7, and R3.
-
-**Acceptance criteria:**
-
-- [x] Expose orientation, map, context, impact, explain, search, capabilities,
-      and cache operations through typed inputs and outputs.
-- [x] Extract analysis and reusable storage into a `dalil-core` workspace crate.
-      Keep the `dalil` CLI package in `crates/dalil-cli` and preserve
-      `cargo install dalil`.
-- [x] Separate analysis, storage, rendering, and transport boundaries while
-      reusing current domain types where they already fit.
-- [x] Keep dependencies directed from the CLI into `dalil-core`; the core does
-      not depend on CLI parsing, rendering, transport, or protocol code.
-- [x] Keep internal graph and parser structures private unless a demonstrated
-      consumer needs them.
-- [x] Define cancellation, progress, budget, warning, and error behavior for
-      long-running calls.
-- [x] Prove CLI output still comes from the same operations.
-
-**Verification:** Add library integration tests and compare library-derived
-results with black-box CLI JSON fixtures.
 
 ### T11 — Add a bounded MCP adapter
 
-**Outcome:** MCP clients can request Dalil context through a small task-level
-tool surface.
-
-**Blocked by:** T10.
-
-**Acceptance criteria:**
-
-- [x] Implement MCP as a separate workspace crate that depends on `dalil-core`,
-      keeping MCP protocol and runtime dependencies out of the core and CLI.
-- [x] Map MCP tools to orientation, repository map, context, impact, explain, search,
-      capabilities, and cache-status operations.
-- [x] Keep responses task-oriented and bounded; do not expose an exhaustive
-      graph endpoint.
-- [x] Preserve typed provenance, uncertainty, omissions, budget behavior, and
-      cancellation across the transport.
-- [x] Document local setup and the read-only safety contract.
-- [x] Verify MCP and CLI requests with equivalent inputs return equivalent
-      semantics.
-
-**Verification:** Add protocol conformance, cancellation, oversized-request,
-error-mapping, and CLI-equivalence tests.
+MCP clients can request Dalil context through a small task-level tool surface.
 
 ### T12 — Ship an agent skill
 

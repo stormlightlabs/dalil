@@ -160,43 +160,6 @@ pub fn rank_files(
         outgoing.entry(edge.source.clone()).or_default().push(edge);
     }
 
-    let initial = 1.0 / paths.len() as f64;
-    let mut scores = paths
-        .iter()
-        .map(|path| (path.clone(), initial))
-        .collect::<BTreeMap<_, _>>();
-    for _ in 0..PAGE_RANK_ITERATIONS {
-        let mut next = paths
-            .iter()
-            .map(|path| (path.clone(), (1.0 - PAGE_RANK_DAMPING) * initial))
-            .collect::<BTreeMap<_, _>>();
-        let dangling = paths
-            .iter()
-            .filter(|path| outgoing.get(*path).is_none_or(Vec::is_empty))
-            .map(|path| scores[path])
-            .sum::<f64>();
-        let dangling_share = PAGE_RANK_DAMPING * dangling * initial;
-        for score in next.values_mut() {
-            *score += dangling_share;
-        }
-        for source in &paths {
-            let Some(source_edges) = outgoing.get(source) else {
-                continue;
-            };
-            let total_weight = source_edges.iter().map(|edge| edge_weight(edge)).sum::<f64>();
-            if total_weight == 0.0 {
-                continue;
-            }
-            for edge in source_edges {
-                if path_set.contains(&edge.target) {
-                    let contribution = PAGE_RANK_DAMPING * scores[source] * edge_weight(edge) / total_weight;
-                    *next.entry(edge.target.clone()).or_default() += contribution;
-                }
-            }
-        }
-        scores = next;
-    }
-
     let seeds = settings.effective_task_seeds();
     let task_terms = seeds
         .task
@@ -219,6 +182,39 @@ pub fn rank_files(
         .iter()
         .filter_map(|(path, matches)| (!matches.is_empty()).then_some(path.clone()))
         .collect::<BTreeSet<_>>();
+    let personalization = task_personalization(&paths, &seed_paths);
+    let mut scores = personalization.clone();
+    for _ in 0..PAGE_RANK_ITERATIONS {
+        let mut next = paths
+            .iter()
+            .map(|path| (path.clone(), (1.0 - PAGE_RANK_DAMPING) * personalization[path]))
+            .collect::<BTreeMap<_, _>>();
+        let dangling = paths
+            .iter()
+            .filter(|path| outgoing.get(*path).is_none_or(Vec::is_empty))
+            .map(|path| scores[path])
+            .sum::<f64>();
+        for path in &paths {
+            *next.entry(path.clone()).or_default() += PAGE_RANK_DAMPING * dangling * personalization[path];
+        }
+        for source in &paths {
+            let Some(source_edges) = outgoing.get(source) else {
+                continue;
+            };
+            let total_weight = source_edges.iter().map(|edge| edge_weight(edge)).sum::<f64>();
+            if total_weight == 0.0 {
+                continue;
+            }
+            for edge in source_edges {
+                if path_set.contains(&edge.target) {
+                    let contribution = PAGE_RANK_DAMPING * scores[source] * edge_weight(edge) / total_weight;
+                    *next.entry(edge.target.clone()).or_default() += contribution;
+                }
+            }
+        }
+        scores = next;
+    }
+
     let proximity = seed_proximity(&seed_paths, edges);
 
     let mut ranking = files
@@ -277,6 +273,18 @@ pub fn rank_files(
         .collect::<Vec<_>>();
     ranking.sort_by(|left, right| right.score.cmp(&left.score).then_with(|| left.path.cmp(&right.path)));
     ranking
+}
+
+fn task_personalization(paths: &[String], seed_paths: &BTreeSet<String>) -> BTreeMap<String, f64> {
+    let selected_paths = if seed_paths.is_empty() { paths.len() } else { seed_paths.len() };
+    let weight = 1.0 / selected_paths as f64;
+    paths
+        .iter()
+        .map(|path| {
+            let selected = seed_paths.is_empty() || seed_paths.contains(path);
+            (path.clone(), if selected { weight } else { 0.0 })
+        })
+        .collect()
 }
 
 fn task_seed_matches(

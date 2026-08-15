@@ -76,10 +76,10 @@ Use JSON when you need to see why a result ranked:
 dalil map --task 'fix parser cache invalidation' --changed-path src/map/cache.rs --json
 ```
 
-The `map.task_seeds` field records the normalized inputs. Each `map.ranking`
-entry includes `matched_seeds` and score contributions for centrality, seed
-proximity, lexical relevance, history evidence, and focus. The contributions
-add up to the entry's `score`.
+The `map.task_seeds` field records the normalized inputs. Direct seed matches
+personalize centrality before Dalil applies proximity, lexical relevance,
+history evidence, and focus. Each `map.ranking` entry includes `matched_seeds`
+and score contributions that add up to its `score`.
 
 `map.selection` returns three to five strong source files when that evidence
 fits the budget. It favors task matches, runnable entry points, tests, and
