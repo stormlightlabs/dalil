@@ -50,3 +50,37 @@ mismatch, and the underlying analysis error.
 
 The core is read-only with respect to the analyzed repository. Cache commands
 write only to Dalil's user cache.
+
+## Host lifecycle calls
+
+Native hosts can use `LifecycleEvent`, `LifecycleRequest`, and `dispatch` for
+host-owned lifecycle notices. The adapter has no background worker or daemon.
+The host decides whether to call Dalil, show the returned report, or cancel it.
+
+| Host event                           | Core operation |
+| ------------------------------------ | -------------- |
+| repository open, session start       | `orient`       |
+| task change, before edit, after edit | `context`      |
+| before review                        | `impact`       |
+
+A lifecycle event accepts only its matching operation, so a review notice
+cannot accidentally return orientation data. Pass changed paths or revision
+inputs through the `AnalysisRequest`; Dalil does not inspect editor buffers or
+host session state. After a saved edit, make another context request. The
+normal cache settings reuse unchanged index records and refresh changed files.
+
+```rust
+use std::path::PathBuf;
+
+use dalil_core::{
+    AnalysisRequest, CommandDescriptor, LifecycleEvent, LifecycleRequest, dispatch,
+};
+
+let request = AnalysisRequest::new(CommandDescriptor::orient(PathBuf::from("/path/to/repository")));
+let notice = dispatch(LifecycleRequest::new(LifecycleEvent::RepositoryOpen, request)?)?;
+assert_eq!(notice.event, LifecycleEvent::RepositoryOpen);
+```
+
+`dispatch_with_control` accepts the usual `ExecutionControl` for cooperative
+cancellation and progress. Its `LifecycleNotice.report` is the normal `Report`
+from `analyze`, preserving CLI and MCP analysis semantics.

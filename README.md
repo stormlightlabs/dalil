@@ -97,6 +97,7 @@ Git repository and keeps the selected scope inside that repository.
 
 The CLI calls the typed operations in the `dalil-core` workspace crate. Native
 adapters can call those operations directly; see [the core API guide](docs/src/content/docs/guides/embeddable-core.md).
+Coding agents can use the [packaged Dalil skill](crates/dalil-cli/skills/dalil/SKILL.md).
 MCP clients can use the separate `dalil-mcp` stdio adapter; see [the MCP guide](docs/src/content/docs/integrations/mcp.md).
 `cargo install dalil` continues to install the CLI.
 

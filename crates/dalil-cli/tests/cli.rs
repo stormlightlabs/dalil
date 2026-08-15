@@ -2384,6 +2384,93 @@ fn search_returns_path_symbol_concept_and_budget_limited_anchors() {
 }
 
 #[test]
+fn packaged_agent_skill_uses_supported_cli_workflows() {
+    let skill = include_str!("../skills/dalil/SKILL.md");
+
+    for command in [
+        "dalil orient --json",
+        "dalil map --budget 750 --json",
+        "dalil search 'cache invalidation' --json",
+        "dalil search --symbol CacheStore --json",
+        "dalil explain src/map/cache.rs --json",
+        "dalil context --task 'fix parser cache invalidation' --changed-path src/map/cache.rs --budget 750 --json",
+        "dalil context --task 'understand cache invalidation' --teach --budget 750 --json",
+        "dalil impact --dirty-worktree --task 'review cache changes' --budget 750 --json",
+        "dalil impact --revision-range 'HEAD~1..HEAD' --json",
+    ] {
+        assert!(skill.contains(command), "skill must document `{command}`");
+    }
+    for field in [
+        "orientation",
+        "context.relevant_tests",
+        "context.next_reads",
+        "quality",
+        "uncertainty",
+    ] {
+        assert!(skill.contains(field), "skill must explain `{field}`");
+    }
+
+    let fixture = MapFixtureRepository::new();
+    for (arguments, field) in [
+        (&["orient", "--json"][..], "orientation"),
+        (&["map", "--budget", "750", "--json"][..], "map"),
+        (&["search", "cache invalidation", "--json"][..], "search"),
+        (&["search", "--symbol", "CacheStore", "--json"][..], "search"),
+        (&["explain", "src/map/cache.rs", "--json"][..], "explain"),
+        (
+            &[
+                "context",
+                "--task",
+                "fix parser cache invalidation",
+                "--changed-path",
+                "src/map/cache.rs",
+                "--budget",
+                "750",
+                "--json",
+            ][..],
+            "context",
+        ),
+        (
+            &[
+                "context",
+                "--task",
+                "understand cache invalidation",
+                "--teach",
+                "--budget",
+                "750",
+                "--json",
+            ][..],
+            "context",
+        ),
+        (
+            &[
+                "impact",
+                "--dirty-worktree",
+                "--task",
+                "review cache changes",
+                "--budget",
+                "750",
+                "--json",
+            ][..],
+            "impact",
+        ),
+        (&["impact", "--revision-range", "HEAD~1..HEAD", "--json"][..], "impact"),
+    ] {
+        let output = fixture.run(arguments);
+        assert!(
+            output.status.success(),
+            "skill workflow `{arguments:?}` failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let report: Value = serde_json::from_str(&stdout(&output)).expect("skill workflow emits JSON");
+        assert!(
+            report[field].is_object(),
+            "skill workflow `{arguments:?}` returns `{field}`"
+        );
+    }
+}
+
+#[test]
 fn context_compiles_one_budgeted_bundle_in_json_and_markdown() {
     let fixture = MapFixtureRepository::new();
     let arguments = [

@@ -113,9 +113,10 @@ Target: `crates/dalil-core/src/map.rs` (path)
 Matched paths: `crates/dalil-core/src/map.rs`
 Focus evidence: `crates/dalil-core/src/map.rs`
 Provenance:
+
 - profile `compact`; 63 analyzed source file(s); 131 retained lexical relationship(s); history scope `.`
 - no task seeds were supplied or derived
-Reading guidance:
+  Reading guidance:
 - `crates/dalil-core/src/map.rs` — ranking matched focus:map (high confidence)
   - ranking: score 353648; focus matches 1; 0 incoming and 0 outgoing relationship(s); contributions centrality=3648, seed proximity=0, lexical relevance=0, history evidence=0, explicit focus=350000
   - matched seeds: `focus` `map`

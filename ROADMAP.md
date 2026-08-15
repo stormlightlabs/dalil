@@ -428,17 +428,20 @@ CLI, transport, or protocol code. See [the core API guide](docs/src/content/docs
 - Native hosts prefer the core library when they can pass task text, inspected
   files, edited files, identifiers, budget, and worktree changes directly.
 
-A small agent skill teaches consumers when to use each operation and when to
-fall back to source search. Dalil narrows exploration; it does not replace
-reading source.
+The packaged Dalil agent skill teaches consumers when to use each operation and
+when to fall back to source search. Dalil narrows exploration; it does not
+replace reading source.
 
-Lifecycle adapters may offer a small orientation notice at session start, pass
-typed task hints before exploration, invalidate or refresh analysis after edits,
-and request impact context at the review boundary. Hooks remain advisory and
-bounded, and they do not inject a large report after every write. Add a
-workspace crate for a named host only when its adapter brings protocol or runtime
-dependencies or needs a separate executable boundary. The agent skill remains a
-packaged asset rather than a Rust crate.
+The approved native Rust host adapter is `dalil-core`'s lifecycle API. It maps
+repository open and session start to `orient`; task change and edit boundaries
+to `context`; and before review to `impact`. Hosts call it directly, provide
+any task and changed-path inputs, and decide whether to display or cancel the
+advisory report. It starts no background work or daemon. Normal cache settings
+reuse unchanged index records and refresh changed files after a saved edit.
+
+Add a workspace crate for a named host only when its adapter brings protocol or
+runtime dependencies or needs a separate executable boundary. The agent skill
+remains a packaged asset rather than a Rust crate.
 
 ## Technical Plan
 

@@ -7,6 +7,7 @@
 mod api;
 mod history;
 mod landmarks;
+mod lifecycle;
 mod manifests;
 mod map;
 mod report;
@@ -14,5 +15,6 @@ mod security;
 mod utils;
 
 pub use api::*;
+pub use lifecycle::*;
 pub use map::{CacheCommand, CacheControlReport, MapError, MapSettings, cache_control};
 pub use report::*;

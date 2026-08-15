@@ -219,14 +219,14 @@ Dalil instead of rediscovering repository exploration workflows.
 
 **Acceptance criteria:**
 
-- [ ] Cover unfamiliar-repository orientation and mapping, implementation
+- [x] Cover unfamiliar-repository orientation and mapping, implementation
       lookup, impact review, relevant-test discovery, and next-read workflows.
-- [ ] Prefer compact requests, narrow focus, and follow-up calls over exhaustive
+- [x] Prefer compact requests, narrow focus, and follow-up calls over exhaustive
       output.
-- [ ] Explain uncertainty, unsupported-language behavior, and when direct source
+- [x] Explain uncertainty, unsupported-language behavior, and when direct source
       inspection remains necessary.
-- [ ] Keep examples valid for the packaged CLI and avoid host-specific claims.
-- [ ] Validate the skill against representative benchmark tasks.
+- [x] Keep examples valid for the packaged CLI and avoid host-specific claims.
+- [x] Validate the skill against representative benchmark tasks.
 
 **Verification:** Run the documented prompts against public or synthetic
 fixtures and confirm every command, option, and expected field matches the
@@ -241,17 +241,17 @@ at useful lifecycle points without hidden background behavior.
 
 **Acceptance criteria:**
 
-- [ ] Define explicit events such as repository open, session start, task
+- [x] Define explicit events such as repository open, session start, task
       change, before edit, after edit, and before review.
-- [ ] Keep every injection small, advisory, cancellable, and controlled by the
+- [x] Keep every injection small, advisory, cancellable, and controlled by the
       host.
-- [ ] Share the persistent index across lifecycle calls without requiring a
+- [x] Share the persistent index across lifecycle calls without requiring a
       daemon.
-- [ ] Add only adapters with a named host, demonstrated demand, and a stable
+- [x] Add only adapters with a named host, demonstrated demand, and a stable
       integration boundary.
-- [ ] Give an approved adapter its own workspace crate only when it adds
+- [x] Give an approved adapter its own workspace crate only when it adds
       protocol or runtime dependencies or has a separate executable boundary.
-- [ ] Preserve identical analysis semantics across native, CLI, and MCP paths.
+- [x] Preserve identical analysis semantics across native, CLI, and MCP paths.
 
 **Verification:** For each approved adapter, add lifecycle, cancellation,
 stale-state, and semantic-equivalence tests before documenting support.
