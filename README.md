@@ -5,9 +5,11 @@ codebase.
 
 ![Dalil HTML repository briefing shown in a browser](./assets/dalil-report.png)
 
-It produces an integrated briefing, or a focused report when you need only one
-evidence family:
+Start with a concise orientation report, then use focused commands when you
+need more evidence:
 
+- `dalil` and `dalil orient` identify first reads, project roots, runtime entry
+  points, tests, useful history, and limitations.
 - `dalil map` inventories the current worktree and extracts structural maps for
   Rust, JavaScript, JSX, TypeScript, TSX, Python, Ruby, Java, C#, Go, Lua, and Zig files.
 - `dalil history` summarizes five Git-history signals
@@ -37,7 +39,9 @@ Then run it from a Git worktree:
 
 ```sh
 dalil
+dalil orient
 dalil --json
+dalil orient --json
 dalil --html > dalil-report.html
 dalil --html --open
 dalil map
@@ -58,53 +62,50 @@ dalil doctor . --json
 `PATH` defaults to the current directory. `dalil` discovers the enclosing
 Git repository and keeps the selected scope inside that repository.
 
-## Default briefing
+## Orientation
 
-`dalil [PATH]` starts with a repository overview and an ordered reading plan,
-then includes up to five concise, evidence-backed history observations and brief
-evidence notes. JSON retains the complete map and history report.
+`dalil [PATH]` and `dalil orient [PATH]` return the same `OrientationReport`.
+It includes repository identity, first reads, important project roots, runtime
+entry points, tests, useful history, next reads, and material limitations.
+Markdown omits categories without evidence. JSON contains this typed orientation
+report rather than the complete map or history analysis.
 
-The source map accepts task, focus, token-budget, exclusion, cache, and color
+Use `dalil map` for the structural map, `dalil history` for full history
+signals, and `dalil explain PATH-OR-SYMBOL` for the evidence behind one read.
+
+Orientation accepts task, focus, token-budget, exclusion, cache, and color
 controls:
 
 ```sh
-dalil --task 'fix parser cache invalidation' --changed-path src/map/cache.rs .
+dalil orient --task 'fix parser cache invalidation' --changed-path src/map/cache.rs .
 dalil context --task 'review parser cache changes' --changed-path src/map/cache.rs --symbol CacheStore --json
 dalil map --symbol parse_source --language rust --search cache --json
 dalil --focus parser --focus-path src --budget 500 .
 dalil --no-cache --json .
-dalil --profile evidence --json .
+dalil map --profile evidence --json .
 ```
 
 `--task` derives local search terms from concise task text. Add `--symbol`,
 `--task-path`, `--language`, `--project`, `--changed-path`, `--changed-symbol`,
-or `--search` when you know relevant targets. JSON ranking entries show the
-normalized task inputs, matched inputs, and each score contribution.
+or `--search` when you know relevant targets. Orientation records the reason,
+evidence kind, confidence, and limitations for each selected path. `dalil map`
+shows normalized task inputs and ranking contributions.
 
-The report keeps history caveats, source-map limitations, query-pack provenance,
-partial-file diagnostics, and omitted-path reasons beside the evidence they qualify.
+`--budget` selects three to five strong reads when enough evidence exists. When
+fewer than three useful paths fit, orientation reports the shortfall rather than
+padding the result.
 
-This makes unsupported or partially parsed files actionable instead of silently dropping them.
-
-The default `compact` profile returns selected snippets and bounded samples of
-files, symbols, edges, findings, omissions, and history evidence.
-
-JSON reports include each collection's observed total, returned count, truncation
-state, and reason.
-
-Use `--profile evidence` for a larger, still resource-limited evidence sample.
-Generated, vendored, minified, and source-map paths remain excluded in both
-profiles unless selected with an exact `--focus-path`.
-
-`--budget` bounds a ranked selection of three to five strong source files and
-the complete compact Markdown report. When fewer than three files fit or have
-strong evidence, Dalil reports the shortfall instead of adding weak paths.
-Compact Markdown keeps its summary and command-specific content first, then
-prints a truncation notice when the remaining collections do not fit. JSON
-retains the complete typed projection. Evidence-profile Markdown can exceed this
-token budget and remains subject to the hard rendered-output limit.
+Use `dalil map --profile evidence` for source files, symbols, edges, parser
+limits, and collection totals. Generated, vendored, minified, and source-map
+paths remain excluded unless selected with an exact `--focus-path`.
 
 ## Commands
+
+### `dalil orient [OPTIONS] [PATH]`
+
+`dalil orient` is the named form of the default command. It returns the same
+short orientation report in Markdown and JSON. Use it when a script or guide
+benefits from naming the workflow explicitly.
 
 ### `dalil map [OPTIONS] [PATH]`
 

@@ -696,6 +696,13 @@ fn stdout(output: &Output) -> String {
     String::from_utf8(output.stdout.clone()).expect("stdout is UTF-8")
 }
 
+fn orientation_recommendations(value: &Value) -> Vec<&Value> {
+    ["starting_points", "runtime_entry_points", "tests", "next_reads"]
+        .into_iter()
+        .flat_map(|section| value["orientation"][section].as_array().into_iter().flatten())
+        .collect()
+}
+
 fn cache_json_files(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     let mut directories = vec![root.to_owned()];
@@ -757,7 +764,7 @@ fn root_map_and_history_help_are_complete() {
 }
 
 #[test]
-fn default_command_combines_history_and_ranked_source_map() {
+fn default_command_returns_a_bounded_orientation_report() {
     let fixture = MixedMapFixtureRepository::new();
     let output = fixture.run(&[
         "--no-cache",
@@ -770,7 +777,7 @@ fn default_command_combines_history_and_ranked_source_map() {
         "--json",
     ]);
     let json = stdout(&output);
-    let value: Value = serde_json::from_str(&json).expect("valid integrated briefing JSON");
+    let value: Value = serde_json::from_str(&json).expect("valid orientation JSON");
 
     assert!(
         output.status.success(),
@@ -779,35 +786,34 @@ fn default_command_combines_history_and_ranked_source_map() {
     );
     assert!(output.stderr.is_empty());
     assert_plain_report(&json);
-    assert_eq!(value["command"]["name"], "briefing");
+    assert_eq!(value["command"]["name"], "orient");
     assert_eq!(value["profile"], "compact");
     assert_eq!(value["status"], "analyzed");
     assert!(
         value["summary"]
             .as_str()
-            .expect("briefing summary")
-            .contains("reachable commits")
+            .unwrap_or_default()
+            .contains("orientation read")
     );
-    assert!(value["history"]["churn"].is_object());
-    assert!(value["history"]["contributors"].is_object());
-    assert!(value["history"]["bugs"].is_object());
-    assert!(value["history"]["activity"].is_object());
-    assert!(value["history"]["firefighting"].is_object());
-    let recommendations = value["reading_plan"]["recommendations"]
-        .as_array()
-        .expect("briefing reading plan");
+    assert!(value["orientation"]["repository"]["primary_languages"].is_array());
+    assert!(value["orientation"]["important_roots"].is_array());
+    assert!(
+        value["orientation"]["history"]
+            .as_array()
+            .is_some_and(|history| history.len() <= 5)
+    );
+    assert!(value.get("map").is_none());
+    assert!(value.get("history").is_none());
+    assert!(value.get("reading_plan").is_none());
+
+    let recommendations = orientation_recommendations(&value);
     assert!(recommendations.len() <= 5, "recommendations: {recommendations:?}");
-    if recommendations.len() < 3 {
-        assert!(value["reading_plan"]["shortfall"].is_object());
-    }
-    assert!(value["reading_plan"]["primary_languages"].is_array());
     let paths = recommendations
         .iter()
         .map(|recommendation| recommendation["path"].as_str().expect("recommendation path"))
         .collect::<BTreeSet<_>>();
-    assert_eq!(paths.len(), recommendations.len(), "reading-plan paths must be unique");
-    for (index, recommendation) in recommendations.iter().enumerate() {
-        assert_eq!(recommendation["ordinal"], index as u64 + 1);
+    assert_eq!(paths.len(), recommendations.len(), "orientation paths must be unique");
+    for recommendation in &recommendations {
         assert!(matches!(
             recommendation["purpose"].as_str(),
             Some("start_here" | "architecture" | "runtime" | "tests" | "supporting_context")
@@ -821,50 +827,26 @@ fn default_command_combines_history_and_ranked_source_map() {
             .as_array()
             .is_some_and(|kinds| kinds.iter().any(|kind| kind == "focus"))
     }));
-    assert_eq!(value["map"]["query_pack"], "mixed");
-    assert_eq!(value["map"]["cache"]["status"], "disabled");
-    assert_eq!(value["map"]["selection"]["token_budget"], 120);
-    let snippets = value["map"]["selection"]["snippets"]
-        .as_array()
-        .expect("map selection snippets");
-    assert!(snippets.len() <= 5, "snippets: {snippets:?}");
-    if snippets.len() < 3 {
-        assert!(value["map"]["selection"]["shortfall"].is_object());
-    }
-    let snippet_paths = snippets
-        .iter()
-        .map(|snippet| snippet["path"].as_str().expect("snippet path"))
-        .collect::<BTreeSet<_>>();
-    assert_eq!(
-        snippet_paths.len(),
-        snippets.len(),
-        "map selection paths must be unique"
-    );
-    assert!(value["map"]["selection"]["primary_languages"].is_array());
-    assert!(value["map"]["selection"]["estimated_tokens"].as_u64().unwrap() <= 120);
-    for collection in [
-        "files",
-        "symbols",
-        "omissions",
-        "findings",
-        "edges",
-        "ranking",
-        "snippets",
-    ] {
-        let summary = &value["map"]["collections"][collection];
-        assert!(summary["total"].is_u64());
-        assert!(summary["returned"].as_u64().unwrap() <= summary["total"].as_u64().unwrap());
-        assert!(summary["truncated"].is_boolean());
-        if summary["truncated"] == true {
-            assert!(summary["reason"].is_string());
-        }
-    }
-    assert!(value["map"]["query_packs"]["javascript"].is_string());
-    assert!(value["map"]["query_packs"]["typescript"].is_string());
 }
 
 #[test]
-fn default_markdown_briefing_keeps_history_and_map_sections_readable() {
+fn root_and_orient_share_json_and_markdown_semantics() {
+    let fixture = MixedMapFixtureRepository::new();
+    let root_json = fixture.run(&["--no-cache", "--json"]);
+    let orient_json = fixture.run(&["orient", "--no-cache", "--json"]);
+    let root_markdown = fixture.run(&["--no-cache"]);
+    let orient_markdown = fixture.run(&["orient", "--no-cache"]);
+
+    assert!(root_json.status.success());
+    assert!(orient_json.status.success());
+    assert!(root_markdown.status.success());
+    assert!(orient_markdown.status.success());
+    assert_eq!(stdout(&root_json), stdout(&orient_json));
+    assert_eq!(stdout(&root_markdown), stdout(&orient_markdown));
+}
+
+#[test]
+fn default_markdown_orientation_keeps_selected_sections_readable() {
     let fixture = MixedMapFixtureRepository::new();
     let output = fixture.run(&["--no-cache"]);
     let markdown = stdout(&output);
@@ -872,61 +854,58 @@ fn default_markdown_briefing_keeps_history_and_map_sections_readable() {
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
     assert_plain_report(&markdown);
-    assert!(markdown.starts_with("# Dalil briefing\n"));
+    assert!(markdown.starts_with("# Dalil orient\n"));
     assert!(markdown.contains("Status: Analyzed"));
     assert!(
         markdown.chars().count().div_ceil(4) <= 1_000,
-        "briefing exceeded its compact Markdown token budget"
+        "orientation exceeded its compact Markdown token budget"
     );
-    for section in ["## History analysis", "### History observations"] {
-        assert!(markdown.contains(section), "missing Markdown section: {section}");
-    }
+    assert!(markdown.contains("## Repository overview"));
+    assert!(markdown.contains("## Start here"));
+    assert!(markdown.contains("## Useful history"));
     assert!(!markdown.contains("## Source map"));
     assert!(!markdown.contains("### Ranked map selection"));
-    assert!(!markdown.contains("### Generated, vendor, and minified paths"));
+    assert!(!markdown.contains("### Churn hotspots"));
     assert!(
         markdown.lines().count() < 100,
-        "briefing was {} lines",
+        "orientation was {} lines",
         markdown.lines().count()
     );
-    assert!(markdown.contains("Detailed history evidence: use `dalil history`"));
-    assert!(markdown.contains("## Repository overview"));
-    assert!(markdown.contains("## Reading plan"));
-    assert!(markdown.contains("### start_here"));
-    assert!(markdown.find("## Repository overview").unwrap() < markdown.find("## Reading plan").unwrap());
-    assert!(markdown.find("## Reading plan").unwrap() < markdown.find("## History analysis").unwrap());
+    assert!(markdown.find("## Repository overview").unwrap() < markdown.find("## Start here").unwrap());
     let json = fixture.run(&["--no-cache", "--json"]);
-    let json_value: Value = serde_json::from_slice(&json.stdout).expect("default briefing JSON");
-    let default_recommendations = json_value["reading_plan"]["recommendations"]
-        .as_array()
-        .expect("default reading plan recommendations");
+    let json_value: Value = serde_json::from_slice(&json.stdout).expect("default orientation JSON");
+    let recommendations = orientation_recommendations(&json_value);
     assert!(
-        (3..=5).contains(&default_recommendations.len()),
-        "default recommendations: {default_recommendations:?}"
+        (3..=5).contains(&recommendations.len()),
+        "recommendations: {recommendations:?}"
     );
+    assert!(json_value.get("map").is_none());
+    assert!(json_value.get("history").is_none());
     assert!(!markdown.contains("\\`, \\`"));
 }
 
 #[test]
-fn default_briefing_history_is_concise_while_detailed_modes_remain_available() {
+fn default_orientation_history_is_concise_while_detailed_modes_remain_available() {
     let fixture = HistoryFixtureRepository::new();
     let concise = fixture.run(&["--no-cache"]);
     let concise_markdown = stdout(&concise);
 
     assert!(concise.status.success());
     assert!(concise.stderr.is_empty());
-    assert!(concise_markdown.contains("### History observations"));
+    assert!(concise_markdown.contains("## Useful history"));
     assert!(!concise_markdown.contains("### Churn hotspots"));
     assert!(!concise_markdown.contains("### Contributor concentration"));
     assert!(!concise_markdown.contains("### Monthly activity"));
     assert!(!concise_markdown.contains("#### Evidence commits"));
     let observation_count = concise_markdown.lines().filter(|line| line.starts_with("- **")).count();
     assert!(observation_count <= 5, "observations: {observation_count}");
-    assert!(concise_markdown.find("## Reading plan").unwrap() < concise_markdown.find("## History analysis").unwrap());
+    assert!(
+        concise_markdown.find("## Repository overview").unwrap() < concise_markdown.find("## Useful history").unwrap()
+    );
 
     let json = fixture.run(&["--no-cache", "--json"]);
-    let value: Value = serde_json::from_slice(&json.stdout).expect("valid concise briefing JSON");
-    let observations = value["history"]["observations"]
+    let value: Value = serde_json::from_slice(&json.stdout).expect("valid concise orientation JSON");
+    let observations = value["orientation"]["history"]
         .as_array()
         .expect("history observations");
     assert!(observations.len() <= 5);
@@ -941,7 +920,7 @@ fn default_briefing_history_is_concise_while_detailed_modes_remain_available() {
     assert!(!focused_markdown.contains("### Monthly activity"));
     assert!(!focused_markdown.contains("#### Evidence commits"));
 
-    let evidence = fixture.run(&["--profile", "evidence", "--no-cache"]);
+    let evidence = fixture.run(&["--profile", "evidence", "--no-cache", "history"]);
     let evidence_markdown = stdout(&evidence);
     assert!(evidence.status.success());
     assert!(evidence_markdown.contains("### Churn hotspots"));
@@ -957,15 +936,13 @@ fn default_briefing_history_is_concise_while_detailed_modes_remain_available() {
 }
 
 #[test]
-fn briefing_prioritizes_root_manifest_and_conventional_entry_points() {
+fn orientation_prioritizes_root_manifest_and_conventional_entry_points() {
     let fixture = ClassificationFixtureRepository::new();
     let output = fixture.run(&["--no-cache", "--json"]);
-    let value: Value = serde_json::from_str(&stdout(&output)).expect("valid entry-point briefing JSON");
+    let value: Value = serde_json::from_str(&stdout(&output)).expect("valid entry-point orientation JSON");
     assert!(output.status.success());
 
-    let paths = value["reading_plan"]["recommendations"]
-        .as_array()
-        .expect("reading plan")
+    let paths = orientation_recommendations(&value)
         .iter()
         .map(|recommendation| recommendation["path"].as_str().expect("recommendation path"))
         .collect::<Vec<_>>();
@@ -1003,8 +980,8 @@ addopts = "-q"
     write_file(fixture.root.join("src/sample/__init__.py"), b"VALUE = 1\n");
     write_file(fixture.root.join("src/sample/cli.py"), b"def main():\n    return 0\n");
 
-    let output = fixture.run(&["--no-cache", "--json"]);
-    let value: Value = serde_json::from_str(&stdout(&output)).expect("valid manifest metadata briefing JSON");
+    let output = fixture.run(&["map", "--no-cache", "--json"]);
+    let value: Value = serde_json::from_str(&stdout(&output)).expect("valid manifest metadata map JSON");
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
 
@@ -1038,9 +1015,12 @@ addopts = "-q"
             .iter()
             .any(|command| command["command"] == "pytest")
     );
-    let runtime = value["reading_plan"]["recommendations"]
+    let orientation = fixture.run(&["orient", "--no-cache", "--json"]);
+    let orientation_value: Value =
+        serde_json::from_str(&stdout(&orientation)).expect("valid manifest orientation JSON");
+    let runtime = orientation_value["orientation"]["runtime_entry_points"]
         .as_array()
-        .expect("reading plan")
+        .expect("runtime entry points")
         .iter()
         .find(|recommendation| recommendation["purpose"] == "runtime")
         .expect("runtime recommendation");
@@ -1063,10 +1043,10 @@ fn compact_recovery_command_succeeds_without_including_classified_trees() {
         );
     }
 
-    let compact = fixture.run(&["--no-cache"]);
+    let compact = fixture.run(&["map", "--no-cache"]);
     let markdown = stdout(&compact);
     assert!(compact.status.success());
-    assert!(markdown.contains("Expected bounded projection only"));
+    assert!(!markdown.contains("target/debug/deps/artifact-"));
 
     let evidence = fixture.run(&["map", "--profile", "evidence", "--no-cache", "--json"]);
     let value: Value = serde_json::from_str(&stdout(&evidence)).expect("valid evidence recovery JSON");
@@ -1285,11 +1265,10 @@ fn map_reports_bounded_landmarks_project_roots_and_recursive_boundaries() {
             .any(|file| { file["path"] == "nested-repo/src/lib.rs" })
     );
 
-    let briefing = fixture.run(&["--no-cache", "--focus-path", "packages/app", "--json"]);
-    let briefing_value: Value = serde_json::from_slice(&briefing.stdout).expect("valid topology briefing JSON");
-    let recommendations = briefing_value["reading_plan"]["recommendations"]
-        .as_array()
-        .expect("topology reading plan");
+    let orientation = fixture.run(&["orient", "--no-cache", "--focus-path", "packages/app", "--json"]);
+    let orientation_value: Value =
+        serde_json::from_slice(&orientation.stdout).expect("valid topology orientation JSON");
+    let recommendations = orientation_recommendations(&orientation_value);
     assert!(recommendations.iter().any(|recommendation| {
         recommendation["project_root"] == "packages/app"
             && recommendation["evidence_kinds"]
@@ -1320,10 +1299,11 @@ fn json_rendering_is_versioned_semantic_and_plain() {
 
     let value: Value = serde_json::from_str(&json).expect("valid JSON report");
     assert_eq!(value["schema_version"], 1);
-    assert_eq!(value["command"]["name"], "briefing");
+    assert_eq!(value["command"]["name"], "orient");
     assert_eq!(value["status"], "analyzed");
-    assert!(value["history"].is_object());
-    assert!(value["map"].is_object());
+    assert!(value["orientation"].is_object());
+    assert!(value.get("history").is_none());
+    assert!(value.get("map").is_none());
 }
 
 #[test]
@@ -1517,25 +1497,24 @@ fn compact_projection_is_reported_without_becoming_actionable_quality() {
 }
 
 #[test]
-fn irrelevant_unsupported_source_does_not_poison_a_briefing_but_focus_does() {
+fn irrelevant_unsupported_source_does_not_poison_orientation_but_focus_does() {
     let fixture = ClassificationFixtureRepository::new();
     write_file(fixture.root.join("src/unsupported.dart"), b"void unsupported() {}\n");
 
-    let briefing = fixture.run(&["--strict", "--no-cache", "--json"]);
-    let briefing_value: Value = serde_json::from_slice(&briefing.stdout).expect("briefing JSON");
+    let orientation = fixture.run(&["--strict", "--no-cache", "--json"]);
+    let orientation_value: Value = serde_json::from_slice(&orientation.stdout).expect("orientation JSON");
     assert!(
-        briefing.status.success(),
+        orientation.status.success(),
         "irrelevant unsupported source: {:?}",
-        briefing.stderr
+        orientation.stderr
     );
-    assert_eq!(briefing_value["quality"]["unsupported"], false);
-    assert_eq!(briefing_value["map"]["availability"]["unsupported_paths"], 1);
+    assert_eq!(orientation_value["quality"]["unsupported"], false);
     assert!(
-        briefing_value["map"]["availability"]["unsupported_path_names"]
+        orientation_value["orientation"]["uncertainty"]
             .as_array()
             .unwrap()
             .iter()
-            .any(|path| path == "src/unsupported.dart")
+            .any(|uncertainty| uncertainty["kind"] == "unsupported_source")
     );
 
     let focused = fixture.run(&[
@@ -3617,13 +3596,12 @@ fn go_map_supports_focus_package_edges_ambiguity_provenance_and_reading_plans() 
             })
     );
 
-    let briefing = fixture.run(&["--no-cache", "--focus-path", "src/service.go", "--json"]);
-    let briefing_value: Value = serde_json::from_slice(&briefing.stdout).expect("valid focused Go briefing JSON");
-    assert!(briefing.status.success());
+    let orientation = fixture.run(&["orient", "--no-cache", "--focus-path", "src/service.go", "--json"]);
+    let orientation_value: Value =
+        serde_json::from_slice(&orientation.stdout).expect("valid focused Go orientation JSON");
+    assert!(orientation.status.success());
     assert!(
-        briefing_value["reading_plan"]["recommendations"]
-            .as_array()
-            .expect("Go reading plan")
+        orientation_recommendations(&orientation_value)
             .iter()
             .any(|recommendation| {
                 recommendation["path"] == "src/service.go"
@@ -3680,13 +3658,12 @@ fn lua_map_supports_literal_require_edges_provenance_focus_and_reading_plans() {
             .all(|edge| { !(edge["source"] == "src/duplicate_use.lua" && edge["symbol"] == "duplicate") })
     );
 
-    let briefing = fixture.run(&["--no-cache", "--focus-path", "src/service.lua", "--json"]);
-    let briefing_value: Value = serde_json::from_slice(&briefing.stdout).expect("valid focused Lua briefing JSON");
-    assert!(briefing.status.success());
+    let orientation = fixture.run(&["orient", "--no-cache", "--focus-path", "src/service.lua", "--json"]);
+    let orientation_value: Value =
+        serde_json::from_slice(&orientation.stdout).expect("valid focused Lua orientation JSON");
+    assert!(orientation.status.success());
     assert!(
-        briefing_value["reading_plan"]["recommendations"]
-            .as_array()
-            .expect("Lua reading plan")
+        orientation_recommendations(&orientation_value)
             .iter()
             .any(|recommendation| {
                 recommendation["path"] == "src/service.lua"
@@ -3745,13 +3722,12 @@ fn zig_map_supports_literal_import_edges_provenance_focus_and_reading_plans() {
             && edge["resolution_reason"] == "imported_module"
     }));
 
-    let briefing = fixture.run(&["--no-cache", "--focus-path", "src/service.zig", "--json"]);
-    let briefing_value: Value = serde_json::from_slice(&briefing.stdout).expect("valid focused Zig briefing JSON");
-    assert!(briefing.status.success());
+    let orientation = fixture.run(&["orient", "--no-cache", "--focus-path", "src/service.zig", "--json"]);
+    let orientation_value: Value =
+        serde_json::from_slice(&orientation.stdout).expect("valid focused Zig orientation JSON");
+    assert!(orientation.status.success());
     assert!(
-        briefing_value["reading_plan"]["recommendations"]
-            .as_array()
-            .expect("Zig reading plan")
+        orientation_recommendations(&orientation_value)
             .iter()
             .any(|recommendation| {
                 recommendation["path"] == "src/service.zig"

@@ -113,11 +113,13 @@ requirements when several files are needed to understand the task.
 
 ```text
 dalil [OPTIONS] [PATH]
+dalil orient [OPTIONS] [PATH]
 dalil map [OPTIONS] [PATH]
+dalil context [OPTIONS] [PATH]
+dalil impact [OPTIONS] [PATH]
+dalil explain [OPTIONS] <PATH-OR-SYMBOL> [PATH]
 dalil history [OPTIONS] [PATH]
 dalil history <churn|contributors|bugs|activity|firefighting> [OPTIONS] [PATH]
-dalil explain [OPTIONS] <PATH-OR-SYMBOL> [PATH]
-dalil context [OPTIONS] [PATH]
 dalil cache <path|status|prune|clear>
 dalil capabilities [--json]
 dalil doctor [OPTIONS] [PATH]
@@ -133,8 +135,8 @@ dalil doctor [OPTIONS] [PATH]
 - `--budget`, cache controls, exclusions, recursive traversal, color policy,
   strictness, and exit categories retain their documented behavior.
 
-As orientation and search are added, help will organize the compatible commands
-by purpose without creating a second analysis pipeline:
+CLI help organizes compatible commands by purpose without creating a second
+analysis pipeline. `search` joins this surface with R3:
 
 ```text
 Work with a codebase:

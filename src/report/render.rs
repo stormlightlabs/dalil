@@ -114,6 +114,146 @@ impl Render {
         }
     }
 
+    pub fn orientation_markdown(output: &mut String, orientation: &super::OrientationReport) {
+        writeln!(output).expect("writing to a string cannot fail");
+        writeln!(output, "## Repository overview").expect("writing to a string cannot fail");
+        writeln!(output).expect("writing to a string cannot fail");
+        writeln!(
+            output,
+            "Repository: `{}`",
+            utils::escape_inline_code(&orientation.repository.root)
+        )
+        .expect("writing to a string cannot fail");
+        writeln!(
+            output,
+            "Scope: `{}`",
+            utils::escape_inline_code(&orientation.repository.scope_path)
+        )
+        .expect("writing to a string cannot fail");
+        writeln!(output, "Worktree: {}", orientation.repository.worktree.label())
+            .expect("writing to a string cannot fail");
+        let reference = orientation
+            .repository
+            .head
+            .reference
+            .as_deref()
+            .unwrap_or("not resolved");
+        let revision = orientation.repository.head.oid.as_deref().unwrap_or("not resolved");
+        let mut head_state = Vec::new();
+        if orientation.repository.head.detached {
+            head_state.push("detached");
+        }
+        if orientation.repository.head.unborn {
+            head_state.push("unborn");
+        }
+        let head_state = if head_state.is_empty() { String::new() } else { format!(" ({})", head_state.join(", ")) };
+        writeln!(
+            output,
+            "Revision: `{}` at `{}`{}",
+            utils::escape_inline_code(reference),
+            utils::escape_inline_code(revision),
+            head_state
+        )
+        .expect("writing to a string cannot fail");
+        let languages = orientation
+            .repository
+            .primary_languages
+            .iter()
+            .map(|language| language.display_label())
+            .collect::<Vec<_>>();
+        writeln!(
+            output,
+            "Primary supported languages: {}",
+            if languages.is_empty() { "none detected".to_owned() } else { languages.join(", ") }
+        )
+        .expect("writing to a string cannot fail");
+
+        Self::orientation_recommendations(output, "Start here", &orientation.starting_points);
+        Self::orientation_roots(output, &orientation.important_roots);
+        Self::orientation_recommendations(output, "Runtime entry points", &orientation.runtime_entry_points);
+        Self::orientation_recommendations(output, "Tests", &orientation.tests);
+
+        if !orientation.history.is_empty() {
+            Self::section_heading(output, "Useful history");
+            for observation in &orientation.history {
+                Self::history_observation(output, observation);
+            }
+        }
+
+        Self::orientation_recommendations(output, "Next reads", &orientation.next_reads);
+        if !orientation.uncertainty.is_empty() {
+            Self::section_heading(output, "Limitations");
+            for uncertainty in &orientation.uncertainty {
+                writeln!(
+                    output,
+                    "- `{}`: {}",
+                    utils::escape_inline_code(&uncertainty.kind),
+                    utils::sanitize_text(&uncertainty.detail)
+                )
+                .expect("writing to a string cannot fail");
+            }
+        }
+        writeln!(
+            output,
+            "\nFor the repository-wide structure, use `dalil map`. Use `dalil explain PATH-OR-SYMBOL` for evidence behind one read."
+        )
+        .expect("writing to a string cannot fail");
+    }
+
+    fn orientation_recommendations(
+        output: &mut String, heading: &str, recommendations: &[super::ReadingRecommendation],
+    ) {
+        if recommendations.is_empty() {
+            return;
+        }
+        Self::section_heading(output, heading);
+        for recommendation in recommendations {
+            let root = recommendation
+                .project_root
+                .as_deref()
+                .filter(|root| *root != ".")
+                .map(|root| format!(", project root `{}`", utils::escape_inline_code(root)))
+                .unwrap_or_default();
+            writeln!(
+                output,
+                "{}. `{}`{} — {} ({}; {})",
+                recommendation.ordinal,
+                utils::escape_inline_code(&recommendation.path),
+                root,
+                utils::sanitize_text(&recommendation.reason),
+                recommendation.confidence.label(),
+                recommendation
+                    .evidence_kinds
+                    .iter()
+                    .map(|kind| kind.label())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+            .expect("writing to a string cannot fail");
+            for limitation in &recommendation.limitations {
+                writeln!(output, "   Limitation: {}", utils::sanitize_text(limitation))
+                    .expect("writing to a string cannot fail");
+            }
+        }
+    }
+
+    fn orientation_roots(output: &mut String, roots: &[super::OrientationRoot]) {
+        if roots.is_empty() {
+            return;
+        }
+        Self::section_heading(output, "Important project roots");
+        for root in roots {
+            writeln!(
+                output,
+                "- `{}` ({}) — {}",
+                utils::escape_inline_code(&root.path),
+                root.kind.label(),
+                utils::sanitize_text(&root.reason)
+            )
+            .expect("writing to a string cannot fail");
+        }
+    }
+
     pub fn reading_plan_markdown(output: &mut String, plan: &super::ReadingPlan) {
         writeln!(output).expect("writing to a string cannot fail");
         writeln!(output, "## Reading plan").expect("writing to a string cannot fail");

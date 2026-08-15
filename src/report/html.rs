@@ -158,23 +158,21 @@ pub(super) fn render_report(report: &Report) -> Result<String, ReportError> {
         });
     }
 
-    let recommendations = report
-        .reading_plan
-        .as_ref()
-        .map(|plan| {
-            plan.recommendations
-                .iter()
-                .map(|recommendation| Recommendation {
-                    ordinal: format!("{:02}", recommendation.ordinal),
-                    purpose: reading_purpose(recommendation.purpose),
-                    path: recommendation.path.clone(),
-                    reason: recommendation.reason.clone(),
-                    confidence: recommendation.confidence.label(),
-                    limitations: recommendation.limitations.clone(),
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let reading_recommendations = report.reading_plan.as_ref().map(|plan| plan.recommendations.as_slice());
+    let recommendations = if let Some(recommendations) = reading_recommendations {
+        recommendations.iter().map(recommendation_card).collect()
+    } else if let Some(orientation) = &report.orientation {
+        orientation
+            .starting_points
+            .iter()
+            .chain(&orientation.runtime_entry_points)
+            .chain(&orientation.tests)
+            .chain(&orientation.next_reads)
+            .map(recommendation_card)
+            .collect()
+    } else {
+        Vec::new()
+    };
     let languages = if report.provenance.languages.is_empty() {
         "none detected".to_owned()
     } else {
@@ -595,6 +593,7 @@ fn command_text(report: &Report) -> String {
     let path = &report.scope.selected_path;
     match report.command.name {
         CommandName::Briefing => format!("dalil --format html {path}"),
+        CommandName::Orient => format!("dalil orient --format html {path}"),
         CommandName::Map => format!("dalil map --format html {path}"),
         CommandName::History => report.command.operation.map_or_else(
             || format!("dalil history --format html {path}"),
@@ -606,6 +605,17 @@ fn command_text(report: &Report) -> String {
         ),
         CommandName::Context => format!("dalil context --format html {path}"),
         CommandName::Impact => format!("dalil impact --format html {path}"),
+    }
+}
+
+fn recommendation_card(recommendation: &super::ReadingRecommendation) -> Recommendation {
+    Recommendation {
+        ordinal: format!("{:02}", recommendation.ordinal),
+        purpose: reading_purpose(recommendation.purpose),
+        path: recommendation.path.clone(),
+        reason: recommendation.reason.clone(),
+        confidence: recommendation.confidence.label(),
+        limitations: recommendation.limitations.clone(),
     }
 }
 

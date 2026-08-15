@@ -155,7 +155,9 @@ impl HistoryOperation {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CommandName {
+    /// Legacy v1 command name retained so historical reports remain readable.
     Briefing,
+    Orient,
     Map,
     History,
     Explain,
@@ -167,6 +169,7 @@ impl CommandName {
     pub const fn label(self) -> &'static str {
         match self {
             Self::Briefing => "briefing",
+            Self::Orient => "orient",
             Self::Map => "map",
             Self::History => "history",
             Self::Explain => "explain",
@@ -1088,6 +1091,9 @@ pub struct Report {
     pub limitations: Vec<Limitation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reading_plan: Option<ReadingPlan>,
+    /// The concise first-read result returned by `dalil` and `dalil orient`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orientation: Option<OrientationReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub history: Option<HistoryReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1104,6 +1110,29 @@ impl Report {
     pub fn analyze(req: CommandRequest) -> Result<Self, ReportError> {
         let captured_at = utils::capture_date(SystemTime::now());
         match req.command.name {
+            CommandName::Orient => {
+                let path = req.command.path.clone();
+                let history_report =
+                    history::analyze(&path, req.history.clone(), None, req.profile).map_err(ReportError::History)?;
+                let mut map_settings = req.map.clone();
+                map_settings.profile = req.profile;
+                let map_report =
+                    map::analyze_with_history(&path, &map_settings, Some(&history_report)).map_err(ReportError::Map)?;
+                let reading_plan = analysis::build_reading_plan(&history_report, &map_report);
+                let orientation = super::orientation::compile(&history_report, &map_report, &reading_plan);
+                let summary = format!(
+                    "Selected {} orientation read(s) across {} important project root(s).",
+                    orientation.read_count(),
+                    orientation.important_roots.len(),
+                );
+                let mut report =
+                    Self::from_parts(req, captured_at, summary, Some(history_report), Some(map_report), None);
+                report.orientation = Some(orientation);
+                report.reading_plan = None;
+                report.history = None;
+                report.map = None;
+                Ok(report)
+            }
             CommandName::Briefing => {
                 let path = req.command.path.clone();
                 let history_report =
@@ -1303,7 +1332,9 @@ impl Report {
             history: req.history.clone(),
         };
         let reading_plan = match (req.command.name, history.as_ref(), map.as_ref()) {
-            (CommandName::Briefing, Some(history), Some(map)) => Some(analysis::build_reading_plan(history, map)),
+            (CommandName::Briefing | CommandName::Orient, Some(history), Some(map)) => {
+                Some(analysis::build_reading_plan(history, map))
+            }
             _ => None,
         };
         let quality = analysis::report_quality(
@@ -1344,6 +1375,7 @@ impl Report {
             findings: Vec::new(),
             limitations: Vec::new(),
             reading_plan,
+            orientation: None,
             history,
             map,
             explain,
@@ -1403,11 +1435,15 @@ impl Report {
         writeln!(output, "## Summary").expect("writing to a string cannot fail");
         writeln!(output).expect("writing to a string cannot fail");
         writeln!(output, "{}", utils::sanitize_text(&self.summary)).expect("writing to a string cannot fail");
+        let compact_orientation = self.command.name == CommandName::Orient && self.profile == AnalysisProfile::Compact;
         let compact_briefing = self.command.name == CommandName::Briefing && self.profile == AnalysisProfile::Compact;
-        if !compact_briefing {
+        if !compact_orientation && !compact_briefing {
             Render::quality_markdown(&mut output, &self.quality, self.command.name);
         }
 
+        if let Some(orientation) = &self.orientation {
+            Render::orientation_markdown(&mut output, orientation);
+        }
         if let Some(explain) = &self.explain {
             Render::explain_markdown(&mut output, explain);
         }
@@ -1442,7 +1478,7 @@ impl Report {
             }
         } else if !matches!(
             self.command.name,
-            CommandName::Explain | CommandName::Context | CommandName::Impact
+            CommandName::Orient | CommandName::Explain | CommandName::Context | CommandName::Impact
         ) {
             if let Some(history) = &self.history {
                 if self.profile == AnalysisProfile::Compact && self.command.operation.is_none() {

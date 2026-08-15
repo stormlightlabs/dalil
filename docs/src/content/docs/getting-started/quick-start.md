@@ -10,13 +10,14 @@ Start in the Git worktree you want to understand:
 
 ```sh
 dalil
+dalil orient
 ```
 
-The default briefing combines a repository overview, an ordered reading plan,
-and concise history observations. It is designed to help you decide where to
-look before you make a change.
+Both commands return the same orientation report: repository identity, first
+reads, project roots, runtime entry points, tests, useful history, and any
+limitations that affect the result.
 
-## Rank the briefing for a task
+## Task Briefing Rank
 
 Give Dalil a concise task description when you know what you need to change:
 
@@ -46,14 +47,15 @@ within the normal safety limits.
 
 ## Choose an output format
 
-Markdown is the default. Use JSON for tools or HTML for a standalone browser
-report:
+Markdown is the default for readability. Use JSON for tools or HTML for a standalone
+browser report:
 
 ```sh
 dalil --json
+dalil orient --json
 dalil --html > dalil-report.html
 dalil --html --open
 ```
 
-Reports go to stdout. Progress and diagnostics go to stderr, so output
+Reports go to stdout whereas progress and diagnostics go to stderr, so output
 redirection writes a clean report file.

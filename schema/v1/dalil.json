@@ -34,7 +34,8 @@
         "map": { "type": ["object", "null"] },
         "explain": { "type": ["object", "null"] },
         "context": { "$ref": "#/$defs/context_bundle" },
-        "impact": { "$ref": "#/$defs/impact_report" }
+        "impact": { "$ref": "#/$defs/impact_report" },
+        "orientation": { "$ref": "#/$defs/orientation_report" }
       },
       "additionalProperties": true
     },
@@ -42,7 +43,7 @@
       "type": "object",
       "required": ["name"],
       "properties": {
-        "name": { "enum": ["briefing", "map", "history", "explain", "context", "impact"] },
+        "name": { "enum": ["briefing", "orient", "map", "history", "explain", "context", "impact"] },
         "operation": { "enum": ["churn", "contributors", "bugs", "activity", "firefighting"] },
         "target": { "type": "string" }
       },
@@ -191,6 +192,52 @@
         "omitted_relevant_paths": { "type": "array", "items": { "$ref": "#/$defs/reading_plan_path_omission" } },
         "shortfall": { "$ref": "#/$defs/reading_plan_shortfall" },
         "limitations": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "orientation_report": {
+      "type": "object",
+      "required": ["repository", "starting_points", "important_roots", "runtime_entry_points", "tests", "history", "next_reads", "uncertainty"],
+      "properties": {
+        "repository": {
+          "type": "object",
+          "required": ["root", "scope_path", "head", "worktree", "primary_languages"],
+          "properties": {
+            "root": { "type": "string" },
+            "scope_path": { "type": "string" },
+            "head": { "type": "object" },
+            "worktree": { "enum": ["clean", "modified", "untracked", "mixed", "unknown"] },
+            "primary_languages": { "type": "array", "items": { "type": "string" } }
+          },
+          "additionalProperties": false
+        },
+        "starting_points": { "type": "array", "items": { "$ref": "#/$defs/reading_recommendation" } },
+        "important_roots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "kind", "reason"],
+            "properties": {
+              "path": { "type": "string" },
+              "kind": { "enum": ["workspace", "package", "mixed", "unknown"] },
+              "reason": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "runtime_entry_points": { "type": "array", "items": { "$ref": "#/$defs/reading_recommendation" } },
+        "tests": { "type": "array", "items": { "$ref": "#/$defs/reading_recommendation" } },
+        "history": { "type": "array", "items": { "type": "object" } },
+        "next_reads": { "type": "array", "items": { "$ref": "#/$defs/reading_recommendation" } },
+        "uncertainty": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind", "detail"],
+            "properties": { "kind": { "type": "string" }, "detail": { "type": "string" } },
+            "additionalProperties": false
+          }
+        }
       },
       "additionalProperties": false
     },

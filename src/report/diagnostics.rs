@@ -12,8 +12,8 @@ pub struct CommandDescriptor {
 }
 
 impl CommandDescriptor {
-    pub fn briefing(path: PathBuf) -> Self {
-        Self { name: CommandName::Briefing, operation: None, target: None, path }
+    pub fn orient(path: PathBuf) -> Self {
+        Self { name: CommandName::Orient, operation: None, target: None, path }
     }
 
     pub fn map(path: PathBuf) -> Self {

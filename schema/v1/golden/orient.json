@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "command": {"name": "orient"},
+  "scope": {"selected_path": "."},
+  "status": "analyzed",
+  "summary": "orientation fixture",
+  "findings": [],
+  "limitations": [],
+  "orientation": {
+    "repository": {
+      "root": "/fixture",
+      "scope_path": ".",
+      "head": {"reference": "refs/heads/main", "oid": "abc", "detached": false, "unborn": false},
+      "worktree": "clean",
+      "primary_languages": ["rust"]
+    },
+    "starting_points": [
+      {
+        "ordinal": 1,
+        "purpose": "start_here",
+        "path": "README.md",
+        "project_root": ".",
+        "reason": "repository guide",
+        "evidence_kinds": ["landmark"],
+        "confidence": "high"
+      }
+    ],
+    "important_roots": [
+      {"path": ".", "kind": "workspace", "reason": "workspace manifest"}
+    ],
+    "runtime_entry_points": [],
+    "tests": [],
+    "history": [],
+    "next_reads": [],
+    "uncertainty": []
+  }
+}

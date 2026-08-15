@@ -18,6 +18,7 @@ fn markdown_escapes_report_content_that_could_add_control_sequences() {
         findings: vec![Finding { title: "title*".to_owned(), detail: "detail\u{7}".to_owned() }],
         limitations: vec![Limitation { detail: "limitation\u{1b}[0m".to_owned() }],
         reading_plan: None,
+        orientation: None,
         history: None,
         map: None,
         explain: None,
@@ -53,6 +54,7 @@ fn compact_markdown_applies_the_map_token_budget_to_the_whole_report() {
             .collect(),
         limitations: vec![],
         reading_plan: None,
+        orientation: None,
         history: None,
         map: None,
         explain: None,
@@ -94,6 +96,7 @@ fn evidence_markdown_is_not_projected_to_the_compact_token_budget() {
             .collect(),
         limitations: vec![],
         reading_plan: None,
+        orientation: None,
         history: None,
         map: None,
         explain: None,
@@ -123,6 +126,7 @@ fn html_is_embedded_deterministic_and_escapes_report_content() {
         findings: vec![Finding { title: "<strong>unsafe</strong>".to_owned(), detail: "detail".to_owned() }],
         limitations: vec![],
         reading_plan: None,
+        orientation: None,
         history: None,
         map: None,
         explain: None,
@@ -164,8 +168,14 @@ fn schema_and_golden_v1_corpus_cover_all_report_variants() {
             .any(|field| field == "command")
     );
     assert!(schema["$defs"]["analysis_report"]["properties"]["reading_plan"].is_object());
+    assert!(schema["$defs"]["analysis_report"]["properties"]["orientation"].is_object());
     assert!(schema["$defs"]["analysis_report"]["properties"]["context"].is_object());
     assert!(schema["$defs"]["analysis_report"]["properties"]["impact"].is_object());
+    assert!(
+        schema["$defs"]["command"]["properties"]["name"]
+            .to_string()
+            .contains("orient")
+    );
     assert!(
         schema["$defs"]["command"]["properties"]["name"]
             .to_string()
@@ -179,6 +189,7 @@ fn schema_and_golden_v1_corpus_cover_all_report_variants() {
 
     let analysis = [
         include_str!("../../schema/v1/golden/briefing.json"),
+        include_str!("../../schema/v1/golden/orient.json"),
         include_str!("../../schema/v1/golden/map.json"),
         include_str!("../../schema/v1/golden/history.json"),
         include_str!("../../schema/v1/golden/context.json"),
@@ -196,6 +207,32 @@ fn schema_and_golden_v1_corpus_cover_all_report_variants() {
     assert_eq!(doctor.schema_version, SCHEMA_VERSION);
     assert!(!doctor.source_evidence_collected);
     assert!(!doctor.repository_state_changed);
+}
+
+#[test]
+fn orientation_markdown_and_json_expose_only_the_typed_orientation() {
+    let report: Report = serde_json::from_str(include_str!("../../schema/v1/golden/orient.json"))
+        .expect("orientation fixture remains readable");
+
+    let markdown = report
+        .render(OutputFormat::Markdown)
+        .expect("Markdown orientation fixture renders");
+    let json: serde_json::Value = serde_json::from_str(
+        &report
+            .render(OutputFormat::Json)
+            .expect("JSON orientation fixture renders"),
+    )
+    .expect("orientation JSON remains valid");
+
+    assert_eq!(report.command.name, CommandName::Orient);
+    assert!(markdown.contains("## Repository overview"));
+    assert!(markdown.contains("## Start here"));
+    assert!(!markdown.contains("## Source map"));
+    assert!(!markdown.contains("## History analysis"));
+    assert!(json["orientation"].is_object());
+    assert!(json.get("map").is_none());
+    assert!(json.get("history").is_none());
+    assert!(json.get("reading_plan").is_none());
 }
 
 #[test]
@@ -382,6 +419,7 @@ fn explain_guidance_retains_full_evidence_and_renders_every_guidance_kind() {
         findings: Vec::new(),
         limitations: Vec::new(),
         reading_plan: None,
+        orientation: None,
         history: None,
         map: None,
         explain: Some(explain),

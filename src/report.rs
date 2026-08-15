@@ -3,6 +3,7 @@ mod context;
 mod html;
 mod impact;
 mod model;
+mod orientation;
 mod render;
 #[cfg(test)]
 mod tests;

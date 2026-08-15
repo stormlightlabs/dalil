@@ -160,26 +160,26 @@ to start without exposing the complete repository analysis by default.
 
 **Acceptance criteria:**
 
-- [ ] Define `OrientationReport` around repository identity, starting points,
+- [x] Define `OrientationReport` around repository identity, starting points,
       important roots, runtime entry points, tests, useful history, next reads,
       and uncertainty.
-- [ ] Make `dalil` and `dalil orient` return semantically equivalent
+- [x] Make `dalil` and `dalil orient` return semantically equivalent
       `OrientationReport` values in Markdown and JSON.
-- [ ] Keep complete file, symbol, edge, history, ranking, and parser evidence
+- [x] Keep complete file, symbol, edge, history, ranking, and parser evidence
       behind `map`, focused evidence commands, or internal analysis boundaries.
-- [ ] Build orientation from typed analysis results rather than parsing or
+- [x] Build orientation from typed analysis results rather than parsing or
       projecting rendered output.
-- [ ] Preserve schema compatibility through an additive revision or a new
+- [x] Preserve schema compatibility through an additive revision or a new
       schema version where field meanings change.
-- [ ] Organize CLI help around `orient`, `map`, `context`, `impact`, `search`,
+- [x] Organize CLI help around `orient`, `map`, `context`, `impact`, `search`,
       and `explain`, with focused history inspection and maintenance commands in
       secondary groups.
-- [ ] Keep existing command lines compatible and document orientation using
+- [x] Keep existing command lines compatible and document orientation using
       the same terminology and options shown by CLI help.
 
-**Verification:** Compare root and `orient` JSON structurally, compare their
-Markdown semantics, exercise their help and dispatch paths, and confirm that
-neither default format exposes exhaustive analysis tables.
+**Verification:** Root and `orient` integration coverage compares JSON and
+Markdown output byte-for-byte, exercises help and dispatch, and confirms the
+default result omits raw map, history, and reading-plan collections.
 
 ### R3 — Add bounded search
 

@@ -23,20 +23,22 @@ use crate::utils;
 
 #[derive(Debug, Subcommand)]
 enum SubcommandName {
+    /// Give a concise answer about where to start in a repository.
+    Orient(OrientCommand),
     /// Produce only the structural repository map.
     Map(MapCommand),
+    /// Compile one bounded, task-oriented context bundle.
+    Context(ContextCommand),
+    /// Inspect bounded evidence surrounding a local revision range or dirty worktree.
+    Impact(ImpactCommand),
+    /// Explain the bounded evidence behind a path or symbol recommendation.
+    Explain(ExplainCommand),
     /// Produce Git-history findings, or select one focused history signal.
     History(HistoryCommand),
     /// Inspect or control retained source-analysis cache data.
     Cache(CacheCommandCli),
     /// Report installed schema, language, query-pack, and limit capabilities.
     Capabilities,
-    /// Explain the bounded evidence behind a path or symbol recommendation.
-    Explain(ExplainCommand),
-    /// Compile one bounded, task-oriented context bundle.
-    Context(ContextCommand),
-    /// Inspect bounded evidence surrounding a local revision range or dirty worktree.
-    Impact(ImpactCommand),
     /// Check local discovery and Dalil support without analyzing source.
     Doctor(DoctorCommand),
 }
@@ -248,15 +250,19 @@ struct CacheCommandCli {
     name = "dalil",
     version,
     about = "Read-only repository orientation for people and coding agents.",
-    long_about = "Dalil produces a concise, evidence-backed repository briefing.
+    long_about = "Dalil produces a concise, evidence-backed repository orientation.
 
-The default command combines Git-history signals with a ranked source map.
+The default command and `orient` return the same concise orientation report.
 
-Use `map`, `history`, `context`, `impact`, or `explain` for focused reports.
+Primary workflows: `orient`, `map`, `context`, `impact`, `search`, and `explain`.
+`search` is not available in this release. Use `history` for focused evidence
+inspection. Use `cache`, `capabilities`, and `doctor` for maintenance.
 
 Examples:
     dalil .
+    dalil orient .
     dalil --json .
+    dalil orient --json .
     dalil --html . > dalil-report.html
     dalil --html --open .
     dalil --focus parser --focus-path src .
@@ -321,11 +327,20 @@ impl From<Cli> for CommandRequest {
         let default_map_settings = cli.map_options.settings();
         let (command, history, map_settings, context) = match cli.command {
             None => (
-                CommandDescriptor::briefing(cli.path),
+                CommandDescriptor::orient(cli.path),
                 HistorySettings::default(),
                 default_map_settings,
                 None,
             ),
+            Some(SubcommandName::Orient(orient)) => {
+                let OrientCommand { options, path } = orient;
+                (
+                    CommandDescriptor::orient(path),
+                    HistorySettings::default(),
+                    options.settings(),
+                    None,
+                )
+            }
             Some(SubcommandName::Map(map)) => {
                 let MapCommand { options, path } = map;
                 (
@@ -408,6 +423,9 @@ impl Cli {
 
     fn validate(&self) -> Result<(), ApplicationError> {
         self.map_options.validate()?;
+        if let Some(SubcommandName::Orient(orient)) = &self.command {
+            orient.options.validate()?;
+        }
         if let Some(SubcommandName::Map(map)) = &self.command {
             map.options.validate()?;
         }
@@ -429,6 +447,28 @@ impl Cli {
         }
         Ok(())
     }
+}
+
+#[derive(Debug, clap::Args)]
+#[command(after_help = "Examples:
+    dalil orient
+    dalil orient --json
+    dalil orient --task 'inspect parser cache'
+
+The default `dalil` command runs this same orientation workflow.
+
+Support: https://github.com/stormlightlabs/dalil/issues
+")]
+struct OrientCommand {
+    #[command(flatten)]
+    options: MapOptions,
+
+    #[arg(
+        value_name = "PATH",
+        default_value = ".",
+        help = "Repository or subdirectory to orient in (default: current directory)."
+    )]
+    path: PathBuf,
 }
 
 #[derive(Debug, clap::Args)]
@@ -1274,6 +1314,26 @@ mod tests {
     }
 
     #[test]
+    fn root_and_orient_normalize_to_the_same_orientation_request() {
+        let root = CommandRequest::from(
+            Cli::try_parse_from(["dalil", "--json", "--task", "inspect parser cache", "."])
+                .expect("root orientation flags parse"),
+        );
+        let orient = CommandRequest::from(
+            Cli::try_parse_from(["dalil", "--json", "orient", "--task", "inspect parser cache", "."])
+                .expect("orient flags parse"),
+        );
+
+        assert_eq!(root.command.name, crate::report::CommandName::Orient);
+        assert_eq!(root.command, orient.command);
+        assert_eq!(root.history, orient.history);
+        assert_eq!(root.output_format, orient.output_format);
+        assert_eq!(root.profile, orient.profile);
+        assert_eq!(root.map.map_tokens, orient.map.map_tokens);
+        assert_eq!(root.map.effective_task_seeds(), orient.map.effective_task_seeds());
+    }
+
+    #[test]
     fn task_seed_flags_populate_typed_map_settings() {
         let request = CommandRequest::from(
             Cli::try_parse_from([
@@ -1385,10 +1445,29 @@ mod tests {
     }
 
     #[test]
-    fn clap_command_contains_documented_exit_categories() {
+    fn clap_command_contains_primary_workflows_and_exit_categories() {
         let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("orient"));
+        assert!(help.contains("map"));
+        assert!(help.contains("context"));
+        assert!(help.contains("impact"));
+        assert!(help.contains("search"));
+        assert!(help.contains("explain"));
+        assert!(help.contains("history"));
         assert!(help.contains("Exit status:"));
         assert!(help.contains("repository discovery failure"));
+    }
+
+    #[test]
+    fn orient_help_describes_the_default_workflow() {
+        let mut command = Cli::command();
+        let help = command
+            .find_subcommand_mut("orient")
+            .expect("orient command exists")
+            .render_long_help()
+            .to_string();
+        assert!(help.contains("dalil orient"));
+        assert!(help.contains("default `dalil` command"));
     }
 
     struct BrokenPipeWriter;

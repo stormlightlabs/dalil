@@ -857,6 +857,56 @@ pub struct ChangeUncertainty {
     pub detail: String,
 }
 
+/// The concise repository orientation result returned by `dalil` and
+/// `dalil orient`. It deliberately contains only selected first-read evidence.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct OrientationReport {
+    pub repository: OrientationRepository,
+    #[serde(default)]
+    pub starting_points: Vec<ReadingRecommendation>,
+    #[serde(default)]
+    pub important_roots: Vec<OrientationRoot>,
+    #[serde(default)]
+    pub runtime_entry_points: Vec<ReadingRecommendation>,
+    #[serde(default)]
+    pub tests: Vec<ReadingRecommendation>,
+    #[serde(default)]
+    pub history: Vec<HistoryObservation>,
+    #[serde(default)]
+    pub next_reads: Vec<ReadingRecommendation>,
+    #[serde(default)]
+    pub uncertainty: Vec<OrientationUncertainty>,
+}
+
+impl OrientationReport {
+    pub fn read_count(&self) -> usize {
+        self.starting_points.len() + self.runtime_entry_points.len() + self.tests.len() + self.next_reads.len()
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct OrientationRepository {
+    pub root: String,
+    pub scope_path: String,
+    pub head: HeadSnapshot,
+    pub worktree: WorktreeSnapshotState,
+    #[serde(default)]
+    pub primary_languages: Vec<SourceLanguage>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct OrientationRoot {
+    pub path: String,
+    pub kind: ProjectRootKind,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct OrientationUncertainty {
+    pub kind: String,
+    pub detail: String,
+}
+
 /// A task-shaped result that exposes selected evidence, rather than the parser,
 /// graph, manifest, history, or cache implementation records used to compose it.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
