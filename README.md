@@ -17,6 +17,8 @@ evidence family:
   4. monthly activity
   5. "firefighting"[^ff] language
 
+![Dalil terminal briefing with a repository overview and ordered reading plan](./docs/static/dalil-briefing.png)
+
 ## Quick start
 
 Install the published crate with Cargo:

@@ -1,7 +1,4 @@
-# Dalil Milestones
-
-These milestones turn [ROADMAP.md](ROADMAP.md) into buildable work. Each
-milestone groups related tickets around one user-visible outcome.
+# To-Do/Task List
 
 ## Milestone: Task-relevant retrieval
 
@@ -10,53 +7,13 @@ and symbols for realistic orientation and implementation tasks.
 
 ### T1 — Make ranking task-aware
 
-**Outcome:** A user's task changes the recommended files and symbols in a
-deterministic, explainable way.
-
-**Blocked by:** Nothing.
-
-**Acceptance criteria:**
-
-- [x] Represent typed task seeds for symbols, paths, languages, projects,
-      change sets, and concise search terms.
-- [x] Derive deterministic lexical seeds from task text without an LLM or
-      network service.
-- [x] Combine seed proximity, lexical relevance, structural centrality,
-      history evidence, and explicit focus without hiding any contribution.
-- [x] Keep a stable orientation fallback when task seeds are absent or weak.
-- [x] Ensure `--focus`, path, symbol, and project restrictions consistently
-      affect ranking and remain visible in provenance.
-- [x] Improve representative retrieval fixtures without crossing established
-      latency, work, or token limits.
-
-**Verification:** Add ranking fixtures where changing only the task changes the
-expected result, then run the targeted retrieval and bounded-work tests.
+A user's task changes the recommended files and symbols in a deterministic,
+explainable way.
 
 ### T2 — Select a diverse, bounded file set
 
-**Outcome:** Recommendations cover the useful roles and project roots for a
-task without padding the result with weak files.
-
-**Blocked by:** T1.
-
-**Acceptance criteria:**
-
-- [x] Select by relevance, confidence, role, subsystem, project root, language,
-      generated status, and total token cost rather than graph score alone.
-- [x] Return three to five strong files when the repository contains enough
-      evidence; report a shortfall instead of adding filler.
-- [x] Prevent one subsystem, language, or high-degree file from consuming the
-      result unless the task evidence warrants it.
-- [x] Prefer runnable examples, declared entry points, gateway artifacts, and
-      recent high-confidence files when they answer the task.
-- [x] Surface likely primary languages and explicitly report omitted relevant
-      paths when limits affect the result.
-- [x] Preserve deterministic ordering and bounded work across compact and
-      evidence profiles.
-
-**Verification:** Added deterministic selection fixtures for generated-heavy
-source, task-relevant budget omissions, tied candidates, and fewer-than-three
-shortfalls; run the targeted retrieval and bounded-work tests.
+Recommendations cover the useful roles and project roots for a task without
+padding the result with weak files.
 
 ### T3 — Turn explanations into reading guidance
 
@@ -187,6 +144,77 @@ change without a prediction that the change will break them.
 changes, shared-library changes, ambiguous symbols, and unsupported languages;
 run security and budget tests.
 
+## Milestone: Primary CLI workflows
+
+**Exit condition:** A human or agent can orient, map, search, and request
+task-shaped context without knowing about history aggregates, internal rankings,
+or caches.
+
+### R2 — Add first-class orientation
+
+**Outcome:** `dalil` and `dalil orient` give a concise, typed answer about where
+to start without exposing the complete repository analysis by default.
+
+**Blocked by:** T7.
+
+**Acceptance criteria:**
+
+- [ ] Define `OrientationReport` around repository identity, starting points,
+      important roots, runtime entry points, tests, useful history, next reads,
+      and uncertainty.
+- [ ] Make `dalil` and `dalil orient` return semantically equivalent
+      `OrientationReport` values in Markdown and JSON.
+- [ ] Keep complete file, symbol, edge, history, ranking, and parser evidence
+      behind `map`, focused evidence commands, or internal analysis boundaries.
+- [ ] Build orientation from typed analysis results rather than parsing or
+      projecting rendered output.
+- [ ] Preserve schema compatibility through an additive revision or a new
+      schema version where field meanings change.
+- [ ] Organize CLI help around `orient`, `map`, `context`, `impact`, `search`,
+      and `explain`, with focused history inspection and maintenance commands in
+      secondary groups.
+- [ ] Keep existing command lines compatible and document orientation using
+      the same terminology and options shown by CLI help.
+
+**Verification:** Compare root and `orient` JSON structurally, compare their
+Markdown semantics, exercise their help and dispatch paths, and confirm that
+neither default format exposes exhaustive analysis tables.
+
+### R3 — Add bounded search
+
+**Outcome:** A user can find a few strong path, symbol, or concept anchors for a
+subsequent context request or source read.
+
+**Blocked by:** R2.
+
+**Acceptance criteria:**
+
+- [ ] Accept plain queries and an explicit symbol query through the CLI and
+      typed operation.
+- [ ] Return a small ranked set of matching paths and symbols with a reason,
+      evidence, confidence, and limitations for each result.
+- [ ] Reuse the recommendation fields already needed by orientation, context,
+      impact, and explain where they fit instead of introducing parallel result
+      meanings.
+- [ ] Include a directly related file or test only when it helps anchor the
+      next read.
+- [ ] Apply one result and token budget with deterministic ordering and an
+      explicit shortfall when strong matches do not exist.
+- [ ] Do not expose graph traversal, callers, paths, centrality, or a general
+      graph query language as public search modes.
+- [ ] Lead the quick start with orientation, repository mapping, task context,
+      change impact, search, and explanation examples.
+- [ ] Keep focused `history` usage in an evidence-inspection section while
+      retaining its documented behavior.
+- [ ] Keep README usage concise and link to detailed guides where needed.
+- [ ] Keep help, README examples, generated man pages, and completions aligned
+      with the packaged command surface.
+
+**Verification:** Add Markdown and JSON fixtures for path, symbol, concept,
+ambiguous, missing, and budget-limited queries. Run the documented workflows
+against the compiled CLI and verify generated help, man pages, and completions
+use the same commands and option spelling.
+
 ## Milestone: Incremental analysis
 
 **Exit condition:** Repeated requests reuse a persistent analysis index, refresh
@@ -221,7 +249,7 @@ status in map and context provenance.
 **Outcome:** A small repository change causes proportionate reanalysis while
 unchanged results remain reusable.
 
-**Blocked by:** T8.
+**Blocked by:** T8 and R3.
 
 **Acceptance criteria:**
 
@@ -249,12 +277,12 @@ safety behavior.
 **Outcome:** In-process consumers can call stable analysis operations without
 depending on CLI parsing or renderer internals.
 
-**Blocked by:** T4 and T7.
+**Blocked by:** T4, T7, and R3.
 
 **Acceptance criteria:**
 
-- [ ] Expose orientation, context, impact, explain, search, capabilities, and
-      cache operations through typed inputs and outputs.
+- [ ] Expose orientation, map, context, impact, explain, search, capabilities,
+      and cache operations through typed inputs and outputs.
 - [ ] Separate analysis, storage, rendering, and transport boundaries while
       reusing current domain types where they already fit.
 - [ ] Keep internal graph and parser structures private unless a demonstrated
@@ -275,7 +303,7 @@ tool surface.
 
 **Acceptance criteria:**
 
-- [ ] Map MCP tools to orientation, context, impact, explain, search,
+- [ ] Map MCP tools to orientation, repository map, context, impact, explain, search,
       capabilities, and cache-status operations.
 - [ ] Keep responses task-oriented and bounded; do not expose an exhaustive
       graph endpoint.
@@ -293,12 +321,12 @@ error-mapping, and CLI-equivalence tests.
 **Outcome:** Coding agents receive concise instructions for when and how to use
 Dalil instead of rediscovering repository exploration workflows.
 
-**Blocked by:** T4 and T7.
+**Blocked by:** R3.
 
 **Acceptance criteria:**
 
-- [ ] Cover unfamiliar-repository orientation, implementation lookup, impact
-      review, relevant-test discovery, and next-read workflows.
+- [ ] Cover unfamiliar-repository orientation and mapping, implementation
+      lookup, impact review, relevant-test discovery, and next-read workflows.
 - [ ] Prefer compact requests, narrow focus, and follow-up calls over exhaustive
       output.
 - [ ] Explain uncertainty, unsupported-language behavior, and when direct source
@@ -415,7 +443,7 @@ across the completed feature set.
 **Outcome:** Retrieval and context changes can be compared against a
 reproducible baseline instead of judged from a few repository examples.
 
-**Blocked by:** T1–T16.
+**Blocked by:** T1–T16 and R2–R3.
 
 **Acceptance criteria:**
 
@@ -442,7 +470,7 @@ failures.
 **Outcome:** CI detects unacceptable latency, work, memory, or output growth
 before a release candidate is built.
 
-**Blocked by:** T1–T16.
+**Blocked by:** T1–T16 and R2–R3.
 
 **Acceptance criteria:**
 
@@ -549,8 +577,8 @@ documented instructions and encounter no unresolved release blocker.
 
 - [ ] Verify install, uninstall, and cache-cleanup instructions from packaged
       artifacts in clean environments.
-- [ ] Run representative orientation, context, impact, explain, cache, and
-      capabilities workflows from the installed binary.
+- [ ] Run representative orientation, map, context, impact, search, explain,
+      cache, and capabilities workflows from the installed binary.
 - [ ] Confirm normal successful runs keep stderr empty and all supported output
       modes remain machine-readable where promised.
 - [ ] Record the benchmark and quality-review results associated with the

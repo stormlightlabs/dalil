@@ -4,9 +4,10 @@ status: "in-progress"
 updated: "2026-08-15"
 ---
 
-Dalil is a deterministic context compiler for software repositories. It turns
-repository structure, history, task signals, and current changes into a small,
-evidence-backed map of what a person or coding agent should inspect next.
+Dalil is a local codebase reference engine for humans and coding agents. Its
+deterministic context compiler turns repository structure, history, task
+signals, and current changes into a small, evidence-backed set of code and
+repository evidence worth inspecting next.
 
 The product begins with repository orientation and grows through milestones.
 Milestones define the scope and order of the work.
@@ -45,6 +46,11 @@ Dalil should answer:
   provenance, invalidation, quality, and stale-cache reporting.
 - CLI, MCP, and native consumers use the same analysis operations and cannot
   drift semantically.
+- The primary CLI surface is `orient`, `map`, `context`, `impact`, `search`, and
+  `explain`; users do not need to understand history aggregates, internal
+  rankings, or caches to use it.
+- Adding internal analysis does not expand default output unless it improves
+  the selected references.
 - Retrieval changes are measured against realistic repository tasks for useful
   path recall, precision, ranking, diversity, and token efficiency.
 - Every interface remains read-only, bounded, deterministic, offline-capable,
@@ -85,9 +91,14 @@ either source.
 
 ### Prefer task-shaped operations
 
-Consumers should request outcomes through `orient`, `context`, `impact`,
-`explain`, and `search`. Low-level edges, symbols, rankings, and landmarks remain
-typed evidence and internal library operations where needed.
+Consumers should request outcomes through `orient`, `map`, `context`, `impact`,
+`explain`, and `search`. `map` provides a bounded structural overview that can
+replace broad exploratory file reads. Low-level edges, symbols, rankings, and
+landmarks remain typed evidence and internal library operations where needed.
+
+Focused `history` commands remain available for deeper evidence inspection.
+Cache, capability, and health commands remain maintenance tools rather than
+primary ways to work with a codebase.
 
 ### Treat budgets as part of ranking
 
@@ -122,24 +133,53 @@ dalil doctor [OPTIONS] [PATH]
 - `--budget`, cache controls, exclusions, recursive traversal, color policy,
   strictness, and exit categories retain their documented behavior.
 
-The planned task-shaped operations extend this surface without creating a
-second analysis pipeline:
+As orientation and search are added, help will organize the compatible commands
+by purpose without creating a second analysis pipeline:
 
 ```text
-dalil orient [OPTIONS] [PATH]
-dalil impact <REVISION-RANGE> [OPTIONS] [PATH]
-dalil search <PATH-OR-SYMBOL> [OPTIONS] [PATH]
+Work with a codebase:
+  dalil
+  dalil orient [OPTIONS] [PATH]
+  dalil map [OPTIONS] [PATH]
+  dalil context [OPTIONS] [PATH]
+  dalil impact [OPTIONS] [PATH]
+  dalil search <QUERY> [OPTIONS] [PATH]
+  dalil explain [OPTIONS] <PATH-OR-SYMBOL> [PATH]
+
+Inspect evidence:
+  dalil history [OPTIONS] [PATH]
+
+Maintain Dalil:
+  dalil cache <path|status|prune|clear>
+  dalil capabilities [--json]
+  dalil doctor [OPTIONS] [PATH]
 ```
 
-The default command remains the concise orientation entry point. `context`
-accepts task-ranking options and local change inputs: `--base` with `--head`, a
-single `--revision-range base..head`, or `--dirty-worktree`. It resolves those
-inputs through isolated local Git access and returns bounded changed-path and
-changed-symbol evidence with typed uncertainty. Exact CLI spelling and
-compatibility aliases for future operations are settled when each operation is
-designed.
+The default command and `dalil orient` execute the same orientation operation.
+`context` accepts task-ranking options and local change inputs: `--base` with
+`--head`, a single `--revision-range base..head`, or `--dirty-worktree`.
+`impact` accepts the same change forms. Both resolve change inputs through
+isolated local Git access and return bounded changed-path and changed-symbol
+evidence with typed uncertainty. Existing commands remain compatible while the
+help hierarchy and documentation move users toward the primary workflows.
+
+### Explaining Recommendations
+
+Recommendations reuse target, purpose, reason, evidence, confidence, and
+limitations where those fields fit. Each operation can add the information its
+question needs without creating parallel meanings for the same ideas. `orient`
+answers where to start, `context` answers what matters to a task, `impact`
+answers what surrounds a change, and `search` anchors a path, symbol, or
+concept. `explain` expands the evidence behind one selected recommendation.
 
 ### Orientation Briefing
+
+The default command and `dalil orient` return the same typed
+`OrientationReport`. The report contains repository identity, starting points,
+important roots, runtime entry points, tests, useful history, next reads, and
+uncertainty. It is not a complete `RepositoryReport` with the orientation
+embedded inside it. `map` remains a first-class bounded view of repository
+structure and the evidence behind it.
 
 The default Markdown order is:
 
@@ -244,9 +284,12 @@ current task, shows the connecting evidence, recommends the next useful file,
 and names remaining uncertainty. It does not repeat the full repository report
 before answering.
 
-`search` finds paths and symbols when a task cannot yet be anchored to known
-targets. Richer graph queries remain internal unless repeated consumer needs
-justify a public operation.
+`search` returns a small set of path, symbol, and concept anchors when a task
+cannot yet be tied to known targets. It may include a directly related file or
+test when that evidence helps the next source read. It does not expose graph
+traversal, path finding, centrality, or a general query language. Richer graph
+queries remain internal unless repeated consumer needs justify a public
+operation.
 
 ### History Observations
 
@@ -343,13 +386,18 @@ daemon.
 The CLI should become one adapter over typed analysis operations:
 
 ```rust
-analyze(request) -> RepositoryReport
+map(request) -> RepositoryReport
 orient(request) -> OrientationReport
 context(request) -> ContextBundle
 impact(request) -> ImpactReport
 explain(request) -> Explanation
 search(request) -> SearchResults
 ```
+
+Task-shaped results reuse recommendation fields where they fit while retaining
+the specialized information needed for orientation, task context, change
+review, search, and explanation. `map` provides the bounded repository-wide
+structural view and is distinct from the shorter orientation briefing.
 
 Rendering stays outside the analysis core where practical. The compiled CLI
 remains the highest-level black-box compatibility boundary even after a library
@@ -359,8 +407,8 @@ API is available.
 
 - The CLI remains the universal interface for humans, shell-capable agents,
   scripts, CI, unsupported hosts, and integration debugging.
-- MCP exposes only the task-shaped operations and preserves response budgets,
-  provenance, uncertainty, and quality metadata.
+- MCP exposes the primary workflows, including the bounded repository map, and
+  preserves response budgets, provenance, uncertainty, and quality metadata.
 - Native hosts prefer the core library when they can pass task text, inspected
   files, edited files, identifiers, budget, and worktree changes directly.
 
@@ -460,10 +508,13 @@ graph, generated release assets, Linux, macOS, Windows, and Rust 1.85.
   repositories, describe lexical evidence as semantic resolution, or hide
   omitted or partial analysis to improve apparent quality.
 
-Dalil is not an autonomous coding agent, documentation generator, vector
-database, project wiki, architectural memory engine, source host, general code
-quality score, language-server replacement, universal compiler-grade analyzer,
-mandatory daemon, or exhaustive MCP graph server.
+Dalil is not an exhaustive code knowledge graph, graph query language,
+checked-in repository database, generated documentation system, default
+embeddings or vector-search system, LLM analysis pipeline, daemon,
+framework-intelligence platform, hosted indexing service, autonomous coding
+agent, project wiki, architectural memory engine, source host, general code
+quality score, language-server replacement, compiler-grade analyzer, or
+substitute for reading source.
 
 ## Risks and Open Questions
 
@@ -486,9 +537,3 @@ mandatory daemon, or exhaustive MCP graph server.
   and owned by the host.
 - Real-project usefulness remains partly subjective. Reviews record concrete
   failure modes and recommendation coverage rather than one opaque score.
-
-## Reference Material
-
-- [Implementation milestones](TODO.md)
-- [Research notes](notes/README.md)
-- [JSON schema](schema/v1/dalil.json)

@@ -10,6 +10,8 @@ order: 3
 It then adds up to five concise history observations with the evidence that
 supports them. JSON retains the complete map and history report.
 
+![Dalil terminal briefing with a repository overview and ordered reading plan](/dalil-briefing.png)
+
 ## Rank the reading plan for a task
 
 Pass task details to rank related code ahead of the broader map:
@@ -49,3 +51,5 @@ quality scores.
 Use `dalil explain PATH-OR-SYMBOL` when you need the typed focus, graph,
 ranking, history-overlap, landmark, ambiguity, and omission evidence behind a
 recommendation.
+
+![Dalil explaining why a source file is relevant and what to read next](/dalil-explain.png)

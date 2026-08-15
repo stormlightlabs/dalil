@@ -145,6 +145,14 @@
 		margin: 0 0 1.1rem;
 	}
 
+	.doc-content :global(img) {
+		display: block;
+		width: auto;
+		max-width: 100%;
+		height: auto;
+		margin: 1.5rem 0;
+	}
+
 	.doc-content :global(ul),
 	.doc-content :global(ol) {
 		margin: 0 0 1.25rem;
