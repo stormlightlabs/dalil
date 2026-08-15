@@ -1,5 +1,6 @@
 mod analysis;
 mod cache;
+mod changes;
 mod graph;
 mod languages;
 mod parser;
@@ -29,7 +30,7 @@ use crate::{report::*, utils};
 #[cfg(test)]
 use cache::{collect_cache_files, prune_cache_directory};
 
-use cache::{CacheStats, CacheStore};
+use cache::{CacheStats, CacheStore, IndexFileInput, IndexIdentity};
 use graph::{build_lexical_edges, rank_files, select_snippets};
 use languages::{
     c_sharp_language, extension_for_path, go_language, is_extensionless_lua_entry_candidate, is_source_like_path,
@@ -41,11 +42,13 @@ use repository::*;
 
 pub(crate) use analysis::analyze_with_history;
 pub use cache::{CacheCommand, CacheControlReport, cache_control};
+pub(crate) use changes::{enrich_change_symbols, resolve_changes};
 
 const MAX_CONTEXT_CHARS: usize = 180;
 const DEFAULT_MAP_TOKENS: usize = 1_000;
 const MIN_SELECTED_FILES: usize = 3;
 const CACHE_SCHEMA_VERSION: u16 = 2;
+const CACHE_INDEX_SCHEMA_VERSION: u16 = 1;
 const CACHE_TOOL_VERSION: &str = "dalil-map-v8";
 const CACHE_MAX_RECORDS_PER_REPOSITORY: usize = 256;
 const CACHE_MAX_BYTES_PER_REPOSITORY: u64 = 32 * 1024 * 1024;

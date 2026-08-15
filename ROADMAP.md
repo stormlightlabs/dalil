@@ -132,8 +132,10 @@ dalil search <PATH-OR-SYMBOL> [OPTIONS] [PATH]
 ```
 
 The default command remains the concise orientation entry point. `context`
-accepts the existing task-ranking options, plus revision-context fields that are
-recorded until change-aware resolution is added. Exact CLI spelling and
+accepts task-ranking options and local change inputs: `--base` with `--head`, a
+single `--revision-range base..head`, or `--dirty-worktree`. It resolves those
+inputs through isolated local Git access and returns bounded changed-path and
+changed-symbol evidence with typed uncertainty. Exact CLI spelling and
 compatibility aliases for future operations are settled when each operation is
 designed.
 
@@ -220,8 +222,9 @@ projected further for terminal output.
 
 ### Change and Impact Context
 
-`impact` and change-aware `context` start from safely resolved revision ranges,
-changed paths, and changed symbols when source locations make them detectable.
+Change-aware `context` starts from safely resolved local revision ranges,
+dirty-worktree paths, and changed symbols when source locations make them
+detectable. The planned `impact` operation will reuse this resolution evidence.
 They may surface:
 
 - direct dependents and affected public interfaces;
@@ -325,11 +328,13 @@ expansion.
 - All file, byte, syntax-depth, symbol, candidate, edge, finding, commit,
   elapsed-time, and output ceilings apply to every profile and interface.
 
-A persistent index may store file identities and hashes, query-pack identity,
-symbols, lexical edges, landmarks, project roots, manifest evidence, HEAD
-identity, bounded history aggregates, and reusable rankings. Each query checks
-cached provenance, refreshes changed analysis, recomputes affected evidence,
-and reports fresh quality. The first implementation does not require a daemon.
+The persistent user-cache index stores file identities and hashes, query-pack
+identity, bounded syntax summaries, lexical edges, HEAD identity, and bounded
+history aggregates. It is versioned, atomically written, and private to the
+user cache. Map and context provenance report both per-file cache state and
+repository-index state. A missing, corrupt, incompatible, or unavailable index
+falls back to fresh local analysis. The first implementation does not require a
+daemon.
 
 ## Integration Contract
 

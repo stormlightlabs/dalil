@@ -761,6 +761,18 @@ impl Render {
                 map.cache.stale.len()
             )
             .expect("writing to a string cannot fail");
+            if let Some(detail) = &map.cache.index_detail {
+                writeln!(
+                    output,
+                    "Repository index: {} — {}",
+                    map.cache.index_status.label(),
+                    utils::sanitize_text(detail),
+                )
+                .expect("writing to a string cannot fail");
+            } else {
+                writeln!(output, "Repository index: {}", map.cache.index_status.label(),)
+                    .expect("writing to a string cannot fail");
+            }
             if !map.files.is_empty() {
                 let mut task_seed_groups = Vec::new();
                 if let Some(task) = &map.task_seeds.task {
@@ -944,6 +956,29 @@ impl Render {
                     landmark.kind.label(),
                     utils::escape_inline_code(&landmark.path),
                     utils::sanitize_text(&landmark.reason),
+                )
+                .expect("writing to a string cannot fail");
+            }
+        }
+
+        if context.change_resolution.status != super::ChangeResolutionStatus::NotRequested {
+            Render::section_heading(output, "Resolved changes");
+            writeln!(output, "Status: {}", context.change_resolution.status.label())
+                .expect("writing to a string cannot fail");
+            for change in &context.change_resolution.changes {
+                let previous = change
+                    .previous_path
+                    .as_deref()
+                    .map(|path| format!(" from `{}`", utils::escape_inline_code(path)))
+                    .unwrap_or_default();
+                writeln!(
+                    output,
+                    "- {} `{}`{}; {} changed line range(s), {} changed symbol(s)",
+                    change.kind.label(),
+                    utils::escape_inline_code(&change.path),
+                    previous,
+                    change.changed_lines.len(),
+                    change.symbols.len(),
                 )
                 .expect("writing to a string cannot fail");
             }

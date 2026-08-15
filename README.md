@@ -47,6 +47,7 @@ dalil history contributors src --json
 dalil explain src/map.rs --json
 dalil explain Parser --focus Parser --json
 dalil context --task 'fix parser cache invalidation' --changed-path src/map/cache.rs --teach --json
+dalil context --task 'review the last change' --revision-range 'HEAD~1..HEAD' --json
 dalil capabilities --json
 dalil doctor . --json
 ```
@@ -189,8 +190,12 @@ Landmark output is capped at 64 compact landmarks and 32 compact project roots, 
 truncation metadata preserved in JSON. Evidence mode raises those caps to the published report
 limits.
 
-Cache records are stored under `$XDG_CACHE_HOME/dalil` (or `~/.cache/dalil`) and
-are reusable across map scopes.
+Dalil stores per-file records and a versioned repository index under
+`$XDG_CACHE_HOME/dalil` (or `~/.cache/dalil`). The index records file
+fingerprints, parser summaries, lexical edges, bounded history facts, and
+repository metadata. It never writes to the repository. Use `--no-cache` to
+bypass both reads and writes; `dalil cache status`, `prune`, and `clear` manage
+the user-cache data.
 
 ### `dalil explain <PATH-OR-SYMBOL> [PATH]`
 
@@ -222,10 +227,17 @@ dalil context --task 'inspect local edits' --dirty-worktree --budget 750
 
 Use the same task options as `dalil map`: `--symbol`, `--task-path`,
 `--language`, `--project`, `--changed-path`, `--changed-symbol`, and `--search`.
-`--base`, `--head`, and `--revision-range` record revision context in the
-request. Dalil does not yet resolve those revisions into changed paths or
-symbols; use explicit changed-path and changed-symbol inputs until change-aware
-context is available.
+`--base` and `--head` compare local revisions (an omitted endpoint defaults to
+`HEAD`). `--revision-range` accepts one `base..head` range. `--dirty-worktree`
+compares the local index with the worktree and includes untracked paths. The
+bundle records added, deleted, modified, renamed, and untracked paths, plus
+symbols whose source locations overlap changed lines when a supported parser
+can inspect the current source.
+
+Dalil resolves revisions through its embedded Git library. It does not call the
+Git executable, hooks, filters, repository programs, or remotes. Unresolved
+revisions, unsafe paths, parser gaps, missing objects, and bounded traversal are
+reported as typed `change_resolution.uncertainty` entries in JSON.
 
 `--teach` uses only files, symbols, lexical relationships, tests, and next
 reads already selected for the bundle. Under a tight budget, it prioritizes a

@@ -36,10 +36,16 @@ dalil context \
 `--changed-path`, and `--changed-symbol` anchor the request when you know the
 relevant code. `--language` and `--search` narrow ranking further.
 
-The request records `--base`, `--head`, `--revision-range`, and
-`--dirty-worktree` as revision context. Dalil does not yet resolve named
-revisions into a change set. Supply changed paths or symbols when you need them
-to affect this bundle.
+`--base` and `--head` compare local revisions. An omitted endpoint defaults to
+`HEAD`. `--revision-range` accepts one `base..head` range, while
+`--dirty-worktree` compares the index with local files and includes untracked
+paths. Dalil reports added, deleted, modified, renamed, and untracked paths.
+For supported languages, it also records symbols whose locations overlap changed
+lines.
+
+Dalil resolves changes through its embedded Git library. It does not invoke Git,
+hooks, filters, repository programs, or remotes. `change_resolution.uncertainty`
+records unresolved revisions, unsafe paths, unavailable source, and bounded work.
 
 ## Teach an unfamiliar subsystem
 
@@ -64,6 +70,8 @@ JSON places the task-shaped result at `context`. It includes:
   profile, and teaching inputs.
 - `orientation`: repository scope, worktree state, primary languages, project
   roots, and instructions or manifests worth reading first.
+- `change_resolution`: resolved local revisions, changed paths, changed symbols,
+  and typed uncertainty.
 - `files`: ranked recommendations with reasons, ranking evidence, selected
   symbols, and snippets where they fit.
 - `relationships`, `relevant_tests`, and `history`: supporting evidence for the

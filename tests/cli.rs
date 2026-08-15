@@ -2385,6 +2385,8 @@ fn context_compiles_one_budgeted_bundle_in_json_and_markdown() {
     let mut warm_json: Value = serde_json::from_str(&stdout(&warm)).expect("valid warm context JSON");
     assert_eq!(cold_json["context"]["provenance"]["cache"]["status"], "refreshed");
     assert_eq!(warm_json["context"]["provenance"]["cache"]["status"], "hit");
+    assert_eq!(cold_json["context"]["provenance"]["cache"]["index_status"], "refreshed");
+    assert_eq!(warm_json["context"]["provenance"]["cache"]["index_status"], "hit");
     cold_json["context"]["provenance"]
         .as_object_mut()
         .expect("context provenance")
@@ -2394,6 +2396,37 @@ fn context_compiles_one_budgeted_bundle_in_json_and_markdown() {
         .expect("context provenance")
         .remove("cache");
     assert_eq!(cold_json["context"], warm_json["context"]);
+}
+
+#[test]
+fn context_resolves_dirty_worktree_paths_and_changed_symbols() {
+    let fixture = MapFixtureRepository::new();
+    let output = fixture.run(&["context", "--dirty-worktree", "--no-cache", "--json"]);
+    assert!(
+        output.status.success(),
+        "dirty context failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: Value = serde_json::from_str(&stdout(&output)).expect("valid dirty context JSON");
+    let resolution = &json["context"]["change_resolution"];
+    assert_eq!(resolution["status"], "resolved");
+    let changes = resolution["changes"].as_array().expect("resolved changes");
+    assert!(
+        changes
+            .iter()
+            .any(|change| change["kind"] == "modified" && change["path"] == "src/lib.rs")
+    );
+    assert!(
+        changes
+            .iter()
+            .any(|change| change["kind"] == "untracked" && change["path"] == "src/untracked.rs")
+    );
+    let lib = changes
+        .iter()
+        .find(|change| change["path"] == "src/lib.rs")
+        .expect("modified lib change");
+    assert!(lib["changed_lines"].as_array().is_some_and(|ranges| !ranges.is_empty()));
+    assert!(lib["symbols"].as_array().is_some_and(|symbols| !symbols.is_empty()));
 }
 
 #[test]

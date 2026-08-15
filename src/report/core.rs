@@ -909,6 +909,10 @@ impl Default for WorktreeSnapshot {
 pub struct CacheProvenance {
     pub mode: CacheMode,
     pub status: CacheStatus,
+    #[serde(default)]
+    pub index_status: PersistentIndexStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index_detail: Option<String>,
     pub available: bool,
     pub hits: usize,
     pub misses: usize,
@@ -921,6 +925,8 @@ impl Default for CacheProvenance {
         Self {
             mode: CacheMode::Disabled,
             status: CacheStatus::Disabled,
+            index_status: PersistentIndexStatus::Bypassed,
+            index_detail: None,
             available: false,
             hits: 0,
             misses: 0,
@@ -1152,17 +1158,28 @@ impl Report {
                 let path = req.command.path.clone();
                 let history_report =
                     history::analyze(&path, req.history.clone(), None, req.profile).map_err(ReportError::History)?;
-                let mut map_settings = req.map.clone();
-                map_settings.profile = req.profile;
-                let map_report =
-                    map::analyze_with_history(&path, &map_settings, Some(&history_report)).map_err(ReportError::Map)?;
-                let context_request = req.context.clone().unwrap_or(ContextRequest {
+                let mut context_request = req.context.clone().unwrap_or(ContextRequest {
                     repository: path.to_string_lossy().into_owned(),
-                    budget: map_settings.map_tokens,
+                    budget: req.map.map_tokens,
                     profile: req.profile,
                     ..ContextRequest::default()
                 });
-                let context = super::context::compile(context_request, &map_report, &history_report);
+                let mut change_resolution =
+                    map::resolve_changes(&path, &context_request.revision_context).map_err(ReportError::Map)?;
+                let mut map_settings = req.map.clone();
+                map_settings.profile = req.profile;
+                map_settings
+                    .task_seeds
+                    .changes
+                    .extend(change_resolution.changes.iter().flat_map(|change| {
+                        std::iter::once(TaskChangeSeed::Path(change.path.clone()))
+                            .chain(change.previous_path.clone().map(TaskChangeSeed::Path))
+                    }));
+                let map_report =
+                    map::analyze_with_history(&path, &map_settings, Some(&history_report)).map_err(ReportError::Map)?;
+                map::enrich_change_symbols(&mut change_resolution, &map_report);
+                context_request.change_resolution = change_resolution.clone();
+                let context = super::context::compile(context_request, &map_report, &history_report, change_resolution);
                 let summary = format!(
                     "Compiled task context with {} recommended file(s), {} relationship(s), and {} history observation(s).",
                     context.files.len(),
@@ -1227,6 +1244,8 @@ impl Report {
             .map(|report| CacheProvenance {
                 mode: report.cache.mode,
                 status: report.cache.status,
+                index_status: report.cache.index_status,
+                index_detail: report.cache.index_detail.clone(),
                 available: report.cache.mode != CacheMode::Disabled,
                 hits: report.cache.hits,
                 misses: report.cache.misses,

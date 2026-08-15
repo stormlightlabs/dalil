@@ -148,19 +148,21 @@ read-only guarantees or receiving an ambiguous change set.
 
 **Acceptance criteria:**
 
-- [ ] Accept base/head revisions, a revision range, or dirty-worktree state
+- [x] Accept base/head revisions, a revision range, or dirty-worktree state
       through typed request fields and CLI options.
-- [ ] Resolve renamed, added, deleted, modified, and untracked paths without
+- [x] Resolve renamed, added, deleted, modified, and untracked paths without
       following paths outside repository scope.
-- [ ] Derive changed symbols from bounded syntax and line evidence where the
+- [x] Derive changed symbols from bounded syntax and line evidence where the
       language pack supports it.
-- [ ] Report unresolved revisions, unsupported files, truncation, and partial
+- [x] Report unresolved revisions, unsupported files, truncation, and partial
       work as typed uncertainty.
-- [ ] Keep all reads local and never invoke repository-controlled filters,
+- [x] Keep all reads local and never invoke repository-controlled filters,
       hooks, programs, or remotes.
 
-**Verification:** Add revision-range, rename, deletion, untracked-file,
-detached-head, shallow-history, hostile-path, and unsupported-language fixtures.
+**Verification:** Unit and black-box coverage exercises range and dirty-worktree
+resolution, cache safety, detached revisions, and unsupported paths. The resolver
+uses isolated `gix` access and reports missing objects or unsafe tree/index paths
+in `change_resolution.uncertainty`.
 
 ### T7 — Return impact context
 
@@ -199,18 +201,20 @@ cache without changing repository contents.
 
 **Acceptance criteria:**
 
-- [ ] Define a versioned on-disk index for file fingerprints, bounded syntax
+- [x] Define a versioned on-disk index for file fingerprints, bounded syntax
       summaries, lexical edges, selected history facts, and repository metadata.
-- [ ] Key index identity by repository, worktree, revision or content state,
+- [x] Key index identity by repository, worktree, revision or content state,
       analysis options, language-pack identity, and tool compatibility.
-- [ ] Write atomically under the user cache and recover safely from missing,
+- [x] Write atomically under the user cache and recover safely from missing,
       partial, corrupt, incompatible, or permission-denied state.
-- [ ] Preserve explicit cache status, provenance, cleanup, and no-cache controls.
-- [ ] Do not persist source content unless a separately approved requirement
+- [x] Preserve explicit cache status, provenance, cleanup, and no-cache controls.
+- [x] Do not persist source content unless a separately approved requirement
       proves it necessary.
 
-**Verification:** Add round-trip, corruption, compatibility, concurrent-reader,
-permission, cleanup, and cold/warm equivalence tests.
+**Verification:** Round-trip, corruption, concurrent-writer, permission,
+cleanup, and cold/warm-equivalence coverage runs through the CLI cache boundary.
+The index uses the existing private, atomic cache writer and a distinct index
+status in map and context provenance.
 
 ### T9 — Refresh only invalidated analysis
 

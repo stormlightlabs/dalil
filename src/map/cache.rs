@@ -14,6 +14,71 @@ struct CacheRecord {
     parsed: ParsedSource,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+struct RepositoryIndex {
+    schema_version: u16,
+    tool_version: String,
+    repository_root: String,
+    worktree_id: String,
+    head: Option<String>,
+    profile: AnalysisProfile,
+    map_tokens: usize,
+    analysis_options: String,
+    content_state: String,
+    language_pack_identity: BTreeMap<String, String>,
+    query_packs: BTreeMap<String, String>,
+    files: Vec<IndexedFile>,
+    lexical_edges: Vec<LexicalEdge>,
+    history_path_weights: BTreeMap<String, u64>,
+    created_at: u128,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct IndexedFile {
+    path: String,
+    language: SourceLanguage,
+    fingerprint: String,
+    query_digest: String,
+    symbols: Vec<IndexedSymbol>,
+    status: FileAnalysisStatus,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct IndexedSymbol {
+    name: String,
+    kind: SymbolKind,
+    role: SymbolRole,
+    scope: Vec<String>,
+    location: SourceLocation,
+    visibility: SymbolVisibility,
+    evidence: SymbolEvidence,
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexFileInput {
+    pub path: String,
+    pub language: SourceLanguage,
+    pub fingerprint: String,
+    pub symbols: Vec<SourceSymbol>,
+    pub status: FileAnalysisStatus,
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexIdentity {
+    pub head: Option<String>,
+    pub profile: AnalysisProfile,
+    pub map_tokens: usize,
+    pub analysis_options: String,
+    pub content_state: String,
+    pub language_pack_identity: BTreeMap<String, String>,
+}
+
+#[derive(Debug)]
+pub struct IndexState {
+    pub status: PersistentIndexStatus,
+    pub detail: Option<String>,
+}
+
 #[derive(Debug)]
 pub struct CacheStore {
     pub root: Option<PathBuf>,
@@ -33,6 +98,117 @@ impl CacheStore {
         self.root
             .as_ref()
             .map(|root| root.join("repositories").join(&self.repository_id))
+    }
+
+    fn index_path(&self) -> Option<PathBuf> {
+        Some(self.repository_path()?.join("index-v1.index"))
+    }
+
+    pub fn load_index(&self, identity: &IndexIdentity) -> IndexState {
+        let Some(root) = self.root.as_ref() else {
+            return IndexState { status: PersistentIndexStatus::Bypassed, detail: None };
+        };
+        let Some(path) = self.index_path() else {
+            return IndexState { status: PersistentIndexStatus::Bypassed, detail: None };
+        };
+        if !path.is_file() {
+            return IndexState { status: PersistentIndexStatus::Missing, detail: None };
+        }
+        let bytes = match security::read_cache_file(root, &path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                return IndexState {
+                    status: PersistentIndexStatus::Failed,
+                    detail: Some(format!("could not read the repository index: {error}")),
+                };
+            }
+        };
+        let index: RepositoryIndex = match serde_json::from_slice(&bytes) {
+            Ok(index) => index,
+            Err(_) => {
+                return IndexState {
+                    status: PersistentIndexStatus::Corrupt,
+                    detail: Some("the repository index was not valid JSON and will be replaced".to_owned()),
+                };
+            }
+        };
+        if index.schema_version != CACHE_INDEX_SCHEMA_VERSION
+            || index.tool_version != CACHE_TOOL_VERSION
+            || index.repository_root != self.repository_root
+            || index.worktree_id != self.repository_id
+        {
+            return IndexState {
+                status: PersistentIndexStatus::Incompatible,
+                detail: Some("the repository index was created by an incompatible Dalil version".to_owned()),
+            };
+        }
+        if index.head != identity.head
+            || index.profile != identity.profile
+            || index.map_tokens != identity.map_tokens
+            || index.analysis_options != identity.analysis_options
+            || index.content_state != identity.content_state
+            || index.language_pack_identity != identity.language_pack_identity
+        {
+            return IndexState {
+                status: PersistentIndexStatus::Stale,
+                detail: Some("the repository revision, worktree state, or analysis options changed".to_owned()),
+            };
+        }
+        IndexState { status: PersistentIndexStatus::Hit, detail: None }
+    }
+
+    pub fn write_index(
+        &self, identity: &IndexIdentity, query_packs: BTreeMap<String, String>, files: Vec<IndexFileInput>,
+        lexical_edges: Vec<LexicalEdge>, history_path_weights: BTreeMap<String, u64>,
+    ) -> Option<String> {
+        let path = self.index_path()?;
+        let index = RepositoryIndex {
+            schema_version: CACHE_INDEX_SCHEMA_VERSION,
+            tool_version: CACHE_TOOL_VERSION.to_owned(),
+            repository_root: self.repository_root.clone(),
+            worktree_id: self.repository_id.clone(),
+            head: identity.head.clone(),
+            profile: identity.profile,
+            map_tokens: identity.map_tokens,
+            analysis_options: identity.analysis_options.clone(),
+            content_state: identity.content_state.clone(),
+            language_pack_identity: identity.language_pack_identity.clone(),
+            query_packs,
+            files: files
+                .into_iter()
+                .map(|file| IndexedFile {
+                    query_digest: support_for_path(Path::new(&file.path)).map_or_else(String::new, query_digest),
+                    symbols: file
+                        .symbols
+                        .into_iter()
+                        .map(|symbol| IndexedSymbol {
+                            name: symbol.name,
+                            kind: symbol.kind,
+                            role: symbol.role,
+                            scope: symbol.scope,
+                            location: symbol.location,
+                            visibility: symbol.visibility,
+                            evidence: symbol.evidence,
+                        })
+                        .collect(),
+                    path: file.path,
+                    language: file.language,
+                    fingerprint: file.fingerprint,
+                    status: file.status,
+                })
+                .collect(),
+            lexical_edges,
+            history_path_weights,
+            created_at: unix_timestamp(),
+        };
+        let bytes = match serde_json::to_vec(&index) {
+            Ok(bytes) => bytes,
+            Err(error) => return Some(format!("could not serialize the repository index: {error}")),
+        };
+        let root = self.root.as_ref()?;
+        security::write_cache_file(root, &path, &bytes)
+            .err()
+            .map(|error| format!("could not write the repository index: {error}"))
     }
 
     fn record_directory(&self, path: &str, support: &LanguageSupport) -> Option<PathBuf> {
@@ -164,6 +340,8 @@ impl CacheStore {
 
 #[derive(Debug, Default)]
 pub struct CacheStats {
+    pub index_status: PersistentIndexStatus,
+    pub index_detail: Option<String>,
     pub matched: usize,
     pub unmatched: usize,
     pub unavailable: usize,

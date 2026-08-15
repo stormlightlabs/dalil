@@ -74,6 +74,7 @@
             "projects": { "type": "array", "items": { "type": "string" } },
             "changes": { "type": "array", "items": { "type": "object" } },
             "revision_context": { "type": "object" },
+            "change_resolution": { "$ref": "#/$defs/change_resolution" },
             "budget": { "type": "integer", "minimum": 1 },
             "profile": { "enum": ["compact", "evidence"] },
             "teaching": { "type": "boolean" }
@@ -81,6 +82,7 @@
           "additionalProperties": false
         },
         "orientation": { "type": "object" },
+        "change_resolution": { "$ref": "#/$defs/change_resolution" },
         "files": { "type": "array", "items": { "type": "object" } },
         "relationships": { "type": "array", "items": { "type": "object" } },
         "relevant_tests": { "type": "array", "items": { "type": "object" } },
@@ -101,6 +103,18 @@
           },
           "additionalProperties": false
         }
+      },
+      "additionalProperties": false
+    },
+    "change_resolution": {
+      "type": "object",
+      "required": ["status", "changes", "uncertainty"],
+      "properties": {
+        "status": { "enum": ["not_requested", "resolved", "partial", "unresolved"] },
+        "base": { "type": ["string", "null"] },
+        "head": { "type": ["string", "null"] },
+        "changes": { "type": "array", "items": { "type": "object" } },
+        "uncertainty": { "type": "array", "items": { "type": "object" } }
       },
       "additionalProperties": false
     },

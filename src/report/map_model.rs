@@ -585,10 +585,46 @@ pub struct MapSnippet {
     pub truncated: bool,
 }
 
+/// Status of the versioned repository index stored under the user cache.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PersistentIndexStatus {
+    #[default]
+    Bypassed,
+    Missing,
+    Hit,
+    Refreshed,
+    Stale,
+    Corrupt,
+    Incompatible,
+    Failed,
+}
+
+impl PersistentIndexStatus {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Bypassed => "bypassed",
+            Self::Missing => "missing",
+            Self::Hit => "hit",
+            Self::Refreshed => "refreshed",
+            Self::Stale => "stale",
+            Self::Corrupt => "corrupt",
+            Self::Incompatible => "incompatible",
+            Self::Failed => "failed",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct MapCacheReport {
     pub mode: CacheMode,
     pub status: CacheStatus,
+    /// Versioned repository-index state, independent of individual file records.
+    #[serde(default)]
+    pub index_status: PersistentIndexStatus,
+    /// A bounded diagnostic for a rejected or failed repository-index record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index_detail: Option<String>,
     /// Number of normalized `--cache-file` names that matched eligible paths.
     #[serde(default)]
     pub matched: usize,
@@ -692,9 +728,7 @@ pub struct SourceSymbol {
     pub evidence: SymbolEvidence,
 }
 
-/// A normalized request for one task-oriented context bundle. Revision fields
-/// are retained as caller context in this milestone; resolving a revision range
-/// into changed paths and symbols is introduced by change-aware analysis.
+/// A normalized request for one task-oriented context bundle.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ContextRequest {
     pub repository: String,
@@ -710,6 +744,9 @@ pub struct ContextRequest {
     pub changes: Vec<TaskChangeSeed>,
     #[serde(default)]
     pub revision_context: ContextRevisionContext,
+    /// Resolved local change evidence for revision or dirty-worktree inputs.
+    #[serde(default)]
+    pub change_resolution: ChangeResolution,
     pub budget: usize,
     #[serde(default)]
     pub profile: AnalysisProfile,
@@ -730,12 +767,104 @@ pub struct ContextRevisionContext {
     pub dirty_worktree: bool,
 }
 
+/// The result of resolving local Git revisions and the worktree. The resolver
+/// never runs repository-controlled programs, filters, hooks, or remotes.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ChangeResolution {
+    pub status: ChangeResolutionStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head: Option<String>,
+    #[serde(default)]
+    pub changes: Vec<ResolvedChange>,
+    #[serde(default)]
+    pub uncertainty: Vec<ChangeUncertainty>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangeResolutionStatus {
+    #[default]
+    NotRequested,
+    Resolved,
+    Partial,
+    Unresolved,
+}
+
+impl ChangeResolutionStatus {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::NotRequested => "not_requested",
+            Self::Resolved => "resolved",
+            Self::Partial => "partial",
+            Self::Unresolved => "unresolved",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ResolvedChange {
+    pub kind: ChangeKind,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_path: Option<String>,
+    #[serde(default)]
+    pub changed_lines: Vec<ChangedLineRange>,
+    #[serde(default)]
+    pub symbols: Vec<ChangedSymbol>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangeKind {
+    Added,
+    Deleted,
+    Modified,
+    Renamed,
+    Untracked,
+}
+
+impl ChangeKind {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Added => "added",
+            Self::Deleted => "deleted",
+            Self::Modified => "modified",
+            Self::Renamed => "renamed",
+            Self::Untracked => "untracked",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ChangedLineRange {
+    pub start: usize,
+    pub end: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ChangedSymbol {
+    pub name: String,
+    pub kind: SymbolKind,
+    pub role: SymbolRole,
+    pub location: SourceLocation,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ChangeUncertainty {
+    pub kind: String,
+    pub detail: String,
+}
+
 /// A task-shaped result that exposes selected evidence, rather than the parser,
 /// graph, manifest, history, or cache implementation records used to compose it.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ContextBundle {
     pub request: ContextRequest,
     pub orientation: ContextOrientation,
+    #[serde(default)]
+    pub change_resolution: ChangeResolution,
     #[serde(default)]
     pub files: Vec<ContextFile>,
     #[serde(default)]

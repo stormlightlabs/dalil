@@ -36,6 +36,18 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
         CacheStore::new(repository_root)?
     };
     let mut cache_stats = CacheStats::default();
+    let mut index_identity = IndexIdentity {
+        head: head.oid.clone(),
+        profile: settings.profile,
+        map_tokens: settings.map_tokens,
+        analysis_options: digest_hex(format!("{settings:?}").as_bytes()),
+        content_state: String::new(),
+        language_pack_identity: LANGUAGE_SUPPORT
+            .iter()
+            .map(|support| (support.language.label().to_owned(), query_digest(support)))
+            .collect(),
+    };
+    let mut index_files = Vec::new();
     let mut cache_limitations = Vec::new();
     if settings.cache_mode != CacheMode::Disabled && cache.root.is_none() {
         cache_limitations.push(
@@ -471,6 +483,7 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
             finding
         }));
         let extension = extension_for_path(Path::new(&path));
+        index_files.push((path.clone(), support.language, fingerprint));
         files.push(SourceFile {
             path,
             language: support.language,
@@ -556,6 +569,46 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
             .then_with(|| left.detail.cmp(&right.detail))
     });
     let history_weights = history_ranking_weights(history);
+    index_files.sort();
+    index_identity.content_state = digest_hex(
+        index_files
+            .iter()
+            .flat_map(|(path, language, fingerprint)| [path.as_str(), language.label(), fingerprint.as_str()])
+            .collect::<Vec<_>>()
+            .join("\n")
+            .as_bytes(),
+    );
+    let index_state = cache.load_index(&index_identity);
+    cache_stats.index_status = index_state.status;
+    cache_stats.index_detail = index_state.detail;
+    if cache_stats.index_status != PersistentIndexStatus::Hit {
+        if let Some(error) = cache.write_index(
+            &index_identity,
+            supported_query_packs(&files),
+            files
+                .iter()
+                .filter_map(|file| {
+                    index_files
+                        .iter()
+                        .find(|(path, _, _)| path == &file.path)
+                        .map(|(_, _, fingerprint)| IndexFileInput {
+                            path: file.path.clone(),
+                            language: file.language,
+                            fingerprint: fingerprint.clone(),
+                            symbols: file.symbols.clone(),
+                            status: file.status,
+                        })
+                })
+                .collect(),
+            edges.clone(),
+            history_weights.clone(),
+        ) {
+            cache_stats.index_status = PersistentIndexStatus::Failed;
+            cache_stats.index_detail = Some(error);
+        } else if cache.root.is_some() {
+            cache_stats.index_status = PersistentIndexStatus::Refreshed;
+        }
+    }
     let ranking = rank_files(&files, &edges, &topology.project_roots, &history_weights, settings);
     let selection = select_snippets(
         &files,
@@ -678,6 +731,8 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
         cache: MapCacheReport {
             mode: settings.cache_mode,
             status: cache_status,
+            index_status: cache_stats.index_status,
+            index_detail: cache_stats.index_detail,
             hits: cache_stats.hits,
             misses: cache_stats.misses,
             matched: cache_stats.matched,

@@ -375,6 +375,7 @@ impl From<Cli> for CommandRequest {
                     projects: map.task_seeds.projects.clone(),
                     changes: map.task_seeds.changes.clone(),
                     revision_context: revision.into(),
+                    change_resolution: Default::default(),
                     budget: map.map_tokens,
                     profile,
                     teaching: teach,
@@ -477,9 +478,8 @@ struct ExplainCommand {
 
 Context combines orientation, selected files and symbols, lexical relationships,
 likely tests, bounded history, uncertainty, omissions, and next reads under one
-budget. Add `--teach` for a source-grounded reading sequence. Revision fields
-are recorded as request context; change resolution is reported separately when
-it becomes available.
+budget. Add `--teach` for a source-grounded reading sequence. Revision ranges
+and `--dirty-worktree` resolve local changes without running repository code.
 
 Support: https://github.com/stormlightlabs/dalil/issues
 ")]
@@ -504,19 +504,19 @@ struct ContextCommand {
 
 #[derive(Clone, Debug, Default, clap::Args)]
 struct ContextRevisionOptions {
-    /// Record the base revision supplied by the caller for later change-aware context.
+    /// Compare this local base revision with `--head` (or `HEAD` when omitted).
     #[arg(long, value_name = "REVISION")]
     base: Option<String>,
 
-    /// Record the head revision supplied by the caller for later change-aware context.
+    /// Compare `--base` (or `HEAD` when omitted) with this local head revision.
     #[arg(long, value_name = "REVISION")]
     head: Option<String>,
 
-    /// Record a revision range supplied by the caller for later change-aware context.
+    /// Resolve one local `base..head` revision range into changed paths and symbols.
     #[arg(long = "revision-range", value_name = "RANGE", conflicts_with_all = ["base", "head"])]
     range: Option<String>,
 
-    /// Record that the caller's task concerns the dirty worktree.
+    /// Resolve modified, deleted, and untracked paths from the local dirty worktree.
     #[arg(long = "dirty-worktree", action = ArgAction::SetTrue)]
     dirty_worktree: bool,
 }

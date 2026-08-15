@@ -13,7 +13,9 @@ const MAX_CONTEXT_OMISSIONS: usize = 8;
 /// Compose selected repository evidence into the task-level result used by the
 /// `context` command. The map and history reports remain implementation inputs
 /// and are not attached to the returned report.
-pub fn compile(request: ContextRequest, map: &MapReport, history: &HistoryReport) -> ContextBundle {
+pub fn compile(
+    request: ContextRequest, map: &MapReport, history: &HistoryReport, change_resolution: ChangeResolution,
+) -> ContextBundle {
     let plan = super::analysis::build_reading_plan(history, map);
     let task_seeds = map.task_seeds.clone();
     let request = ContextRequest {
@@ -24,6 +26,7 @@ pub fn compile(request: ContextRequest, map: &MapReport, history: &HistoryReport
         projects: task_seeds.projects.clone(),
         changes: task_seeds.changes.clone(),
         revision_context: request.revision_context,
+        change_resolution: change_resolution.clone(),
         budget: request.budget,
         profile: request.profile,
         teaching: request.teaching,
@@ -64,11 +67,14 @@ pub fn compile(request: ContextRequest, map: &MapReport, history: &HistoryReport
     let mut bundle = ContextBundle {
         request,
         orientation,
+        change_resolution,
         provenance: ContextProvenance {
             head: map.head.clone(),
             cache: CacheProvenance {
                 mode: map.cache.mode,
                 status: map.cache.status,
+                index_status: map.cache.index_status,
+                index_detail: map.cache.index_detail.clone(),
                 available: map.cache.mode != CacheMode::Disabled,
                 hits: map.cache.hits,
                 misses: map.cache.misses,
@@ -88,7 +94,18 @@ pub fn compile(request: ContextRequest, map: &MapReport, history: &HistoryReport
     if bundle.request.teaching {
         recommendations.sort_by_key(|recommendation| teaching_recommendation_order(recommendation.purpose));
     }
-    let uncertainty = uncertainty_candidates(map, history)
+    let mut uncertainty = uncertainty_candidates(map, history);
+    uncertainty.extend(
+        bundle
+            .change_resolution
+            .uncertainty
+            .iter()
+            .map(|uncertainty| ContextUncertainty {
+                kind: format!("change_{}", uncertainty.kind),
+                detail: uncertainty.detail.clone(),
+            }),
+    );
+    let uncertainty = uncertainty
         .into_iter()
         .take(MAX_CONTEXT_UNCERTAINTIES)
         .collect::<Vec<_>>();
