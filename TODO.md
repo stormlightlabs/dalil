@@ -1,381 +1,331 @@
 # To-Do/Task List
 
-## Milestone: Task-relevant retrieval
+## Milestone: Repository evidence bundle
 
-**Exit condition:** Dalil returns and explains a small, diverse set of files
-and symbols for realistic orientation and implementation tasks.
+**Exit condition:** `dalil export` creates a safe, refreshable `.dalil/` bundle
+containing a portable JSON evidence map and a human-readable Markdown
+projection of the same snapshot.
 
-### T1 — Make ranking task-aware
+### T1 — Export the repository evidence map
 
-A user's task changes the recommended files and symbols in a deterministic,
-explainable way.
+**What to build:** A user can run `dalil export` to write the current repository
+map to `.dalil/map.json` and `.dalil/map.md` through one end-to-end CLI flow.
 
-### T2 — Select a diverse, bounded file set
-
-Recommendations cover the useful roles and project roots for a task without
-padding the result with weak files.
-
-### T3 — Turn explanations into reading guidance
-
-`explain` tells the user why to read an item, what evidence supports
-it, and what to inspect next.
-
-## Milestone: Task-oriented context bundles
-
-**Exit condition:** CLI consumers can request a task, symbol, path, project, or
-change and receive one bounded context bundle with orientation, relevant code,
-relationships, tests, history, uncertainty, and next reads.
-
-### T4 — Deliver the context bundle end to end
-
-One typed request and one typed result serve orientation,
-implementation, debugging, refactoring, and review workflows.
-
-### T5 — Add a source-based teaching scaffold
-
-A context bundle can optionally explain an unfamiliar subsystem in
-a concise sequence grounded in repository evidence.
-
-**Verification:** Added fixtures for a clear entry flow, multiple plausible
-entry points, and insufficient evidence. The CLI fixture verifies that every
-teaching observation points to evidence already selected in the JSON bundle.
-
-## Milestone: Change-aware review context
-
-**Exit condition:** Dalil can compare revisions or inspect a dirty worktree
-and return bounded, explicitly uncertain context about changed symbols, nearby
-dependencies, relevant tests, ownership, and history.
-
-### T6 — Resolve change inputs safely
-
-Callers can name a revision range or dirty worktree without losing
-read-only guarantees or receiving an ambiguous change set.
-
-### T7 — Return impact context
-
-Reviewers receive evidence-backed inspection targets around a
-change without a prediction that the change will break them.
-
-## Milestone: Primary CLI workflows
-
-**Exit condition:** A human or agent can orient, map, search, and request
-task-shaped context without knowing about history aggregates, internal rankings,
-or caches.
-
-### R2 — Add first-class orientation
-
-`dalil` and `dalil orient` give a concise, typed answer about where
-to start without exposing the complete repository analysis by default.
-
-### R3 — Add bounded search
-
-A user can find a few strong path, symbol, or concept anchors for a
-subsequent context request or source read.
-
-## Milestone: Incremental analysis
-
-**Exit condition:** Repeated requests reuse a persistent analysis index, refresh
-only invalidated work, and remain equivalent to a cold analysis.
-
-### T8 — Persist the analysis index
-
-Expensive reusable facts survive between processes under the user
-cache without changing repository contents.
-
-### T9 — Refresh only invalidated analysis
-
-A small repository change causes proportionate reanalysis while
-unchanged results remain reusable.
-
-## Milestone: Shared integration surfaces
-
-**Exit condition:** CLI, MCP, agent, and native consumers call the same bounded
-analysis operations and cannot drift in selection, evidence, uncertainty, or
-safety behavior.
-
-### T10 — Establish an embeddable core
-
-In-process consumers can call stable analysis operations without
-depending on CLI parsing or renderer internals.
-
-### T11 — Add a bounded MCP adapter
-
-MCP clients can request Dalil context through a small task-level tool surface.
-
-### T12 — Ship an agent skill
-
-**Outcome:** Coding agents receive concise instructions for when and how to use
-Dalil instead of rediscovering repository exploration workflows.
-
-**Blocked by:** R3.
+**Blocked by:** None - can start immediately.
 
 **Acceptance criteria:**
 
-- [x] Cover unfamiliar-repository orientation and mapping, implementation
-      lookup, impact review, relevant-test discovery, and next-read workflows.
-- [x] Prefer compact requests, narrow focus, and follow-up calls over exhaustive
-      output.
-- [x] Explain uncertainty, unsupported-language behavior, and when direct source
-      inspection remains necessary.
-- [x] Keep examples valid for the packaged CLI and avoid host-specific claims.
-- [x] Validate the skill against representative benchmark tasks.
+- [ ] Reuse the typed core analysis and current renderers where their semantics
+      match. Do not reconstruct evidence from rendered output.
+- [ ] Give `map.json` a portable schema with repository identity, revision,
+      worktree fingerprint, projects, files, symbols, relationships,
+      landmarks, tests, bounded history, quality, limitations, provenance,
+      collection summaries, schema version, and producer version.
+- [ ] Keep task rankings, reading order, token allocations, teaching steps, and
+      impact conclusions out of the canonical map.
+- [ ] Give nodes and relationships stable identifiers and deterministic order
+      when their repository facts are unchanged.
+- [ ] Render `map.md` from the same snapshot. It may project collections for
+      readability but must report totals, omissions, snapshot identity, and
+      freshness metadata.
+- [ ] Write only after an explicit export request. Normal analysis commands
+      must retain their current repository-read-only behavior.
+- [ ] Refuse an unsafe repository root, destination outside the worktree,
+      symlink or reparse-point component, parent traversal, and a non-directory
+      `.dalil` collision.
+- [ ] Create parent directories and map files with private permissions, publish
+      complete temporary files atomically, and replace only Dalil-owned map
+      files. Do not edit `.gitignore` or remove unknown `.dalil/` contents.
+- [ ] Give both files one snapshot identifier so readers can detect a
+      mismatched pair after an interrupted refresh.
+- [ ] Document how to export, inspect, refresh, ignore, or commit the bundle,
+      including the stale-map and merge-conflict tradeoffs.
 
-**Verification:** Run the documented prompts against public or synthetic
-fixtures and confirm every command, option, and expected field matches the
-packaged CLI.
+**Verification:**
 
-### T13 — Add bounded host lifecycle adapters
+- Add compiled-CLI fixtures for a clean repository, dirty worktree, monorepo,
+  unsupported source, existing bundle, unsafe destination, and interrupted
+  replacement.
+- Assert JSON schema compatibility, stable identifiers, deterministic repeated
+  exports, shared snapshot identity, Markdown/JSON semantic parity, private
+  permissions where supported, and unchanged unknown files.
+- Run the standard format, workspace test, Clippy, documentation, package, and
+  release-asset checks from ROADMAP.md.
 
-**Outcome:** Approved editors or coding hosts can inject fresh Dalil context
-at useful lifecycle points without hidden background behavior.
+## Milestone: Task orientation journal
 
-**Blocked by:** T9 and T10.
+**Exit condition:** An export with task text appends one durable task record
+containing the original input and the orientation generated from the matching
+repository snapshot.
 
-**Acceptance criteria:**
+### T2 — Record task inputs and orientation output
 
-- [x] Define explicit events such as repository open, session start, task
-      change, before edit, after edit, and before review.
-- [x] Keep every injection small, advisory, cancellable, and controlled by the
-      host.
-- [x] Share the persistent index across lifecycle calls without requiring a
-      daemon.
-- [x] Add only adapters with a named host, demonstrated demand, and a stable
-      integration boundary.
-- [x] Give an approved adapter its own workspace crate only when it adds
-      protocol or runtime dependencies or has a separate executable boundary.
-- [x] Preserve identical analysis semantics across native, CLI, and MCP paths.
+**What to build:** A user can run `dalil export --task <TASK>` and receive
+`.dalil/tasks/<timestamp>-<task-slug>-<id>.md` without losing or rewriting
+earlier task records.
 
-**Verification:** For each approved adapter, add lifecycle, cancellation,
-stale-state, and semantic-equivalence tests before documenting support.
-
-## Milestone: Evidence-driven extensions
-
-**Exit condition:** New language, semantic, framework, or distribution
-capabilities are admitted only when measured failures or demonstrated demand
-justify their cost and their contracts remain explicit.
-
-### T14 — Assess additional language support
-
-**Outcome:** A specific language gap either produces an approved, fixture-backed
-implementation ticket or a documented decision not to add support.
-
-**Blocked by:** Nothing.
-
-**Acceptance criteria:**
-
-- [ ] Identify demand from task failures, issue evidence, or a named integration
-      rather than ecosystem popularity alone.
-- [ ] Define required symbol, relationship, manifest, entry-point, test, and
-      ambiguity behavior before implementation.
-- [ ] Require conformance, malformed-source, generated-code, and mixed-language
-      fixtures for first-class support.
-- [ ] Record expected quality and maintenance costs before adding a parser or
-      grammar dependency.
-
-**Verification:** Review the evidence and proposed fixture contract before
-creating any language implementation ticket.
-
-### T15 — Assess semantic or framework providers
-
-**Outcome:** An optional provider is added only when bounded lexical and syntax
-evidence fails a representative task and the provider materially improves it.
-
-**Blocked by:** T4.
+**Blocked by:** T1.
 
 **Acceptance criteria:**
 
-- [ ] Name the retrieval or context failures the provider must fix and the
-      operations that consume its evidence.
-- [ ] Keep lexical and syntax analysis as the deterministic fallback.
-- [ ] Define offline behavior, dependency cost, cache identity, provenance,
-      confidence, timeouts, and partial-failure handling.
-- [ ] Label framework conventions as framework evidence, not compiler-resolved
-      semantics.
-- [ ] Reject providers that require repository-controlled execution or make the
-      core depend on a remote service.
+- [ ] Generate the orientation through the shared typed operation with the
+      supplied task as a ranking seed.
+- [ ] Record a stable task ID, UTC creation time, Dalil version, map snapshot
+      ID, repository revision, worktree fingerprint, original task, rendered
+      orientation, quality, and limitations.
+- [ ] Preserve the task text exactly, including blank lines, Unicode, Markdown
+      headings, delimiters, and code fences, while keeping the task file valid
+      Markdown.
+- [ ] Use a filesystem-safe bounded slug and content-derived suffix so empty,
+      long, non-ASCII, duplicate, and same-second tasks cannot collide.
+- [ ] Append a new file for each explicit task export. Never overwrite or
+      rewrite an earlier task record during another task or map refresh.
+- [ ] Publish the task record only after the matching map snapshot and
+      orientation are complete. A failed export must leave no partial record.
+- [ ] Do not create a task file when task text was not explicitly supplied.
+- [ ] Warn in command help and documentation that task records are repository
+      files and may contain sensitive input.
 
-**Verification:** Compare the provider on focused public or synthetic fixtures
-and approve it only when the gain exceeds its latency, complexity, and
-maintenance cost.
+**Verification:**
 
-### T16 — Assess distributable query packs
-
-**Outcome:** The project has evidence for or against loading query-pack updates
-independently from the main binary.
-
-**Blocked by:** T8 and T14.
-
-**Acceptance criteria:**
-
-- [ ] Define the concrete update problem that built-in packs cannot solve.
-- [ ] Specify compatibility, signing or trust, cache identity, offline fallback,
-      rollback, and failure isolation before implementing a loader.
-- [ ] Preserve a complete safe built-in baseline when no external pack is
-      available.
-- [ ] Do not contact a registry or install packs without an explicit user
-      action.
-- [ ] Proceed to implementation only if the update benefit outweighs the new
-      supply-chain and compatibility surface.
-
-**Verification:** Review the threat model and a local proof of concept before
-creating production implementation tickets.
+- Add compiled-CLI fixtures for multiline Markdown, Unicode, empty normalized
+  slugs, repeated tasks, same-second tasks, dirty worktrees, partial analysis,
+  and publication failure.
+- Assert exact task round-tripping, orientation task personalization, map/task
+  snapshot linkage, collision resistance, append-only behavior, and cleanup of
+  temporary files after failure.
+- Run the standard verification commands from ROADMAP.md.
 
 ## Milestone: Context and scale benchmarking
 
 **Exit condition:** Public or synthetic benchmarks measure retrieval quality,
-context efficiency, latency, work, memory where measurable, and output size
-across the completed feature set.
+context efficiency, repository export, refresh cost, latency, work, memory
+where measurable, and output size.
 
-### T17 — Build the context-quality benchmark
+### T3 — Build the context-quality benchmark
 
-**Outcome:** Retrieval and context changes can be compared against a
-reproducible baseline instead of judged from a few repository examples.
+**What to build:** Retrieval and export changes can be compared against a
+reproducible task corpus instead of a few repository examples.
 
-**Blocked by:** T1–T16 and R2–R3.
+**Blocked by:** T1 and T2.
 
 **Acceptance criteria:**
 
 - [ ] Define fixtures for orientation, implementation search, behavior
-      tracing, bug fixes, feature extensions, refactors, change review, and
-      relevant-test discovery.
-- [ ] Use public or synthetic repositories with expected useful paths or
-      graded path rankings for each task.
+      tracing, bug fixes, feature extensions, refactors, change review,
+      relevant-test discovery, and repository export.
+- [ ] Use public or synthetic repositories with expected useful paths or graded
+      path rankings for each task.
 - [ ] Measure useful-file recall, precision, ranking quality, project-root
-      coverage, and relevant-symbol recall.
-- [ ] Measure returned tokens, useful files per 1,000 tokens, redundant
-      evidence, and the share of budget consumed by one file.
-- [ ] Record qualitative failure labels for missing entry points, duplicated
-      roles, irrelevant central files, weak explanations, and token waste.
-- [ ] Capture the completed feature set as a deterministic baseline and define
-      regression thresholds suitable for local and CI use.
+      coverage, relevant-symbol recall, returned tokens, redundancy, and the
+      share of budget consumed by one file.
+- [ ] Measure exported node and relationship coverage, JSON and Markdown size,
+      task-record usefulness, and cold versus warm refresh work.
+- [ ] Record fixture-level failure labels for missing entry points, duplicated
+      roles, irrelevant central files, weak explanations, stale artifacts, and
+      token waste.
+- [ ] Capture the shipped feature set as a deterministic baseline with local
+      and CI regression thresholds.
 
 **Verification:** Run the corpus twice from cold state and once from valid warm
-state; confirm stable metrics, equivalent results, and actionable fixture-level
-failures.
+state; confirm stable metrics, semantically equivalent results, and actionable
+fixture-level failures.
 
-### T18 — Establish performance and scale gates
+### T4 — Establish performance and scale gates
 
-**Outcome:** CI detects unacceptable latency, work, memory, or output growth
-before a release candidate is built.
+**What to build:** CI detects unacceptable analysis, export, memory, disk, or
+output growth before a distribution candidate is built.
 
-**Blocked by:** T1–T16 and R2–R3.
+**Blocked by:** T3.
 
 **Acceptance criteria:**
 
 - [ ] Add CI-friendly cases for Dalil, a large ignored or vendor tree,
-      high-ambiguity sources, large monorepos, and synthetic 10k- and
-      100k-commit histories.
-- [ ] Exercise cold analysis, valid warm analysis, targeted invalidation,
-      context requests, impact requests, and every supported integration path.
+      high-ambiguity sources, large monorepos, large `.dalil/tasks/`
+      directories, and synthetic 10k- and 100k-commit histories.
+- [ ] Exercise cold analysis, warm analysis, targeted invalidation, task
+      context, impact, first export, unchanged export, changed export, and task
+      append through every supported integration path.
 - [ ] Define latency, work, memory where measurable, disk, and output ceilings.
-      A failure identifies the exceeded dimension.
+      A failure must identify the exceeded dimension and fixture.
 - [ ] Keep every benchmark public or synthetic, deterministic, bounded, and
       runnable without network access.
-- [ ] Define representative CI tiers so routine checks remain proportionate
-      while the full scale suite still runs before distribution.
+- [ ] Define a small routine CI tier and a full pre-distribution scale tier.
 
-**Verification:** Run the harness under its documented CI ceilings and confirm
+**Verification:** Run the harness under its documented ceilings and confirm
 intentional regressions fail with the expected dimension and fixture name.
 
 ## Milestone: Product quality review
 
-**Exit condition:** The completed product passes cross-cutting correctness,
-security, compatibility, usability, and semantic-consistency review with no
+**Exit condition:** The completed product passes correctness, security,
+compatibility, usefulness, and cross-interface consistency review with no
 unresolved critical finding.
 
-### T19 — Review usefulness and semantic consistency
+### T5 — Review usefulness and semantic consistency
 
-**Outcome:** The completed feature set gives useful, consistent answers across
-representative repositories and every supported interface.
+**What to build:** Representative repositories receive useful, consistent
+answers across native reports, integrations, and repository artifacts.
 
-**Blocked by:** T17 and T18.
-
-**Acceptance criteria:**
-
-- [ ] Apply a reusable review rubric to a small project, Dalil, a mixed
-      monorepo, a generated-heavy repository, and representative change sets.
-- [ ] Review reading-plan coverage and reasons, context usefulness, impact
-      uncertainty, history usefulness, quality semantics, and token economy.
-- [ ] Confirm equivalent requests have equivalent semantics across CLI,
-      library, MCP, agent-skill, and approved native integration paths.
-- [ ] Run the completed binary across the available project corpus and retain
-      only aggregate outcomes plus public or synthetic regressions.
-- [ ] Convert confirmed correctness failures into focused regression tests and
-      resolve every critical usability finding.
-
-**Verification:** Complete the rubric, inspect aggregate corpus outcomes, and
-rerun T17 and T18 after fixes.
-
-### T20 — Audit safety and compatibility
-
-**Outcome:** The completed feature set preserves Dalil's read-only, bounded,
-deterministic, and compatible behavior under hostile and partial conditions.
-
-**Blocked by:** T17 and T18.
+**Blocked by:** T3 and T4.
 
 **Acceptance criteria:**
 
-- [ ] Exercise hostile paths, external filters, malformed source, corrupt cache,
-      unsupported languages, partial history, cancellation, and output limits.
-- [ ] Confirm every interface reports partial work, uncertainty, omissions, and
-      compatibility failures consistently.
+- [ ] Apply one review rubric to a small project, Dalil, a mixed monorepo, a
+      generated-heavy repository, and representative change sets.
+- [ ] Review reading plans, context, impact uncertainty, history usefulness,
+      token economy, exported map readability, and task records.
+- [ ] Confirm equivalent requests retain equivalent semantics across CLI,
+      core, MCP, agent instructions, lifecycle calls, and `.dalil/` output.
+- [ ] Retain only aggregate outcomes and public or synthetic regressions from
+      the available project corpus.
+- [ ] Convert correctness failures into focused regression tests and resolve
+      every critical usability finding.
+
+**Verification:** Complete the rubric and rerun T3 and T4 after fixes.
+
+### T6 — Audit safety and compatibility
+
+**What to build:** Dalil preserves its bounded, deterministic behavior and
+limits repository writes to the explicit `.dalil/` export under hostile and
+partial conditions.
+
+**Blocked by:** T3 and T4.
+
+**Acceptance criteria:**
+
+- [ ] Exercise hostile paths, external filters, malformed source, corrupt
+      cache, unsupported languages, partial history, cancellation, output
+      limits, stale exports, symlink races, and interrupted publication.
+- [ ] Confirm every interface reports partial work, uncertainty, omissions,
+      and compatibility failures consistently.
 - [ ] Verify cold, warm, invalidated, and no-cache results remain semantically
       equivalent where repository state is unchanged.
-- [ ] Confirm schema fixtures, public library types, MCP responses, and generated
-      assets match their documented compatibility contracts.
-- [ ] Convert every confirmed correctness or security failure into a focused
-      regression test and resolve every critical finding.
+- [ ] Confirm schema fixtures, public library types, MCP responses, generated
+      assets, and repository artifacts match their documented versions.
+- [ ] Prove ordinary commands never write to the repository and export never
+      writes outside `.dalil/` or alters unknown files.
+- [ ] Convert confirmed correctness or security failures into focused
+      regression tests and resolve every critical finding.
 
-**Verification:** Run the security, compatibility, schema, cache, and
-cross-interface suites, then rerun T17 and T18 after fixes.
+**Verification:** Run the security, compatibility, schema, cache, artifact, and
+cross-interface suites, then rerun T3 and T4 after fixes.
 
 ## Milestone: Distribution readiness
 
-**Exit condition:** The audited candidate is reproducibly packaged and ready
-for distribution on every supported platform.
+**Exit condition:** The audited candidate is reproducibly packaged and its
+installed artifacts pass representative analysis and export workflows.
 
-### T21 — Build the distribution candidate
+### T7 — Build the distribution candidate
 
-**Outcome:** Every supported platform produces the same complete, checksummed
-package from the audited source.
+**What to build:** Every supported platform produces the same complete,
+checksummed package from the audited source.
 
-**Blocked by:** T19 and T20.
+**Blocked by:** T5 and T6.
 
 **Acceptance criteria:**
 
 - [ ] Pass Linux, macOS, Windows, Rust 1.85, dependency-policy, schema,
       generated-asset, and package-content jobs on the candidate build.
 - [ ] Produce checksummed archives for every supported distribution target.
-- [ ] Confirm packaged completions, man pages, licenses, schemas, and agent
-      instructions match the candidate binary.
+- [ ] Confirm packaged completions, man pages, licenses, schemas, agent
+      instructions, and repository-artifact documentation match the binary.
 - [ ] Package publishable workspace crates in dependency order while preserving
       `cargo install dalil` as the CLI installation path.
-- [ ] Confirm a clean rebuild reproduces the expected package contents and
-      metadata.
+- [ ] Confirm a clean rebuild reproduces package contents and metadata.
 
-**Verification:** Run the standard workspace, package, release-asset, and
-platform jobs against the candidate commit and inspect every archive.
+**Verification:** Run the workspace, package, release-asset, and platform jobs
+against the candidate commit and inspect every archive.
 
-### T22 — Validate packaged installation and behavior
+### T8 — Validate packaged installation and behavior
 
-**Outcome:** Users can install, run, and remove the packaged binary using the
-documented instructions and encounter no unresolved release blocker.
+**What to build:** Users can install, use, and remove the packaged binary with
+no unresolved release blocker.
 
-**Blocked by:** T21.
+**Blocked by:** T7.
 
 **Acceptance criteria:**
 
-- [ ] Verify install, uninstall, and cache-cleanup instructions from packaged
-      artifacts in clean environments.
+- [ ] Verify install, uninstall, user-cache cleanup, and repository-bundle
+      cleanup instructions from packaged artifacts in clean environments.
 - [ ] Run representative orientation, map, context, impact, search, explain,
-      cache, and capabilities workflows from the installed binary.
-- [ ] Confirm normal successful runs keep stderr empty and all supported output
-      modes remain machine-readable where promised.
-- [ ] Record the benchmark and quality-review results associated with the
-      candidate without relying on private or untracked documents.
+      cache, capabilities, export, refresh, and task-record workflows from the
+      installed binary.
+- [ ] Confirm normal successful runs keep stderr empty except for documented
+      repository-write notices and all promised output modes remain
+      machine-readable.
+- [ ] Record associated benchmark and quality-review results using public or
+      tracked artifacts.
 - [ ] Resolve every installation, packaging, or behavior blocker found during
       candidate validation.
 
-**Verification:** Install the packaged artifacts in clean environments, run
-representative workflows, remove them using the documented steps, and compare
-their outputs with the audited source build.
+**Verification:** Install each package in a clean environment, run the
+representative workflows, remove it using the documented steps, and compare
+its outputs with the audited source build.
+
+## Milestone: Evidence-driven extensions
+
+**Exit condition:** A measured failure or demonstrated demand supports each
+optional extension before implementation work begins.
+
+### T9 — Assess additional language support
+
+**What to build:** A specific language gap produces either a fixture-backed
+implementation ticket or a documented decision not to add support.
+
+**Blocked by:** T3.
+
+**Acceptance criteria:**
+
+- [ ] Identify demand from benchmark failures, issue evidence, or a named
+      integration rather than ecosystem popularity alone.
+- [ ] Define symbol, relationship, manifest, entry-point, test, ambiguity, and
+      exported-map behavior before implementation.
+- [ ] Require conformance, malformed-source, generated-code, mixed-language,
+      and export fixtures for first-class support.
+- [ ] Record expected quality and maintenance costs before adding a grammar.
+
+**Verification:** Review the evidence and fixture expectations before creating
+an implementation ticket.
+
+### T10 — Assess semantic or framework providers
+
+**What to build:** An optional provider is considered only when bounded lexical
+and syntax evidence fails a representative task and the provider materially
+improves it.
+
+**Blocked by:** T3.
+
+**Acceptance criteria:**
+
+- [ ] Name the benchmark failures the provider must fix and the operations or
+      exported relationships that consume its evidence.
+- [ ] Keep lexical and syntax analysis as the deterministic fallback.
+- [ ] Define offline behavior, dependency cost, cache and artifact identity,
+      provenance, confidence, timeouts, and partial-failure handling.
+- [ ] Label framework conventions as framework evidence rather than
+      compiler-resolved semantics.
+- [ ] Reject providers that require repository-controlled execution or a remote
+      core dependency.
+
+**Verification:** Compare the provider on focused public or synthetic fixtures
+and approve it only when the gain exceeds its latency and maintenance cost.
+
+### T11 — Assess distributable query packs
+
+**What to build:** The project has evidence for or against loading query-pack
+updates independently from the main binary.
+
+**Blocked by:** T3 and T9.
+
+**Acceptance criteria:**
+
+- [ ] Define the update problem that built-in packs cannot solve.
+- [ ] Specify compatibility, trust, cache and exported-map identity, offline
+      fallback, rollback, and failure isolation before implementing a loader.
+- [ ] Preserve a complete built-in baseline when no external pack is available.
+- [ ] Never contact a registry or install packs without an explicit user action.
+- [ ] Proceed only if the update benefit outweighs the supply-chain and
+      compatibility surface.
+
+**Verification:** Review the threat model and a local proof of concept before
+creating production implementation tickets.
