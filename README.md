@@ -20,7 +20,43 @@ need more evidence:
   4. monthly activity
   5. "firefighting"[^ff] language
 
-![Dalil terminal briefing with a repository overview and ordered reading plan](./docs/static/dalil-briefing.png)
+```md
+# Dalil orient
+
+Schema version: 1
+Scope: `.`
+Status: Analyzed
+
+## Summary
+
+Selected 5 orientation read(s) across 1 important project root(s).
+
+## Repository overview
+
+Repository: `/Users/owais/Projects/StormlightLabs/OpenSource/mariners-astrolabe`
+Scope: `.`
+Worktree: modified
+Revision: `refs/heads/main` at `c613467e9f1c85ca75ae4129edffb67c4bd41923`
+Primary supported languages: Rust, TypeScript
+
+### Start here
+
+1. `README.md` — recognized readme: recognized documentation filename `readme.md` (high; landmark, project_topology)
+2. `crates/dalil-cli/src/lib.rs`, project root `crates/dalil-cli` — conventional library entry point for this project root; manifest `crates/dalil-cli/Cargo.toml` declares library export `dalil` as `src/lib.rs` (high; landmark, project_topology, source_map, graph)
+
+### Important project roots
+
+- `.` (workspace) — project root inferred from 1 manifest(s): Cargo.toml
+
+### Runtime entry points
+
+3. `crates/dalil-cli/src/main.rs`, project root `crates/dalil-cli` — conventional runtime entry point for this project root; manifest `crates/dalil-cli/Cargo.toml` declares runtime entry point `dalil` as `src/main.rs` (high; landmark, project_topology, source_map, graph)
+
+### Tests
+
+
+_Report truncated at the compact Markdown token budget; use `--json` for complete typed collections or `--profile evidence` for verbose Markdown._
+```
 
 ## Quick start
 
@@ -57,10 +93,11 @@ dalil context --task 'review the last change' --revision-range 'HEAD~1..HEAD' --
 `PATH` defaults to the current directory. `dalil` discovers the enclosing
 Git repository and keeps the selected scope inside that repository.
 
-## Library
+## Integrations
 
 The CLI calls the typed operations in the `dalil-core` workspace crate. Native
 adapters can call those operations directly; see [the core API guide](docs/src/content/docs/guides/embeddable-core.md).
+MCP clients can use the separate `dalil-mcp` stdio adapter; see [the MCP guide](docs/src/content/docs/integrations/mcp.md).
 `cargo install dalil` continues to install the CLI.
 
 ## Orientation

@@ -1,4 +1,4 @@
 [workspace]
-members = ["crates/dalil-cli", "crates/dalil-core", "xtask"]
+members = ["crates/dalil-cli", "crates/dalil-core", "crates/dalil-mcp", "xtask"]
 default-members = ["crates/dalil-cli"]
 resolver = "3"

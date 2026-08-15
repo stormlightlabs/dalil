@@ -1,6 +1,6 @@
 import type { Component } from 'svelte';
 
-export const docSections = ['Get started', 'Guides', 'Reference'] as const;
+export const docSections = ['Get started', 'Guides', 'Integrations', 'Reference'] as const;
 export type DocSection = (typeof docSections)[number];
 
 export type DocHeading = { title: string; slug: string; level: 2 | 3 };

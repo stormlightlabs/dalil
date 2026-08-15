@@ -421,10 +421,10 @@ CLI, transport, or protocol code. See [the core API guide](docs/src/content/docs
 
 - The CLI remains the universal interface for humans, shell-capable agents,
   scripts, CI, unsupported hosts, and integration debugging.
-- A separate MCP workspace crate exposes the primary workflows, including the
+- The `dalil-mcp` workspace crate exposes the primary workflows, including the
   bounded repository map, and preserves response budgets, provenance,
   uncertainty, and quality metadata. MCP protocol and runtime dependencies stay
-  in that crate.
+  in that crate. See [the MCP integration guide](docs/src/content/docs/integrations/mcp.md).
 - Native hosts prefer the core library when they can pass task text, inspected
   files, edited files, identifiers, budget, and worktree changes directly.
 

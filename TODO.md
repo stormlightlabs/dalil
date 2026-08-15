@@ -195,16 +195,16 @@ tool surface.
 
 **Acceptance criteria:**
 
-- [ ] Implement MCP as a separate workspace crate that depends on `dalil-core`,
+- [x] Implement MCP as a separate workspace crate that depends on `dalil-core`,
       keeping MCP protocol and runtime dependencies out of the core and CLI.
-- [ ] Map MCP tools to orientation, repository map, context, impact, explain, search,
+- [x] Map MCP tools to orientation, repository map, context, impact, explain, search,
       capabilities, and cache-status operations.
-- [ ] Keep responses task-oriented and bounded; do not expose an exhaustive
+- [x] Keep responses task-oriented and bounded; do not expose an exhaustive
       graph endpoint.
-- [ ] Preserve typed provenance, uncertainty, omissions, budget behavior, and
+- [x] Preserve typed provenance, uncertainty, omissions, budget behavior, and
       cancellation across the transport.
-- [ ] Document local setup and the read-only safety contract.
-- [ ] Verify MCP and CLI requests with equivalent inputs return equivalent
+- [x] Document local setup and the read-only safety contract.
+- [x] Verify MCP and CLI requests with equivalent inputs return equivalent
       semantics.
 
 **Verification:** Add protocol conformance, cancellation, oversized-request,

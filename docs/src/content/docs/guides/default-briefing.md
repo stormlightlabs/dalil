@@ -90,4 +90,36 @@ Use `dalil explain PATH-OR-SYMBOL` when you need the typed focus, graph,
 ranking, history-overlap, landmark, ambiguity, and omission evidence behind a
 recommendation.
 
-![Dalil explaining why a source file is relevant and what to read next](/dalil-explain.png)
+For example, `dalil explain crates/dalil-core/src/map.rs --focus map --no-cache --budget 350` returns:
+
+```md
+# Dalil explain
+
+Schema version: 1
+Scope: `.`
+Status: Analyzed
+
+## Summary
+
+Explained `crates/dalil-core/src/map.rs` using 63 source files and 131 retained lexical relationships within scoped history evidence.
+
+## Quality
+
+Expected bounded projection only; collection totals and reasons remain available in JSON.
+
+### Recommendation explanation
+
+Target: `crates/dalil-core/src/map.rs` (path)
+Matched paths: `crates/dalil-core/src/map.rs`
+Focus evidence: `crates/dalil-core/src/map.rs`
+Provenance:
+- profile `compact`; 63 analyzed source file(s); 131 retained lexical relationship(s); history scope `.`
+- no task seeds were supplied or derived
+Reading guidance:
+- `crates/dalil-core/src/map.rs` — ranking matched focus:map (high confidence)
+  - ranking: score 353648; focus matches 1; 0 incoming and 0 outgoing relationship(s); contributions centrality=3648, seed proximity=0, lexical relevance=0, history evidence=0, explicit focus=350000
+  - matched seeds: `focus` `map`
+  - ranking evidence: 0 of 63 returned (ProfileProjection) — Ranking contributions may omit lower-ranked source paths under the active profile.
+
+_Report truncated at the compact Markdown token budget; use `--json` for complete typed collections or `--profile evidence` for verbose Markdown._
+```

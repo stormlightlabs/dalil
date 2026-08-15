@@ -1,0 +1,22 @@
+[package]
+name = "dalil-mcp"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "MCP adapter for Dalil's bounded repository analysis"
+license = "MIT"
+repository = "https://github.com/stormlightlabs/dalil"
+readme = "README.md"
+keywords = ["mcp", "code-analysis", "developer-tools"]
+categories = ["development-tools"]
+
+[[bin]]
+name = "dalil-mcp"
+path = "src/main.rs"
+
+[dependencies]
+dalil-core = { version = "0.1.0", path = "../dalil-core" }
+rmcp = { version = "2.1.0", default-features = false, features = ["macros", "server", "transport-io"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
