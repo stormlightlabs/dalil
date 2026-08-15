@@ -15,8 +15,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::map::{CacheCommand, CacheControlReport, MapSettings};
 use crate::report::{
-    AnalysisProfile, CacheMode, CapabilitiesReport, CommandDescriptor, DoctorReport, HistoryOperation, HistorySettings,
-    KeywordMatchMode, Report, SourceLanguage, StrictIssue, TaskChangeSeed, TaskSeeds,
+    AnalysisProfile, CacheMode, CapabilitiesReport, CommandDescriptor, ContextRequest, ContextRevisionContext,
+    DoctorReport, HistoryOperation, HistorySettings, KeywordMatchMode, Report, SourceLanguage, StrictIssue,
+    TaskChangeSeed, TaskSeeds,
 };
 use crate::utils;
 
@@ -32,6 +33,8 @@ enum SubcommandName {
     Capabilities,
     /// Explain the bounded evidence behind a path or symbol recommendation.
     Explain(ExplainCommand),
+    /// Compile one bounded, task-oriented context bundle.
+    Context(ContextCommand),
     /// Check local discovery and Dalil support without analyzing source.
     Doctor(DoctorCommand),
 }
@@ -247,7 +250,7 @@ struct CacheCommandCli {
 
 The default command combines Git-history signals with a ranked source map.
 
-Use `map` or `history` for focused reports.
+Use `map`, `history`, `explain`, or `context` for focused reports.
 
 Examples:
     dalil .
@@ -259,6 +262,7 @@ Examples:
     dalil map --json
     dalil history contributors .
     dalil explain src/parser.rs --json
+    dalil context --task 'inspect parser cache' --json
     dalil capabilities --json
     dalil doctor --json
 
@@ -312,11 +316,12 @@ impl From<Cli> for CommandRequest {
         let strict = cli.output.strict;
         let profile = cli.output.profile.into();
         let default_map_settings = cli.map_options.settings();
-        let (command, history, map_settings) = match cli.command {
+        let (command, history, map_settings, context) = match cli.command {
             None => (
                 CommandDescriptor::briefing(cli.path),
                 HistorySettings::default(),
                 default_map_settings,
+                None,
             ),
             Some(SubcommandName::Map(map)) => {
                 let MapCommand { options, path } = map;
@@ -324,6 +329,7 @@ impl From<Cli> for CommandRequest {
                     CommandDescriptor::map(path),
                     HistorySettings::default(),
                     options.settings(),
+                    None,
                 )
             }
             Some(SubcommandName::History(history)) => {
@@ -335,12 +341,14 @@ impl From<Cli> for CommandRequest {
                             CommandDescriptor::history(path, Some(operation)),
                             settings,
                             MapSettings::default(),
+                            None,
                         )
                     }
                     None => (
                         CommandDescriptor::history(history.path, None),
                         inherited,
                         MapSettings::default(),
+                        None,
                     ),
                 }
             }
@@ -348,17 +356,40 @@ impl From<Cli> for CommandRequest {
                 CommandDescriptor::map(cli.path),
                 HistorySettings::default(),
                 default_map_settings,
+                None,
             ),
             Some(SubcommandName::Explain(explain)) => (
                 CommandDescriptor::explain(explain.target, explain.path),
                 HistorySettings::default(),
                 explain.options.settings(),
+                None,
             ),
+            Some(SubcommandName::Context(context)) => {
+                let ContextCommand { options, revision, path } = context;
+                let map = options.settings();
+                let request = ContextRequest {
+                    repository: path.to_string_lossy().into_owned(),
+                    task: map.task_seeds.task.clone(),
+                    symbols: map.task_seeds.symbols.clone(),
+                    paths: map.task_seeds.paths.clone(),
+                    projects: map.task_seeds.projects.clone(),
+                    changes: map.task_seeds.changes.clone(),
+                    revision_context: revision.into(),
+                    budget: map.map_tokens,
+                    profile,
+                };
+                (
+                    CommandDescriptor::context(path),
+                    HistorySettings::default(),
+                    map,
+                    Some(request),
+                )
+            }
         };
 
         let mut map = map_settings;
         map.profile = profile;
-        CommandRequest { command, history, map, profile, output_format, color_policy, strict }
+        CommandRequest { command, history, map, context, profile, output_format, color_policy, strict }
     }
 }
 
@@ -383,6 +414,10 @@ impl Cli {
                     "`explain` requires a non-empty path or symbol target",
                 ));
             }
+        }
+        if let Some(SubcommandName::Context(context)) = &self.command {
+            context.options.validate()?;
+            context.revision.validate()?;
         }
         Ok(())
     }
@@ -432,6 +467,78 @@ struct ExplainCommand {
         help = "Repository or subdirectory to analyze."
     )]
     path: PathBuf,
+}
+
+#[derive(Debug, clap::Args)]
+#[command(after_help = "Examples:
+    dalil context --task 'fix parser cache invalidation'
+    dalil context --task 'review cache changes' --changed-path src/map/cache.rs --symbol CacheStore --json
+
+Context combines orientation, selected files and symbols, lexical relationships,
+likely tests, bounded history, uncertainty, omissions, and next reads under one
+budget. Revision fields are recorded as request context; change resolution is
+reported separately when it becomes available.
+
+Support: https://github.com/stormlightlabs/dalil/issues
+")]
+struct ContextCommand {
+    #[command(flatten)]
+    options: MapOptions,
+
+    #[command(flatten)]
+    revision: ContextRevisionOptions,
+
+    #[arg(
+        value_name = "PATH",
+        default_value = ".",
+        help = "Repository or subdirectory to analyze (default: current directory)."
+    )]
+    path: PathBuf,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+struct ContextRevisionOptions {
+    /// Record the base revision supplied by the caller for later change-aware context.
+    #[arg(long, value_name = "REVISION")]
+    base: Option<String>,
+
+    /// Record the head revision supplied by the caller for later change-aware context.
+    #[arg(long, value_name = "REVISION")]
+    head: Option<String>,
+
+    /// Record a revision range supplied by the caller for later change-aware context.
+    #[arg(long = "revision-range", value_name = "RANGE", conflicts_with_all = ["base", "head"])]
+    range: Option<String>,
+
+    /// Record that the caller's task concerns the dirty worktree.
+    #[arg(long = "dirty-worktree", action = ArgAction::SetTrue)]
+    dirty_worktree: bool,
+}
+
+impl ContextRevisionOptions {
+    fn validate(&self) -> Result<(), ApplicationError> {
+        for (name, value) in [
+            ("--base", &self.base),
+            ("--head", &self.head),
+            ("--revision-range", &self.range),
+        ] {
+            if value.as_ref().is_some_and(|value| value.trim().is_empty()) {
+                return Err(ApplicationError::usage(format!("`{name}` must not be empty")));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl From<ContextRevisionOptions> for ContextRevisionContext {
+    fn from(options: ContextRevisionOptions) -> Self {
+        Self {
+            base: options.base.map(|value| value.trim().to_owned()),
+            head: options.head.map(|value| value.trim().to_owned()),
+            range: options.range.map(|value| value.trim().to_owned()),
+            dirty_worktree: options.dirty_worktree,
+        }
+    }
 }
 
 #[derive(Clone, Debug, clap::Args)]
@@ -804,6 +911,7 @@ pub struct CommandRequest {
     pub command: CommandDescriptor,
     pub history: HistorySettings,
     pub map: MapSettings,
+    pub context: Option<ContextRequest>,
     pub profile: AnalysisProfile,
     pub output_format: OutputFormat,
     pub color_policy: ColorPolicy,
@@ -1150,6 +1258,50 @@ mod tests {
             ]
         );
         assert_eq!(request.map.task_seeds.search_terms, ["invalidation"]);
+    }
+
+    #[test]
+    fn context_flags_populate_a_typed_request() {
+        let request = CommandRequest::from(
+            Cli::try_parse_from([
+                "dalil",
+                "context",
+                "--task",
+                "  review parser cache  ",
+                "--symbol",
+                "CacheStore",
+                "--task-path",
+                "./src/map/",
+                "--project",
+                "./packages/app/",
+                "--changed-path",
+                "src/map/cache.rs",
+                "--changed-symbol",
+                "CacheStore",
+                "--base",
+                "main~1",
+                "--head",
+                "HEAD",
+                "--dirty-worktree",
+                "--budget",
+                "600",
+            ])
+            .expect("context flags parse"),
+        );
+
+        assert_eq!(
+            request.command.name,
+            CommandDescriptor::context(PathBuf::from(".")).name
+        );
+        let context = request.context.expect("context request");
+        assert_eq!(context.task.as_deref(), Some("  review parser cache  "));
+        assert_eq!(context.symbols, ["CacheStore"]);
+        assert_eq!(context.paths, ["./src/map/"]);
+        assert_eq!(context.projects, ["./packages/app/"]);
+        assert_eq!(context.budget, 600);
+        assert_eq!(context.revision_context.base.as_deref(), Some("main~1"));
+        assert_eq!(context.revision_context.head.as_deref(), Some("HEAD"));
+        assert!(context.revision_context.dirty_worktree);
     }
 
     #[test]

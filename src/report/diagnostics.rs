@@ -27,6 +27,10 @@ impl CommandDescriptor {
     pub fn explain(target: String, path: PathBuf) -> Self {
         Self { name: CommandName::Explain, operation: None, target: Some(target), path }
     }
+
+    pub fn context(path: PathBuf) -> Self {
+        Self { name: CommandName::Context, operation: None, target: None, path }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

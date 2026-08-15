@@ -32,7 +32,8 @@
         "reading_plan": { "$ref": "#/$defs/reading_plan" },
         "history": { "type": ["object", "null"] },
         "map": { "type": ["object", "null"] },
-        "explain": { "type": ["object", "null"] }
+        "explain": { "type": ["object", "null"] },
+        "context": { "$ref": "#/$defs/context_bundle" }
       },
       "additionalProperties": true
     },
@@ -40,7 +41,7 @@
       "type": "object",
       "required": ["name"],
       "properties": {
-        "name": { "enum": ["briefing", "map", "history", "explain"] },
+        "name": { "enum": ["briefing", "map", "history", "explain", "context"] },
         "operation": { "enum": ["churn", "contributors", "bugs", "activity", "firefighting"] },
         "target": { "type": "string" }
       },
@@ -57,6 +58,49 @@
       "required": ["detail"],
       "properties": { "detail": { "type": "string" } },
       "additionalProperties": true
+    },
+    "context_bundle": {
+      "type": "object",
+      "required": ["request", "orientation", "files", "relationships", "relevant_tests", "history", "risks", "uncertainty", "provenance", "omissions", "next_reads", "budget"],
+      "properties": {
+        "request": {
+          "type": "object",
+          "required": ["repository", "symbols", "paths", "projects", "changes", "revision_context", "budget", "profile"],
+          "properties": {
+            "repository": { "type": "string" },
+            "task": { "type": ["string", "null"] },
+            "symbols": { "type": "array", "items": { "type": "string" } },
+            "paths": { "type": "array", "items": { "type": "string" } },
+            "projects": { "type": "array", "items": { "type": "string" } },
+            "changes": { "type": "array", "items": { "type": "object" } },
+            "revision_context": { "type": "object" },
+            "budget": { "type": "integer", "minimum": 1 },
+            "profile": { "enum": ["compact", "evidence"] }
+          },
+          "additionalProperties": false
+        },
+        "orientation": { "type": "object" },
+        "files": { "type": "array", "items": { "type": "object" } },
+        "relationships": { "type": "array", "items": { "type": "object" } },
+        "relevant_tests": { "type": "array", "items": { "type": "object" } },
+        "history": { "type": "array", "items": { "type": "object" } },
+        "risks": { "type": "array", "items": { "type": "object" } },
+        "uncertainty": { "type": "array", "items": { "type": "object" } },
+        "provenance": { "type": "object" },
+        "omissions": { "type": "array", "items": { "type": "object" } },
+        "next_reads": { "type": "array", "items": { "$ref": "#/$defs/reading_recommendation" } },
+        "budget": {
+          "type": "object",
+          "required": ["token_budget", "estimated_tokens", "truncated"],
+          "properties": {
+            "token_budget": { "type": "integer", "minimum": 1 },
+            "estimated_tokens": { "type": "integer", "minimum": 0 },
+            "truncated": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     },
     "reading_plan": {
       "type": "object",

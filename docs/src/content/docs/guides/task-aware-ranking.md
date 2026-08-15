@@ -21,8 +21,9 @@ dalil map --task 'find the parse source entry point' --json
 ```
 
 The default command applies task ranking to its reading plan. `dalil map` shows
-the ranked source map. `dalil explain` includes task evidence for the path or
-symbol you inspect.
+the ranked source map. `dalil explain` includes task evidence for one path or
+symbol. `dalil context` returns a selected task bundle across files, tests,
+relationships, history, and next reads.
 
 ## Add known targets
 

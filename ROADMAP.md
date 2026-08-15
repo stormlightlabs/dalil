@@ -106,6 +106,7 @@ dalil map [OPTIONS] [PATH]
 dalil history [OPTIONS] [PATH]
 dalil history <churn|contributors|bugs|activity|firefighting> [OPTIONS] [PATH]
 dalil explain [OPTIONS] <PATH-OR-SYMBOL> [PATH]
+dalil context [OPTIONS] [PATH]
 dalil cache <path|status|prune|clear>
 dalil capabilities [--json]
 dalil doctor [OPTIONS] [PATH]
@@ -126,13 +127,15 @@ second analysis pipeline:
 
 ```text
 dalil orient [OPTIONS] [PATH]
-dalil context --task <TEXT> [OPTIONS] [PATH]
 dalil impact <REVISION-RANGE> [OPTIONS] [PATH]
 dalil search <PATH-OR-SYMBOL> [OPTIONS] [PATH]
 ```
 
-The default command may remain the concise orientation entry point. Exact CLI
-spelling and compatibility aliases are settled when each operation is designed.
+The default command remains the concise orientation entry point. `context`
+accepts the existing task-ranking options, plus revision-context fields that are
+recorded until change-aware resolution is added. Exact CLI spelling and
+compatibility aliases for future operations are settled when each operation is
+designed.
 
 ### Orientation Briefing
 
@@ -181,7 +184,7 @@ caller must not need to reverse engineer an opaque score.
 
 ### Context Compilation
 
-The context operation accepts structured equivalents of:
+`dalil context` accepts structured equivalents of:
 
 ```text
 task
@@ -208,7 +211,8 @@ ContextBundle
 ```
 
 Every recommendation retains typed evidence and confidence. Markdown and JSON
-render the same bundle, and the configured budget applies to the whole result.
+render the same selected bundle, and the configured budget applies to the
+whole result. Compact Markdown may be projected further for terminal output.
 
 ### Change and Impact Context
 

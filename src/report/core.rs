@@ -159,6 +159,7 @@ pub enum CommandName {
     Map,
     History,
     Explain,
+    Context,
 }
 
 impl CommandName {
@@ -168,6 +169,7 @@ impl CommandName {
             Self::Map => "map",
             Self::History => "history",
             Self::Explain => "explain",
+            Self::Context => "context",
         }
     }
 }
@@ -1084,6 +1086,8 @@ pub struct Report {
     pub map: Option<MapReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub explain: Option<ExplainReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<ContextBundle>,
 }
 
 impl Report {
@@ -1143,6 +1147,34 @@ impl Report {
                     Some(map_report),
                     None,
                 ))
+            }
+            CommandName::Context => {
+                let path = req.command.path.clone();
+                let history_report =
+                    history::analyze(&path, req.history.clone(), None, req.profile).map_err(ReportError::History)?;
+                let mut map_settings = req.map.clone();
+                map_settings.profile = req.profile;
+                let map_report =
+                    map::analyze_with_history(&path, &map_settings, Some(&history_report)).map_err(ReportError::Map)?;
+                let context_request = req.context.clone().unwrap_or(ContextRequest {
+                    repository: path.to_string_lossy().into_owned(),
+                    budget: map_settings.map_tokens,
+                    profile: req.profile,
+                    ..ContextRequest::default()
+                });
+                let context = super::context::compile(context_request, &map_report, &history_report);
+                let summary = format!(
+                    "Compiled task context with {} recommended file(s), {} relationship(s), and {} history observation(s).",
+                    context.files.len(),
+                    context.relationships.len(),
+                    context.history.len(),
+                );
+                let mut report =
+                    Self::from_parts(req, captured_at, summary, Some(history_report), Some(map_report), None);
+                report.context = Some(context);
+                report.history = None;
+                report.map = None;
+                Ok(report)
             }
             CommandName::Explain => {
                 let path = req.command.path.clone();
@@ -1265,6 +1297,7 @@ impl Report {
             history,
             map,
             explain,
+            context: None,
         }
     }
 
@@ -1327,6 +1360,9 @@ impl Report {
         if let Some(explain) = &self.explain {
             Render::explain_markdown(&mut output, explain);
         }
+        if let Some(context) = &self.context {
+            Render::context_markdown(&mut output, context);
+        }
 
         if self.command.name == CommandName::Briefing {
             if let Some(map) = &self.map {
@@ -1350,7 +1386,7 @@ impl Report {
             } else if let Some(map) = &self.map {
                 Render::map_markdown(&mut output, map);
             }
-        } else if self.command.name != CommandName::Explain {
+        } else if !matches!(self.command.name, CommandName::Explain | CommandName::Context) {
             if let Some(history) = &self.history {
                 if self.profile == AnalysisProfile::Compact && self.command.operation.is_none() {
                     Render::history_briefing_markdown(&mut output, history);

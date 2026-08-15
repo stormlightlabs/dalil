@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "profile": "compact",
+  "limits": {
+    "max_files": 4096,
+    "max_file_bytes": 1048576,
+    "max_total_bytes": 67108864,
+    "max_syntax_depth": 2048,
+    "max_symbols_per_file": 128,
+    "max_symbols": 20000,
+    "max_candidates_per_reference": 32,
+    "max_edges": 2000,
+    "max_findings": 2000,
+    "max_commits": 100000,
+    "max_history_evidence": 128,
+    "max_elapsed_ms": 30000,
+    "max_output_bytes": 8388608,
+    "max_landmarks": 64,
+    "max_project_roots": 32
+  },
+  "command": { "name": "context" },
+  "scope": { "selected_path": "." },
+  "status": "analyzed",
+  "summary": "Compiled task context with one recommended file.",
+  "quality": {},
+  "findings": [],
+  "limitations": [],
+  "context": {
+    "request": {
+      "repository": "/fixture",
+      "task": "inspect the controller",
+      "symbols": ["Controller"],
+      "paths": ["src"],
+      "projects": [],
+      "changes": [{ "kind": "path", "value": "src/controller.rs" }],
+      "revision_context": { "dirty_worktree": true },
+      "budget": 1000,
+      "profile": "compact"
+    },
+    "orientation": {
+      "repository_root": "/fixture",
+      "scope_path": ".",
+      "worktree": "modified",
+      "primary_languages": ["rust"],
+      "project_roots": ["."],
+      "landmarks": []
+    },
+    "files": [],
+    "relationships": [],
+    "relevant_tests": [],
+    "history": [],
+    "risks": [],
+    "uncertainty": [],
+    "provenance": {
+      "head": { "reference": null, "oid": null, "detached": false, "unborn": false },
+      "cache": {
+        "mode": "disabled",
+        "status": "disabled",
+        "available": false,
+        "hits": 0,
+        "misses": 0,
+        "refreshed": 0,
+        "stale": 0
+      },
+      "task_seeds": {},
+      "history_complete": true
+    },
+    "omissions": [],
+    "next_reads": [],
+    "budget": {
+      "token_budget": 1000,
+      "estimated_tokens": 0,
+      "truncated": false
+    }
+  }
+}

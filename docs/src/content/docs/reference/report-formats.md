@@ -37,6 +37,7 @@ fields rather than formatted prose.
 dalil --json
 dalil map --format json > map.json
 dalil explain Parser --json
+dalil context --task 'review cache changes' --json
 ```
 
 `--json` is shorthand for `--format json`.
@@ -49,6 +50,11 @@ Their sum is the entry's `score`. Supply `--task`, `--symbol`, `--task-path`,
 to provide task context. `map.selection` records likely primary languages,
 task-relevant paths excluded by the selection bound, and a shortfall when fewer
 than three strong source files fit the token budget.
+
+Context responses put their task-shaped result in `context` and omit the full
+`map` and `history` objects. The bundle retains its normalized request,
+orientation, selected files and symbols, relationships, tests, history, risks,
+uncertainty, provenance, omissions, next reads, and budget metadata.
 
 JSON reports use `schema_version: 1`. The schema is available at
 [`schema/v1/dalil.json`](https://github.com/stormlightlabs/dalil/blob/main/schema/v1/dalil.json),

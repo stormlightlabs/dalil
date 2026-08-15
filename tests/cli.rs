@@ -2291,6 +2291,112 @@ fn explain_reports_bounded_reading_guidance_in_json_and_markdown() {
 }
 
 #[test]
+fn context_compiles_one_budgeted_bundle_in_json_and_markdown() {
+    let fixture = MapFixtureRepository::new();
+    let arguments = [
+        "context",
+        "--task",
+        "inspect duplicate resolution",
+        "--symbol",
+        "duplicate",
+        "--changed-path",
+        "src/use.rs",
+        "--base",
+        "main~1",
+        "--head",
+        "HEAD",
+        "--dirty-worktree",
+        "--budget",
+        "1000",
+        "--no-cache",
+        "--json",
+    ];
+    let output = fixture.run(&arguments);
+    assert!(
+        output.status.success(),
+        "context failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    let json: Value = serde_json::from_str(&stdout(&output)).expect("valid context JSON");
+
+    assert_eq!(json["command"]["name"], "context");
+    assert!(json["map"].is_null());
+    assert!(json["history"].is_null());
+    assert_eq!(json["context"]["request"]["task"], "inspect duplicate resolution");
+    assert_eq!(json["context"]["request"]["revision_context"]["base"], "main~1");
+    assert_eq!(json["context"]["request"]["revision_context"]["head"], "HEAD");
+    assert_eq!(json["context"]["request"]["revision_context"]["dirty_worktree"], true);
+    assert!(json["context"]["orientation"].is_object());
+    assert!(
+        json["context"]["files"]
+            .as_array()
+            .is_some_and(|files| !files.is_empty())
+    );
+    assert!(
+        json["context"]["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|file| file["recommendation"]["path"].is_string() && file["symbols"].is_array())
+    );
+    assert!(json["context"]["provenance"]["task_seeds"]["search_terms"].is_array());
+    assert!(json["context"]["budget"]["estimated_tokens"].as_u64().unwrap() <= 1000);
+
+    let markdown = fixture.run(&[
+        "context",
+        "--task",
+        "inspect duplicate resolution",
+        "--symbol",
+        "duplicate",
+        "--changed-path",
+        "src/use.rs",
+        "--budget",
+        "1000",
+        "--no-cache",
+    ]);
+    assert!(markdown.status.success());
+    assert!(markdown.stderr.is_empty());
+    let markdown = stdout(&markdown);
+    assert_plain_report(&markdown);
+    assert!(markdown.contains("Task context"));
+    assert!(markdown.contains("Recommended files"));
+    assert!(markdown.contains("Context budget"));
+    assert!(!markdown.contains("## History analysis"));
+    assert!(!markdown.contains("## Source map"));
+
+    let cached_arguments = [
+        "context",
+        "--task",
+        "inspect duplicate resolution",
+        "--symbol",
+        "duplicate",
+        "--changed-path",
+        "src/use.rs",
+        "--budget",
+        "1000",
+        "--json",
+    ];
+    let cold = fixture.run(&cached_arguments);
+    let warm = fixture.run(&cached_arguments);
+    assert!(cold.status.success());
+    assert!(warm.status.success());
+    let mut cold_json: Value = serde_json::from_str(&stdout(&cold)).expect("valid cold context JSON");
+    let mut warm_json: Value = serde_json::from_str(&stdout(&warm)).expect("valid warm context JSON");
+    assert_eq!(cold_json["context"]["provenance"]["cache"]["status"], "refreshed");
+    assert_eq!(warm_json["context"]["provenance"]["cache"]["status"], "hit");
+    cold_json["context"]["provenance"]
+        .as_object_mut()
+        .expect("context provenance")
+        .remove("cache");
+    warm_json["context"]["provenance"]
+        .as_object_mut()
+        .expect("context provenance")
+        .remove("cache");
+    assert_eq!(cold_json["context"], warm_json["context"]);
+}
+
+#[test]
 fn map_cache_modes_hit_invalidate_refresh_and_disable_without_project_writes() {
     let fixture = MapFixtureRepository::new();
     let initial_cache_entries = fs::read_dir(&fixture.cache).expect("read empty cache root").count();

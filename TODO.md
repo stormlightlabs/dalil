@@ -96,18 +96,18 @@ implementation, debugging, refactoring, and review workflows.
 
 **Acceptance criteria:**
 
-- [ ] Define a typed request for repository, task text, symbols, paths,
+- [x] Define a typed request for repository, task text, symbols, paths,
       projects, changes, revision context, budget, and output profile.
-- [ ] Define a typed result containing orientation, ranked files and symbols,
+- [x] Define a typed result containing orientation, ranked files and symbols,
       relationships, relevant tests, history, risks, uncertainty, provenance,
       omissions, and next reads.
-- [ ] Keep graph, parser, history, manifest, and cache details behind the
+- [x] Keep graph, parser, history, manifest, and cache details behind the
       request/result boundary unless a consumer needs them.
-- [ ] Expose the operation through the CLI in Markdown and JSON without
+- [x] Expose the operation through the CLI in Markdown and JSON without
       breaking existing commands or schema compatibility promises.
-- [ ] Apply one total budget across all sections and prefer useful evidence over
+- [x] Apply one total budget across all sections and prefer useful evidence over
       fixed per-section quotas.
-- [ ] Produce the same semantics from cold and valid warm analysis state.
+- [x] Produce the same semantics from cold and valid warm analysis state.
 
 **Verification:** Add unit tests for request normalization and composition,
 schema fixtures for the result, and black-box CLI tests for each request mode.

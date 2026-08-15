@@ -1,4 +1,5 @@
 mod analysis;
+mod context;
 mod html;
 mod model;
 mod render;

@@ -46,6 +46,7 @@ dalil history
 dalil history contributors src --json
 dalil explain src/map.rs --json
 dalil explain Parser --focus Parser --json
+dalil context --task 'fix parser cache invalidation' --changed-path src/map/cache.rs --json
 dalil capabilities --json
 dalil doctor . --json
 ```
@@ -64,6 +65,7 @@ controls:
 
 ```sh
 dalil --task 'fix parser cache invalidation' --changed-path src/map/cache.rs .
+dalil context --task 'review parser cache changes' --changed-path src/map/cache.rs --symbol CacheStore --json
 dalil map --symbol parse_source --language rust --search cache --json
 dalil --focus parser --focus-path src --budget 500 .
 dalil --no-cache --json .
@@ -203,6 +205,31 @@ entry point to the target, it also shows that short route. The route is lexical
 evidence, not proof of runtime control flow. Markdown and JSON carry the same
 guidance.
 
+### `dalil context [OPTIONS] [PATH]`
+
+`context` compiles one task-shaped bundle from the normal source map and history
+analysis. Its JSON result contains the normalized request, orientation,
+recommended files and symbols, lexical relationships, relevant tests, history,
+risks, uncertainty, provenance, omissions, and next reads. It does not embed
+the raw map or history reports.
+
+```sh
+dalil context --task 'fix parser cache invalidation'
+dalil context --task 'review cache changes' --changed-path src/map/cache.rs --symbol CacheStore --json
+dalil context --task 'inspect local edits' --dirty-worktree --budget 750
+```
+
+Use the same task options as `dalil map`: `--symbol`, `--task-path`,
+`--language`, `--project`, `--changed-path`, `--changed-symbol`, and `--search`.
+`--base`, `--head`, and `--revision-range` record revision context in the
+request. Dalil does not yet resolve those revisions into changed paths or
+symbols; use explicit changed-path and changed-symbol inputs until change-aware
+context is available.
+
+`--budget` applies to the bundle's selected evidence rather than fixed section
+quotas. The result's `context.budget` describes the estimated token use and any
+projection.
+
 ### `dalil history [OPERATION] [OPTIONS] [PATH]`
 
 History analysis uses committed Git data only. The available operations are:
@@ -301,7 +328,7 @@ History provenance records its observed committer-date range, author-versus-comm
 basis, current-HEAD semantics, and completeness status (`complete`, `shallow`, `missing_objects`, or `partial`).
 
 The v1 JSON schema is [`schema/v1/dalil.json`](schema/v1/dalil.json), with compatibility
-examples in [`schema/v1/golden`](schema/v1/golden).
+examples in [`schema/v1/golden`](schema/v1/golden), including a context bundle.
 
 Diagnostic color can be controlled with `--color auto|always|never` or `--no-color`.
 

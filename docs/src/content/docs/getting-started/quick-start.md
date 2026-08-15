@@ -23,6 +23,7 @@ Give Dalil a concise task description when you know what you need to change:
 ```sh
 dalil --task 'fix parser cache invalidation' --changed-path src/map/cache.rs
 dalil map --task 'find the parse source entry point' --symbol parse_source --json
+dalil context --task 'fix parser cache invalidation' --changed-path src/map/cache.rs --json
 ```
 
 `--task` derives local search terms and ranks matching files with related code.
@@ -37,8 +38,10 @@ dalil map src --exclude 'src/generated/**' --json
 dalil explain Parser --focus Parser --json
 ```
 
-`--budget` limits ranked map selection and compact Markdown output. Exact focus
-paths can include a classified `bin/` entry within the normal safety limits.
+`--budget` limits ranked map selection and compact Markdown output. For
+`dalil context`, it applies to the selected evidence across the whole context
+bundle. Exact focus paths can include a classified `bin/` entry within the
+normal safety limits.
 
 ## Choose an output format
 

@@ -692,6 +692,142 @@ pub struct SourceSymbol {
     pub evidence: SymbolEvidence,
 }
 
+/// A normalized request for one task-oriented context bundle. Revision fields
+/// are retained as caller context in this milestone; resolving a revision range
+/// into changed paths and symbols is introduced by change-aware analysis.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ContextRequest {
+    pub repository: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<String>,
+    #[serde(default)]
+    pub symbols: Vec<String>,
+    #[serde(default)]
+    pub paths: Vec<String>,
+    #[serde(default)]
+    pub projects: Vec<String>,
+    #[serde(default)]
+    pub changes: Vec<TaskChangeSeed>,
+    #[serde(default)]
+    pub revision_context: ContextRevisionContext,
+    pub budget: usize,
+    #[serde(default)]
+    pub profile: AnalysisProfile,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ContextRevisionContext {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range: Option<String>,
+    #[serde(default)]
+    pub dirty_worktree: bool,
+}
+
+/// A task-shaped result that exposes selected evidence, rather than the parser,
+/// graph, manifest, history, or cache implementation records used to compose it.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ContextBundle {
+    pub request: ContextRequest,
+    pub orientation: ContextOrientation,
+    #[serde(default)]
+    pub files: Vec<ContextFile>,
+    #[serde(default)]
+    pub relationships: Vec<LexicalEdge>,
+    #[serde(default)]
+    pub relevant_tests: Vec<ContextTest>,
+    #[serde(default)]
+    pub history: Vec<HistoryObservation>,
+    #[serde(default)]
+    pub risks: Vec<ContextRisk>,
+    #[serde(default)]
+    pub uncertainty: Vec<ContextUncertainty>,
+    pub provenance: ContextProvenance,
+    #[serde(default)]
+    pub omissions: Vec<ContextOmission>,
+    #[serde(default)]
+    pub next_reads: Vec<ReadingRecommendation>,
+    pub budget: ContextBudget,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ContextOrientation {
+    pub repository_root: String,
+    pub scope_path: String,
+    pub worktree: WorktreeSnapshotState,
+    #[serde(default)]
+    pub primary_languages: Vec<SourceLanguage>,
+    #[serde(default)]
+    pub project_roots: Vec<String>,
+    #[serde(default)]
+    pub landmarks: Vec<Landmark>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ContextFile {
+    pub recommendation: ReadingRecommendation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ranking: Option<FileRank>,
+    #[serde(default)]
+    pub symbols: Vec<ContextSymbol>,
+    #[serde(default)]
+    pub snippets: Vec<MapSnippet>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ContextSymbol {
+    pub path: String,
+    pub symbol: SourceSymbol,
+    pub score: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ContextTest {
+    pub path: String,
+    pub reason: String,
+    pub confidence: ConfidenceTier,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ContextRisk {
+    pub kind: String,
+    pub detail: String,
+    #[serde(default)]
+    pub paths: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ContextUncertainty {
+    pub kind: String,
+    pub detail: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ContextProvenance {
+    pub head: HeadSnapshot,
+    pub cache: CacheProvenance,
+    #[serde(default)]
+    pub task_seeds: TaskSeeds,
+    #[serde(default)]
+    pub history_complete: bool,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ContextOmission {
+    pub path: String,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ContextBudget {
+    pub token_budget: usize,
+    pub estimated_tokens: usize,
+    pub truncated: bool,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ExplainReport {
     pub target: String,
