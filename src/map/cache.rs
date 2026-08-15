@@ -20,7 +20,10 @@ struct RepositoryIndex {
     tool_version: String,
     repository_root: String,
     worktree_id: String,
+    scope_path: String,
     head: Option<String>,
+    worktree_state: String,
+    manifest_state: String,
     profile: AnalysisProfile,
     map_tokens: usize,
     analysis_options: String,
@@ -65,7 +68,10 @@ pub struct IndexFileInput {
 
 #[derive(Clone, Debug)]
 pub struct IndexIdentity {
+    pub scope_path: String,
     pub head: Option<String>,
+    pub worktree_state: String,
+    pub manifest_state: String,
     pub profile: AnalysisProfile,
     pub map_tokens: usize,
     pub analysis_options: String,
@@ -77,6 +83,7 @@ pub struct IndexIdentity {
 pub struct IndexState {
     pub status: PersistentIndexStatus,
     pub detail: Option<String>,
+    index: Option<RepositoryIndex>,
 }
 
 #[derive(Debug)]
@@ -106,13 +113,13 @@ impl CacheStore {
 
     pub fn load_index(&self, identity: &IndexIdentity) -> IndexState {
         let Some(root) = self.root.as_ref() else {
-            return IndexState { status: PersistentIndexStatus::Bypassed, detail: None };
+            return IndexState { status: PersistentIndexStatus::Bypassed, detail: None, index: None };
         };
         let Some(path) = self.index_path() else {
-            return IndexState { status: PersistentIndexStatus::Bypassed, detail: None };
+            return IndexState { status: PersistentIndexStatus::Bypassed, detail: None, index: None };
         };
         if !path.is_file() {
-            return IndexState { status: PersistentIndexStatus::Missing, detail: None };
+            return IndexState { status: PersistentIndexStatus::Missing, detail: None, index: None };
         }
         let bytes = match security::read_cache_file(root, &path) {
             Ok(bytes) => bytes,
@@ -120,6 +127,7 @@ impl CacheStore {
                 return IndexState {
                     status: PersistentIndexStatus::Failed,
                     detail: Some(format!("could not read the repository index: {error}")),
+                    index: None,
                 };
             }
         };
@@ -129,6 +137,7 @@ impl CacheStore {
                 return IndexState {
                     status: PersistentIndexStatus::Corrupt,
                     detail: Some("the repository index was not valid JSON and will be replaced".to_owned()),
+                    index: None,
                 };
             }
         };
@@ -136,25 +145,28 @@ impl CacheStore {
             || index.tool_version != CACHE_TOOL_VERSION
             || index.repository_root != self.repository_root
             || index.worktree_id != self.repository_id
-        {
-            return IndexState {
-                status: PersistentIndexStatus::Incompatible,
-                detail: Some("the repository index was created by an incompatible Dalil version".to_owned()),
-            };
-        }
-        if index.head != identity.head
+            || index.scope_path != identity.scope_path
             || index.profile != identity.profile
             || index.map_tokens != identity.map_tokens
             || index.analysis_options != identity.analysis_options
-            || index.content_state != identity.content_state
             || index.language_pack_identity != identity.language_pack_identity
         {
             return IndexState {
-                status: PersistentIndexStatus::Stale,
-                detail: Some("the repository revision, worktree state, or analysis options changed".to_owned()),
+                status: PersistentIndexStatus::Incompatible,
+                detail: Some("the repository index was created for incompatible analysis options".to_owned()),
+                index: None,
             };
         }
-        IndexState { status: PersistentIndexStatus::Hit, detail: None }
+        let stale = index.head != identity.head
+            || index.worktree_state != identity.worktree_state
+            || index.manifest_state != identity.manifest_state
+            || index.content_state != identity.content_state;
+        let detail = stale.then(|| index_invalidation_detail(&index, identity));
+        IndexState {
+            status: if stale { PersistentIndexStatus::Stale } else { PersistentIndexStatus::Hit },
+            detail,
+            index: Some(index),
+        }
     }
 
     pub fn write_index(
@@ -167,7 +179,10 @@ impl CacheStore {
             tool_version: CACHE_TOOL_VERSION.to_owned(),
             repository_root: self.repository_root.clone(),
             worktree_id: self.repository_id.clone(),
+            scope_path: identity.scope_path.clone(),
             head: identity.head.clone(),
+            worktree_state: identity.worktree_state.clone(),
+            manifest_state: identity.manifest_state.clone(),
             profile: identity.profile,
             map_tokens: identity.map_tokens,
             analysis_options: identity.analysis_options.clone(),
@@ -206,9 +221,12 @@ impl CacheStore {
             Err(error) => return Some(format!("could not serialize the repository index: {error}")),
         };
         let root = self.root.as_ref()?;
-        security::write_cache_file(root, &path, &bytes)
+        if let Err(error) = security::write_cache_file(root, &path, &bytes) {
+            return Some(format!("could not write the repository index: {error}"));
+        }
+        self.prune_repository()
             .err()
-            .map(|error| format!("could not write the repository index: {error}"))
+            .map(|error| format!("could not prune repository index records: {error}"))
     }
 
     fn record_directory(&self, path: &str, support: &LanguageSupport) -> Option<PathBuf> {
@@ -338,6 +356,148 @@ impl CacheStore {
     }
 }
 
+fn index_invalidation_detail(index: &RepositoryIndex, identity: &IndexIdentity) -> String {
+    let mut causes = Vec::new();
+    if index.head != identity.head {
+        causes.push("repository revision changed");
+    }
+    if index.worktree_state != identity.worktree_state {
+        causes.push("worktree inventory changed");
+    }
+    if index.manifest_state != identity.manifest_state {
+        causes.push("manifest content changed");
+    }
+    if index.content_state != identity.content_state {
+        causes.push("source file fingerprints changed");
+    }
+    format!("the repository index was invalidated because {}", causes.join(", "))
+}
+
+pub struct IncrementalEdges {
+    pub edges: Vec<LexicalEdge>,
+    pub invalidated: Vec<String>,
+}
+
+impl IndexState {
+    /// Rebuild only the lexical component that could be affected by changed
+    /// source fingerprints. Any bounded graph that might have been cut off is
+    /// rebuilt cold so the result remains equivalent to a fresh analysis.
+    pub fn incremental_edges(
+        &self, files: &[SourceFile], fingerprints: &BTreeMap<String, String>, max_candidates: usize, max_edges: usize,
+    ) -> Option<IncrementalEdges> {
+        let index = self.index.as_ref()?;
+        if index.lexical_edges.len() >= max_edges {
+            return None;
+        }
+
+        let current = files
+            .iter()
+            .map(|file| (file.path.as_str(), file))
+            .collect::<BTreeMap<_, _>>();
+        let previous = index
+            .files
+            .iter()
+            .map(|file| (file.path.as_str(), file))
+            .collect::<BTreeMap<_, _>>();
+        let paths = current.keys().chain(previous.keys()).copied().collect::<BTreeSet<_>>();
+        let mut invalidated = paths
+            .into_iter()
+            .filter(|path| match (current.get(path), previous.get(path)) {
+                (Some(current), Some(previous)) => {
+                    current.language != previous.language
+                        || fingerprints
+                            .get(*path)
+                            .is_none_or(|fingerprint| fingerprint != &previous.fingerprint)
+                }
+                _ => true,
+            })
+            .map(str::to_owned)
+            .collect::<BTreeSet<_>>();
+        if invalidated.is_empty() {
+            return Some(IncrementalEdges { edges: index.lexical_edges.clone(), invalidated: Vec::new() });
+        }
+
+        let mut changed_names = BTreeSet::new();
+        for path in &invalidated {
+            if let Some(file) = current.get(path.as_str()) {
+                changed_names.extend(
+                    file.symbols
+                        .iter()
+                        .filter(|symbol| symbol.role == SymbolRole::Definition)
+                        .map(|symbol| (file.language, symbol.name.clone())),
+                );
+            }
+            if let Some(file) = previous.get(path.as_str()) {
+                changed_names.extend(
+                    file.symbols
+                        .iter()
+                        .filter(|symbol| symbol.role == SymbolRole::Definition)
+                        .map(|symbol| (file.language, symbol.name.clone())),
+                );
+            }
+        }
+
+        let mut affected = invalidated.clone();
+        for file in files {
+            if file.symbols.iter().any(|symbol| {
+                symbol.role == SymbolRole::Reference && changed_names.contains(&(file.language, symbol.name.clone()))
+            }) {
+                affected.insert(file.path.clone());
+            }
+        }
+        loop {
+            let mut expanded = false;
+            let active_paths = affected.clone();
+            for file in files.iter().filter(|file| active_paths.contains(&file.path)) {
+                for reference in file
+                    .symbols
+                    .iter()
+                    .filter(|symbol| symbol.role == SymbolRole::Reference)
+                {
+                    for definition_file in files.iter().filter(|candidate| {
+                        candidate.language == file.language
+                            && candidate
+                                .symbols
+                                .iter()
+                                .any(|symbol| symbol.role == SymbolRole::Definition && symbol.name == reference.name)
+                    }) {
+                        expanded |= affected.insert(definition_file.path.clone());
+                    }
+                }
+            }
+            if !expanded {
+                break;
+            }
+        }
+
+        let mut edges = index
+            .lexical_edges
+            .iter()
+            .filter(|edge| !affected.contains(&edge.source) && !affected.contains(&edge.target))
+            .cloned()
+            .collect::<Vec<_>>();
+        let affected_files = files
+            .iter()
+            .filter(|file| affected.contains(&file.path))
+            .cloned()
+            .collect::<Vec<_>>();
+        edges.extend(build_lexical_edges(&affected_files, max_candidates, max_edges));
+        if edges.len() > max_edges {
+            return None;
+        }
+        edges.sort_by(|left, right| {
+            left.source
+                .cmp(&right.source)
+                .then_with(|| left.target.cmp(&right.target))
+                .then_with(|| left.symbol.cmp(&right.symbol))
+                .then_with(|| left.ambiguous.cmp(&right.ambiguous))
+                .then_with(|| left.candidate_group.cmp(&right.candidate_group))
+        });
+        edges.dedup();
+        Some(IncrementalEdges { edges, invalidated: std::mem::take(&mut invalidated).into_iter().collect() })
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct CacheStats {
     pub index_status: PersistentIndexStatus,
@@ -345,6 +505,8 @@ pub struct CacheStats {
     pub matched: usize,
     pub unmatched: usize,
     pub unavailable: usize,
+    pub reused: Vec<String>,
+    pub invalidated: Vec<String>,
     pub hits: usize,
     pub misses: usize,
     pub refreshed: Vec<String>,
@@ -495,7 +657,10 @@ pub fn collect_cache_files(root: &Path, directory: &Path) -> Result<Vec<CacheFil
         }
         if file_type.is_dir() {
             files.extend(collect_cache_files(root, &path)?);
-        } else if file_type.is_file() && path.extension().is_some_and(|extension| extension == "json") {
+        } else if file_type.is_file()
+            && (path.extension().is_some_and(|extension| extension == "json")
+                || path.file_name().is_some_and(|name| name == "index-v1.index"))
+        {
             if security::cache_path_is_safe(root, &path).is_err() {
                 continue;
             }

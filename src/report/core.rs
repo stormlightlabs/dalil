@@ -921,6 +921,10 @@ pub struct CacheProvenance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub index_detail: Option<String>,
     pub available: bool,
+    #[serde(default)]
+    pub reused: usize,
+    #[serde(default)]
+    pub invalidated: usize,
     pub hits: usize,
     pub misses: usize,
     pub refreshed: usize,
@@ -935,6 +939,8 @@ impl Default for CacheProvenance {
             index_status: PersistentIndexStatus::Bypassed,
             index_detail: None,
             available: false,
+            reused: 0,
+            invalidated: 0,
             hits: 0,
             misses: 0,
             refreshed: 0,
@@ -1338,6 +1344,8 @@ impl Report {
                 index_status: report.cache.index_status,
                 index_detail: report.cache.index_detail.clone(),
                 available: report.cache.mode != CacheMode::Disabled,
+                reused: report.cache.reused.len(),
+                invalidated: report.cache.invalidated.len(),
                 hits: report.cache.hits,
                 misses: report.cache.misses,
                 refreshed: report.cache.refreshed.len(),

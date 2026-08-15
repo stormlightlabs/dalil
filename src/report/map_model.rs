@@ -635,6 +635,12 @@ pub struct MapCacheReport {
     /// did not permit a cache refresh and no usable record was available.
     #[serde(default)]
     pub unavailable: usize,
+    /// Current source records reused without reparsing, in deterministic path order.
+    #[serde(default)]
+    pub reused: Vec<String>,
+    /// Source paths whose fingerprints, language, or query pack invalidated indexed relationships.
+    #[serde(default)]
+    pub invalidated: Vec<String>,
     pub hits: usize,
     pub misses: usize,
     pub refreshed: Vec<String>,

@@ -140,14 +140,14 @@ unchanged results remain reusable.
 
 **Acceptance criteria:**
 
-- [ ] Detect file, manifest, revision, worktree, option, and language-pack
+- [x] Detect file, manifest, revision, worktree, option, and language-pack
       changes that invalidate stored facts.
-- [ ] Reparse changed files and recompute only dependent lexical, structural,
+- [x] Reparse changed files and recompute only dependent lexical, structural,
       history, and ranking state.
-- [ ] Fall back to cold analysis when invalidation cannot be proven safe.
-- [ ] Report reused, refreshed, stale, bypassed, and failed cache state without
+- [x] Fall back to cold analysis when invalidation cannot be proven safe.
+- [x] Report reused, refreshed, stale, bypassed, and failed cache state without
       making output nondeterministic.
-- [ ] Demonstrate lower warm-request latency and work without crossing memory or
+- [x] Demonstrate lower warm-request latency and work without crossing memory or
       disk ceilings.
 
 **Verification:** Mutate one input category at a time, compare every warm result

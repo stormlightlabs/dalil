@@ -76,6 +76,8 @@ pub fn compile(
                 index_status: map.cache.index_status,
                 index_detail: map.cache.index_detail.clone(),
                 available: map.cache.mode != CacheMode::Disabled,
+                reused: map.cache.reused.len(),
+                invalidated: map.cache.invalidated.len(),
                 hits: map.cache.hits,
                 misses: map.cache.misses,
                 refreshed: map.cache.refreshed.len(),

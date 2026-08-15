@@ -192,9 +192,11 @@ limits.
 Dalil stores per-file records and a versioned repository index under
 `$XDG_CACHE_HOME/dalil` (or `~/.cache/dalil`). The index records file
 fingerprints, parser summaries, lexical edges, bounded history facts, and
-repository metadata. It never writes to the repository. Use `--no-cache` to
-bypass both reads and writes; `dalil cache status`, `prune`, and `clear` manage
-the user-cache data.
+repository metadata. Later runs reparse changed source files and reuse unaffected
+lexical relationships. Map JSON reports reused, invalidated, refreshed, stale,
+bypassed, and failed cache state. Dalil never writes to the repository. Use
+`--no-cache` to bypass both reads and writes; `dalil cache status`, `prune`, and
+`clear` manage the user-cache data.
 
 ### `dalil search <QUERY> [OPTIONS] [PATH]`
 

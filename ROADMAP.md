@@ -380,10 +380,13 @@ expansion.
 The persistent user-cache index stores file identities and hashes, query-pack
 identity, bounded syntax summaries, lexical edges, HEAD identity, and bounded
 history aggregates. It is versioned, atomically written, and private to the
-user cache. Map and context provenance report both per-file cache state and
-repository-index state. A missing, corrupt, incompatible, or unavailable index
-falls back to fresh local analysis. The first implementation does not require a
-daemon.
+user cache. A warm request reuses unchanged source records and lexical edges.
+File fingerprints, manifests, repository revision, worktree inventory, options,
+and language packs invalidate affected facts; bounded graph cases that cannot
+prove an equivalent partial refresh run cold. Map and context provenance report
+both per-file cache state and repository-index state. A missing, corrupt,
+incompatible, or unavailable index falls back to fresh local analysis. The first
+implementation does not require a daemon.
 
 ## Integration Contract
 

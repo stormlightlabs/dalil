@@ -37,7 +37,10 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
     };
     let mut cache_stats = CacheStats::default();
     let mut index_identity = IndexIdentity {
+        scope_path: scope.relative_path.clone(),
         head: head.oid.clone(),
+        worktree_state: String::new(),
+        manifest_state: String::new(),
         profile: settings.profile,
         map_tokens: settings.map_tokens,
         analysis_options: digest_hex(format!("{settings:?}").as_bytes()),
@@ -226,6 +229,13 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
         focus_paths: &settings.focus_paths,
     });
     let inventory = inventory(&candidates);
+    index_identity.worktree_state = format!("{}:{}:{}", inventory.0, inventory.1, inventory.2);
+    index_identity.manifest_state = manifest_state(
+        repository_root,
+        &scope.selected_path,
+        &candidates,
+        limits.max_file_bytes,
+    );
     if candidates.len() > limits.max_files {
         let kept = candidates
             .keys()
@@ -424,6 +434,9 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
             match cache.load(&path, support, &fingerprint, lookup_mode) {
                 Some(lookup) => {
                     cache_stats.hits += 1;
+                    if !lookup.stale {
+                        cache_stats.reused.push(path.clone());
+                    }
                     if lookup.stale {
                         cache_stats.stale.push(path.clone());
                     }
@@ -559,16 +572,10 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
         ));
     }
 
-    let edges = build_lexical_edges(&files, limits.max_candidates_per_reference, limits.max_edges);
-    add_ambiguity_findings(&edges, &mut findings, limits.max_findings);
-    findings.sort_by(|left, right| {
-        left.path
-            .cmp(&right.path)
-            .then_with(|| location_key(left.location.as_ref()).cmp(&location_key(right.location.as_ref())))
-            .then_with(|| left.kind.label().cmp(right.kind.label()))
-            .then_with(|| left.detail.cmp(&right.detail))
-    });
-    let history_weights = history_ranking_weights(history);
+    let current_fingerprints = index_files
+        .iter()
+        .map(|(path, _, fingerprint)| (path.clone(), fingerprint.clone()))
+        .collect::<BTreeMap<_, _>>();
     index_files.sort();
     index_identity.content_state = digest_hex(
         index_files
@@ -579,9 +586,38 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
             .as_bytes(),
     );
     let index_state = cache.load_index(&index_identity);
+    let incremental_edges = if cache_stats.stale.is_empty() && cache_stats.unavailable == 0 && !work_limit_reached {
+        index_state.incremental_edges(
+            &files,
+            &current_fingerprints,
+            limits.max_candidates_per_reference,
+            limits.max_edges,
+        )
+    } else {
+        None
+    };
+    let edges = if let Some(incremental) = incremental_edges {
+        cache_stats.invalidated = incremental.invalidated;
+        incremental.edges
+    } else {
+        build_lexical_edges(&files, limits.max_candidates_per_reference, limits.max_edges)
+    };
+    add_ambiguity_findings(&edges, &mut findings, limits.max_findings);
+    findings.sort_by(|left, right| {
+        left.path
+            .cmp(&right.path)
+            .then_with(|| location_key(left.location.as_ref()).cmp(&location_key(right.location.as_ref())))
+            .then_with(|| left.kind.label().cmp(right.kind.label()))
+            .then_with(|| left.detail.cmp(&right.detail))
+    });
+    let history_weights = history_ranking_weights(history);
     cache_stats.index_status = index_state.status;
     cache_stats.index_detail = index_state.detail;
-    if cache_stats.index_status != PersistentIndexStatus::Hit {
+    if cache_stats.index_status != PersistentIndexStatus::Hit
+        && cache_stats.stale.is_empty()
+        && cache_stats.unavailable == 0
+        && !work_limit_reached
+    {
         if let Some(error) = cache.write_index(
             &index_identity,
             supported_query_packs(&files),
@@ -619,6 +655,8 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
         settings,
     );
     let cache_status = cache_status(settings.cache_mode, &cache_stats);
+    cache_stats.reused.sort();
+    cache_stats.invalidated.sort();
     cache_stats.refreshed.sort();
     cache_stats.stale.sort();
 
@@ -738,6 +776,8 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
             matched: cache_stats.matched,
             unmatched: cache_stats.unmatched,
             unavailable: cache_stats.unavailable,
+            reused: cache_stats.reused,
+            invalidated: cache_stats.invalidated,
             refreshed: cache_stats.refreshed,
             stale: cache_stats.stale,
         },
@@ -758,6 +798,25 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
     };
     bound_map_report(&mut report, settings.profile, &limits);
     Ok(report)
+}
+
+fn manifest_state(
+    repository_root: &Path, scope_root: &Path, candidates: &BTreeMap<String, Candidate>, max_file_bytes: usize,
+) -> String {
+    let mut state = Vec::new();
+    for (path, candidate) in candidates {
+        let Some(name) = Path::new(path).file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !landmarks::is_manifest(&name.to_ascii_lowercase()) {
+            continue;
+        }
+        let fingerprint = security::read_worktree_file_limited(repository_root, scope_root, path, max_file_bytes)
+            .map(|bytes| source_fingerprint(&bytes))
+            .unwrap_or_else(|error| format!("unavailable:{error}"));
+        state.push(format!("{path}:{}:{fingerprint}", candidate.state.label()));
+    }
+    digest_hex(state.join("\n").as_bytes())
 }
 
 fn history_ranking_weights(history: Option<&HistoryReport>) -> BTreeMap<String, u64> {

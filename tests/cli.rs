@@ -2892,6 +2892,57 @@ fn map_cache_modes_hit_invalidate_refresh_and_disable_without_project_writes() {
 }
 
 #[test]
+fn incremental_index_reuses_unchanged_work_and_matches_cold_analysis() {
+    let fixture = MapFixtureRepository::new();
+    write_file(fixture.root.join("src/target.rs"), b"pub fn target() {}\n");
+    write_file(
+        fixture.root.join("src/use.rs"),
+        b"use crate::target::target;\nfn use_it() { target(); }\n",
+    );
+    let initial = fixture.run(&["map", "--json"]);
+    assert!(initial.status.success());
+
+    let warm = fixture.run(&["map", "--json"]);
+    assert!(warm.status.success());
+    let warm_json: Value = serde_json::from_slice(&warm.stdout).expect("valid warm map JSON");
+    assert_eq!(warm_json["map"]["cache"]["index_status"], "hit");
+    assert_eq!(warm_json["map"]["cache"]["reused"].as_array().unwrap().len(), 8);
+    assert!(warm_json["map"]["cache"]["invalidated"].as_array().unwrap().is_empty());
+
+    write_file(
+        fixture.root.join("src/target.rs"),
+        b"pub fn target(value: usize) { let _ = value; }\n",
+    );
+    let refreshed = fixture.run(&["map", "--json"]);
+    assert!(refreshed.status.success());
+    let mut refreshed_json: Value = serde_json::from_slice(&refreshed.stdout).expect("valid refreshed map JSON");
+    assert_eq!(refreshed_json["map"]["cache"]["index_status"], "refreshed");
+    assert_eq!(
+        refreshed_json["map"]["cache"]["invalidated"],
+        serde_json::json!(["src/target.rs"])
+    );
+    assert_eq!(refreshed_json["map"]["cache"]["reused"].as_array().unwrap().len(), 7);
+
+    let cold = fixture.run(&["map", "--no-cache", "--json"]);
+    assert!(cold.status.success());
+    let mut cold_json: Value = serde_json::from_slice(&cold.stdout).expect("valid cold map JSON");
+    refreshed_json["map"].as_object_mut().unwrap().remove("cache");
+    cold_json["map"].as_object_mut().unwrap().remove("cache");
+    assert_eq!(refreshed_json["map"], cold_json["map"]);
+
+    write_file(fixture.root.join("Cargo.toml"), b"[package]\nname = \"fixture\"\n");
+    let manifest = fixture.run(&["map", "--json"]);
+    assert!(manifest.status.success());
+    let manifest_json: Value = serde_json::from_slice(&manifest.stdout).expect("valid manifest map JSON");
+    assert_eq!(manifest_json["map"]["cache"]["index_status"], "refreshed");
+    assert!(
+        manifest_json["map"]["cache"]["index_detail"]
+            .as_str()
+            .is_some_and(|detail| detail.contains("manifest content changed"))
+    );
+}
+
+#[test]
 fn files_cache_mode_refreshes_only_exact_requested_paths_and_reports_unavailable_files() {
     let fixture = MapFixtureRepository::new();
     let output = fixture.run(&[
@@ -3051,7 +3102,7 @@ fn corrupt_cache_record_refreshes_and_cache_controls_do_not_touch_the_repository
         String::from_utf8_lossy(&status.stderr)
     );
     let status_json: Value = serde_json::from_slice(&status.stdout).expect("valid cache status JSON");
-    assert_eq!(status_json["records"], 7);
+    assert_eq!(status_json["records"], 8);
     assert_eq!(status_json["repositories"], 1);
     assert!(status_json["path"].as_str().unwrap().ends_with("dalil"));
 
@@ -3080,7 +3131,7 @@ fn corrupt_cache_record_refreshes_and_cache_controls_do_not_touch_the_repository
         String::from_utf8_lossy(&clear.stderr)
     );
     let clear_json: Value = serde_json::from_slice(&clear.stdout).expect("valid cache clear JSON");
-    assert_eq!(clear_json["removed_records"], 7);
+    assert_eq!(clear_json["removed_records"], 8);
     assert_eq!(clear_json["records"], 0);
     assert_eq!(
         fs::read(fixture.root.join("src/lib.rs")).expect("read source after cache control"),

@@ -948,6 +948,8 @@ impl Render {
             || map.cache.matched > 0
             || map.cache.unmatched > 0
             || map.cache.unavailable > 0
+            || !map.cache.reused.is_empty()
+            || !map.cache.invalidated.is_empty()
             || map.cache.hits > 0
             || map.cache.misses > 0
             || !map.cache.refreshed.is_empty()
@@ -955,12 +957,14 @@ impl Render {
         {
             writeln!(
                 output,
-                "Cache: {} ({}) — {} matched, {} unmatched, {} unavailable, {} hits, {} misses, {} refreshed, {} stale",
+                "Cache: {} ({}) — {} matched, {} unmatched, {} unavailable, {} reused, {} invalidated, {} hits, {} misses, {} refreshed, {} stale",
                 map.cache.mode.label(),
                 map.cache.status.label(),
                 map.cache.matched,
                 map.cache.unmatched,
                 map.cache.unavailable,
+                map.cache.reused.len(),
+                map.cache.invalidated.len(),
                 map.cache.hits,
                 map.cache.misses,
                 map.cache.refreshed.len(),

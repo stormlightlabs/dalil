@@ -630,7 +630,7 @@ fn is_agent_instructions(name: &str) -> bool {
     matches!(name, "agents.md" | "claude.md" | "codex.md")
 }
 
-fn is_manifest(name: &str) -> bool {
+pub(crate) fn is_manifest(name: &str) -> bool {
     matches!(
         name,
         "cargo.toml"
