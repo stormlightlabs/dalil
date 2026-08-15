@@ -1,6 +1,6 @@
 use super::*;
 
-pub fn analyze(path: &Path, settings: &MapSettings) -> Result<MapReport> {
+pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option<&HistoryReport>) -> Result<MapReport> {
     let selected_path = absolute_path(path)?;
     let repository = security::discover_repository(&selected_path)
         .map_err(|source| MapError::Discovery { path: selected_path.clone(), source })?;
@@ -555,7 +555,8 @@ pub fn analyze(path: &Path, settings: &MapSettings) -> Result<MapReport> {
             .then_with(|| left.kind.label().cmp(right.kind.label()))
             .then_with(|| left.detail.cmp(&right.detail))
     });
-    let ranking = rank_files(&files, &edges, settings);
+    let history_weights = history_ranking_weights(history);
+    let ranking = rank_files(&files, &edges, &topology.project_roots, &history_weights, settings);
     let selection_budget = if settings.profile == AnalysisProfile::Evidence || settings.map_tokens < 20 {
         settings.map_tokens
     } else {
@@ -632,6 +633,7 @@ pub fn analyze(path: &Path, settings: &MapSettings) -> Result<MapReport> {
         query_pack,
         query_packs,
         exclusions: settings.excludes.clone(),
+        task_seeds: settings.effective_task_seeds(),
         inventory: MapInventory {
             tracked: inventory.0,
             modified: inventory.1,
@@ -692,6 +694,37 @@ pub fn analyze(path: &Path, settings: &MapSettings) -> Result<MapReport> {
     };
     bound_map_report(&mut report, settings.profile, &limits);
     Ok(report)
+}
+
+fn history_ranking_weights(history: Option<&HistoryReport>) -> BTreeMap<String, u64> {
+    let mut weights = BTreeMap::new();
+    let Some(history) = history else {
+        return weights;
+    };
+    for path in history
+        .churn
+        .as_ref()
+        .into_iter()
+        .flat_map(|report| report.paths.iter())
+        .chain(
+            history
+                .bugs
+                .as_ref()
+                .into_iter()
+                .flat_map(|report| report.overlap_paths.iter()),
+        )
+    {
+        let weight = weights.entry(path.path.clone()).or_default();
+        *weight = weight.saturating_add(path.commits as u64);
+    }
+    if let Some(firefighting) = &history.firefighting {
+        for commit in &firefighting.commits {
+            for path in &commit.paths {
+                *weights.entry(path.clone()).or_default() += 1;
+            }
+        }
+    }
+    weights
 }
 
 pub fn bound_map_report(report: &mut MapReport, profile: AnalysisProfile, limits: &ReportLimits) {

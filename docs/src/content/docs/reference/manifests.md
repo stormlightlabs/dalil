@@ -3,7 +3,7 @@ title: Manifests
 description: See supported manifests and how entry points & commands are derived.
 section: Reference
 group: Reference
-order: 4
+order: 5
 ---
 
 Dalil treats common package, workspace, and build manifests as repository landmarks.

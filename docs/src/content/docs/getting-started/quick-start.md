@@ -16,9 +16,20 @@ The default briefing combines a repository overview, an ordered reading plan,
 and concise history observations. It is designed to help you decide where to
 look before you make a change.
 
-## Narrow the briefing
+## Rank the briefing for a task
 
-Focus a report on a symbol, a path, or both:
+Give Dalil a concise task description when you know what you need to change:
+
+```sh
+dalil --task 'fix parser cache invalidation' --changed-path src/map/cache.rs
+dalil map --task 'find the parse source entry point' --symbol parse_source --json
+```
+
+`--task` derives local search terms and ranks matching files with related code.
+Add a symbol, path, language, project root, changed path or symbol, or
+`--search` term when you know a precise target.
+
+Use `--focus` and `--focus-path` to raise a file or term's priority:
 
 ```sh
 dalil --focus parser --focus-path src --budget 500

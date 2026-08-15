@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::map::{CacheCommand, CacheControlReport, MapSettings};
 use crate::report::{
     AnalysisProfile, CacheMode, CapabilitiesReport, CommandDescriptor, DoctorReport, HistoryOperation, HistorySettings,
-    KeywordMatchMode, Report, StrictIssue,
+    KeywordMatchMode, Report, SourceLanguage, StrictIssue, TaskChangeSeed, TaskSeeds,
 };
 use crate::utils;
 
@@ -447,6 +447,38 @@ struct MapOptions {
     #[arg(long = "focus-path", value_name = "PATH", action = ArgAction::Append)]
     focus_paths: Vec<String>,
 
+    /// Describe the task so Dalil can derive deterministic lexical ranking seeds.
+    #[arg(long, value_name = "TEXT")]
+    task: Option<String>,
+
+    /// Rank files defining or referring to this symbol; repeat for multiple symbols.
+    #[arg(long = "symbol", value_name = "NAME", action = ArgAction::Append)]
+    symbols: Vec<String>,
+
+    /// Rank files under this task-relevant path; repeat for multiple paths.
+    #[arg(long = "task-path", value_name = "PATH", action = ArgAction::Append)]
+    task_paths: Vec<String>,
+
+    /// Rank files in this source language; repeat for multiple languages.
+    #[arg(long = "language", value_name = "LANGUAGE", action = ArgAction::Append, value_parser = parse_source_language)]
+    languages: Vec<SourceLanguage>,
+
+    /// Rank files belonging to this project root; repeat for multiple roots.
+    #[arg(long = "project", value_name = "PATH", action = ArgAction::Append)]
+    projects: Vec<String>,
+
+    /// Rank files under this changed path; repeat for multiple changed paths.
+    #[arg(long = "changed-path", value_name = "PATH", action = ArgAction::Append)]
+    changed_paths: Vec<String>,
+
+    /// Rank files defining or referring to this changed symbol; repeat for multiple symbols.
+    #[arg(long = "changed-symbol", value_name = "NAME", action = ArgAction::Append)]
+    changed_symbols: Vec<String>,
+
+    /// Add a concise lexical task term; repeat for multiple terms.
+    #[arg(long = "search", value_name = "TERM", action = ArgAction::Append)]
+    search_terms: Vec<String>,
+
     /// Maximum estimated tokens in the compact report and ranked structural evidence (default: 1000).
     #[arg(long = "budget", value_name = "N", default_value_t = 1_000, value_parser = clap::value_parser!(usize))]
     budget: usize,
@@ -480,12 +512,45 @@ impl From<MapOptions> for MapSettings {
     }
 }
 
+fn parse_source_language(value: &str) -> Result<SourceLanguage, String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "rust" => Ok(SourceLanguage::Rust),
+        "javascript" | "js" => Ok(SourceLanguage::JavaScript),
+        "javascript_jsx" | "jsx" => Ok(SourceLanguage::JavaScriptJsx),
+        "typescript" | "ts" => Ok(SourceLanguage::TypeScript),
+        "typescript_tsx" | "tsx" => Ok(SourceLanguage::TypeScriptTsx),
+        "python" | "py" => Ok(SourceLanguage::Python),
+        "ruby" | "rb" => Ok(SourceLanguage::Ruby),
+        "java" => Ok(SourceLanguage::Java),
+        "go" => Ok(SourceLanguage::Go),
+        "lua" => Ok(SourceLanguage::Lua),
+        "zig" => Ok(SourceLanguage::Zig),
+        "c_sharp" | "csharp" | "c#" => Ok(SourceLanguage::CSharp),
+        _ => Err(format!("unsupported source language `{value}`")),
+    }
+}
+
 impl MapOptions {
     fn settings(&self) -> MapSettings {
         MapSettings {
             excludes: self.excludes.clone(),
             focuses: self.focuses.clone(),
             focus_paths: self.focus_paths.clone(),
+            task_seeds: TaskSeeds {
+                task: self.task.clone(),
+                symbols: self.symbols.clone(),
+                paths: self.task_paths.clone(),
+                languages: self.languages.clone(),
+                projects: self.projects.clone(),
+                changes: self
+                    .changed_paths
+                    .iter()
+                    .cloned()
+                    .map(TaskChangeSeed::Path)
+                    .chain(self.changed_symbols.iter().cloned().map(TaskChangeSeed::Symbol))
+                    .collect(),
+                search_terms: self.search_terms.clone(),
+            },
             map_tokens: self.budget,
             cache_mode: if self.no_cache { CacheMode::Disabled } else { self.cache_mode.into() },
             cache_files: self.cache_files.clone(),
@@ -1043,6 +1108,47 @@ mod tests {
         let error = options.format().expect_err("options should conflict");
         let cat: ExitCategory = error.into();
         assert_eq!(cat, ExitCategory::Usage);
+    }
+
+    #[test]
+    fn task_seed_flags_populate_typed_map_settings() {
+        let request = CommandRequest::from(
+            Cli::try_parse_from([
+                "dalil",
+                "map",
+                "--task",
+                "fix parser cache",
+                "--symbol",
+                "parse_source",
+                "--task-path",
+                "src/map",
+                "--language",
+                "rust",
+                "--project",
+                "packages/app",
+                "--changed-path",
+                "src/map/cache.rs",
+                "--changed-symbol",
+                "CacheStore",
+                "--search",
+                "invalidation",
+            ])
+            .expect("task flags parse"),
+        );
+
+        assert_eq!(request.map.task_seeds.task.as_deref(), Some("fix parser cache"));
+        assert_eq!(request.map.task_seeds.symbols, ["parse_source"]);
+        assert_eq!(request.map.task_seeds.paths, ["src/map"]);
+        assert_eq!(request.map.task_seeds.languages, [SourceLanguage::Rust]);
+        assert_eq!(request.map.task_seeds.projects, ["packages/app"]);
+        assert_eq!(
+            request.map.task_seeds.changes,
+            [
+                TaskChangeSeed::Path("src/map/cache.rs".to_owned()),
+                TaskChangeSeed::Symbol("CacheStore".to_owned()),
+            ]
+        );
+        assert_eq!(request.map.task_seeds.search_terms, ["invalidation"]);
     }
 
     #[test]

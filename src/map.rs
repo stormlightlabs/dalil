@@ -39,7 +39,7 @@ use languages::{
 use parser::*;
 use repository::*;
 
-pub use analysis::analyze;
+pub(crate) use analysis::analyze_with_history;
 pub use cache::{CacheCommand, CacheControlReport, cache_control};
 
 const MAX_CONTEXT_CHARS: usize = 180;
@@ -450,6 +450,7 @@ pub struct MapSettings {
     pub excludes: Vec<String>,
     pub focuses: Vec<String>,
     pub focus_paths: Vec<String>,
+    pub task_seeds: TaskSeeds,
     pub map_tokens: usize,
     pub cache_mode: CacheMode,
     pub cache_files: Vec<String>,
@@ -463,6 +464,7 @@ impl Default for MapSettings {
             excludes: Vec::new(),
             focuses: Vec::new(),
             focus_paths: Vec::new(),
+            task_seeds: TaskSeeds::default(),
             map_tokens: DEFAULT_MAP_TOKENS,
             cache_mode: CacheMode::Auto,
             cache_files: Vec::new(),
@@ -470,6 +472,78 @@ impl Default for MapSettings {
             profile: AnalysisProfile::Compact,
         }
     }
+}
+
+impl MapSettings {
+    pub(crate) fn effective_task_seeds(&self) -> TaskSeeds {
+        let mut seeds = self.task_seeds.clone();
+        seeds.task = seeds.task.and_then(normalize_seed);
+        normalize_seed_values(&mut seeds.symbols);
+        normalize_path_seed_values(&mut seeds.paths);
+        normalize_path_seed_values(&mut seeds.projects);
+        normalize_seed_values(&mut seeds.search_terms);
+        seeds.languages.sort();
+        seeds.languages.dedup();
+        for change in &mut seeds.changes {
+            match change {
+                TaskChangeSeed::Path(path) => *path = normalize_path_seed(path),
+                TaskChangeSeed::Symbol(symbol) => *symbol = symbol.trim().to_owned(),
+            }
+        }
+        seeds.changes.retain(|change| match change {
+            TaskChangeSeed::Path(value) | TaskChangeSeed::Symbol(value) => !value.is_empty(),
+        });
+        seeds.changes.sort();
+        seeds.changes.dedup();
+        if let Some(task) = &seeds.task {
+            seeds.search_terms.extend(lexical_task_terms(task));
+        }
+        normalize_seed_values(&mut seeds.search_terms);
+        seeds
+    }
+}
+
+fn normalize_seed(value: String) -> Option<String> {
+    let value = value.trim().to_owned();
+    (!value.is_empty()).then_some(value)
+}
+
+fn normalize_seed_values(values: &mut Vec<String>) {
+    values.retain_mut(|value| {
+        *value = value.trim().to_owned();
+        !value.is_empty()
+    });
+    values.sort_by_key(|value| value.to_ascii_lowercase());
+    values.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
+}
+
+fn normalize_path_seed(value: &str) -> String {
+    value
+        .trim()
+        .replace('\\', "/")
+        .trim_start_matches("./")
+        .trim_matches('/')
+        .to_owned()
+}
+
+fn normalize_path_seed_values(values: &mut Vec<String>) {
+    values.retain_mut(|value| {
+        *value = normalize_path_seed(value);
+        !value.is_empty()
+    });
+    values.sort();
+    values.dedup();
+}
+
+fn lexical_task_terms(task: &str) -> Vec<String> {
+    const STOP_WORDS: &[&str] = &[
+        "a", "an", "and", "at", "by", "for", "from", "in", "into", "is", "of", "on", "or", "the", "to", "with",
+    ];
+    task.split(|character: char| !character.is_alphanumeric() && character != '_' && character != '-')
+        .flat_map(|word| word.split(['_', '-']))
+        .filter_map(|word| normalize_seed(word.to_owned()))
+        .filter(|word| word.len() >= 3 && !STOP_WORDS.contains(&word.to_ascii_lowercase().as_str()))
+        .collect()
 }
 
 #[derive(Clone, Debug)]

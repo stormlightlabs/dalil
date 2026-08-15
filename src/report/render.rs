@@ -741,6 +741,45 @@ impl Render {
             )
             .expect("writing to a string cannot fail");
             if !map.files.is_empty() {
+                let mut task_seed_groups = Vec::new();
+                if let Some(task) = &map.task_seeds.task {
+                    task_seed_groups.push(format!("task `{}`", utils::escape_inline_code(task)));
+                }
+                for (label, seeds) in [
+                    ("symbols", &map.task_seeds.symbols),
+                    ("paths", &map.task_seeds.paths),
+                    ("projects", &map.task_seeds.projects),
+                    ("search", &map.task_seeds.search_terms),
+                ] {
+                    if !seeds.is_empty() {
+                        task_seed_groups.push(format!("{label} {}", utils::inline_code_list(seeds)));
+                    }
+                }
+                if !map.task_seeds.languages.is_empty() {
+                    let languages = map
+                        .task_seeds
+                        .languages
+                        .iter()
+                        .map(|language| language.label().to_owned())
+                        .collect::<Vec<_>>();
+                    task_seed_groups.push(format!("languages {}", utils::inline_code_list(&languages)));
+                }
+                if !map.task_seeds.changes.is_empty() {
+                    let changes = map
+                        .task_seeds
+                        .changes
+                        .iter()
+                        .map(|change| match change {
+                            super::TaskChangeSeed::Path(path) => format!("path:{path}"),
+                            super::TaskChangeSeed::Symbol(symbol) => format!("symbol:{symbol}"),
+                        })
+                        .collect::<Vec<_>>();
+                    task_seed_groups.push(format!("changes {}", utils::inline_code_list(&changes)));
+                }
+                if !task_seed_groups.is_empty() {
+                    writeln!(output, "Task seeds: {}", task_seed_groups.join("; "))
+                        .expect("writing to a string cannot fail");
+                }
                 writeln!(
                     output,
                     "Ranking: {} files; map budget {} tokens, selected {}",

@@ -10,6 +10,19 @@ order: 3
 It then adds up to five concise history observations with the evidence that
 supports them. JSON retains the complete map and history report.
 
+## Rank the reading plan for a task
+
+Pass task details to rank related code ahead of the broader map:
+
+```sh
+dalil --task 'fix parser cache invalidation' --changed-path src/map/cache.rs
+dalil --task 'fix parser cache invalidation' --symbol CacheStore --language rust
+```
+
+The same task options work with `dalil map` and `dalil explain`. JSON includes
+normalized task inputs and per-file ranking evidence, so you can see why a file
+appeared in the reading plan.
+
 ## Select a profile
 
 The default `compact` profile returns selected snippets and bounded samples of

@@ -146,7 +146,10 @@ pub fn build_lexical_edges(files: &[SourceFile], max_candidates: usize, max_edge
     edges
 }
 
-pub fn rank_files(files: &[SourceFile], edges: &[LexicalEdge], settings: &MapSettings) -> Vec<FileRank> {
+pub fn rank_files(
+    files: &[SourceFile], edges: &[LexicalEdge], project_roots: &[ProjectRoot],
+    history_weights: &BTreeMap<String, u64>, settings: &MapSettings,
+) -> Vec<FileRank> {
     if files.is_empty() {
         return Vec::new();
     }
@@ -194,32 +197,216 @@ pub fn rank_files(files: &[SourceFile], edges: &[LexicalEdge], settings: &MapSet
         scores = next;
     }
 
+    let seeds = settings.effective_task_seeds();
+    let task_terms = seeds
+        .task
+        .as_deref()
+        .map(lexical_task_terms)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|term| term.to_ascii_lowercase())
+        .collect::<BTreeSet<_>>();
+    let direct_matches = files
+        .iter()
+        .map(|file| {
+            (
+                file.path.clone(),
+                task_seed_matches(file, project_roots, &seeds, &task_terms),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let seed_paths = direct_matches
+        .iter()
+        .filter_map(|(path, matches)| (!matches.is_empty()).then_some(path.clone()))
+        .collect::<BTreeSet<_>>();
+    let proximity = seed_proximity(&seed_paths, edges);
+
     let mut ranking = files
         .iter()
         .map(|file| {
-            let text_matches = settings
+            let text_focuses = settings
                 .focuses
                 .iter()
                 .filter(|focus| file_matches_focus(file, focus))
-                .count();
-            let path_matches = settings
+                .collect::<Vec<_>>();
+            let path_focuses = settings
                 .focus_paths
                 .iter()
                 .filter(|focus_path| path_matches_focus(&file.path, focus_path))
-                .count();
-            let focus_matches = text_matches + path_matches;
-            let focus_boost = text_matches as f64 * 0.35 + path_matches as f64 * 0.7;
-            let score = scores[&file.path] + focus_boost;
-            FileRank { path: file.path.clone(), score: scaled_score(score), focus_matches }
+                .collect::<Vec<_>>();
+            let focus_matches = text_focuses.len() + path_focuses.len();
+            let mut matched_seeds = direct_matches.get(&file.path).cloned().unwrap_or_default();
+            matched_seeds.extend(
+                text_focuses
+                    .iter()
+                    .map(|focus| RankingSeedMatch { kind: RankingSeedKind::Focus, seed: (*focus).clone() }),
+            );
+            matched_seeds.extend(
+                path_focuses
+                    .iter()
+                    .map(|focus| RankingSeedMatch { kind: RankingSeedKind::FocusPath, seed: (*focus).clone() }),
+            );
+            if let Some((_, seed_path)) = proximity.get(&file.path) {
+                matched_seeds.push(RankingSeedMatch { kind: RankingSeedKind::SeedProximity, seed: seed_path.clone() });
+            }
+            let history = history_weights.get(&file.path).copied().unwrap_or_default();
+            if history > 0 {
+                matched_seeds.push(RankingSeedMatch { kind: RankingSeedKind::History, seed: file.path.clone() });
+            }
+            matched_seeds.sort();
+            matched_seeds.dedup();
+
+            let direct_matches = direct_matches.get(&file.path).map_or(0, Vec::len) as u64;
+            let contributions = RankingContributions {
+                centrality: scaled_score(scores[&file.path]),
+                seed_proximity: proximity.get(&file.path).map_or(0, |(score, _)| *score),
+                lexical_relevance: direct_matches.saturating_mul(300_000),
+                history_evidence: history.min(20).saturating_mul(25_000),
+                explicit_focus: (text_focuses.len() as u64)
+                    .saturating_mul(350_000)
+                    .saturating_add((path_focuses.len() as u64).saturating_mul(700_000)),
+            };
+            let score = contributions
+                .centrality
+                .saturating_add(contributions.seed_proximity)
+                .saturating_add(contributions.lexical_relevance)
+                .saturating_add(contributions.history_evidence)
+                .saturating_add(contributions.explicit_focus);
+            FileRank { path: file.path.clone(), score, focus_matches, contributions, matched_seeds }
         })
         .collect::<Vec<_>>();
     ranking.sort_by(|left, right| right.score.cmp(&left.score).then_with(|| left.path.cmp(&right.path)));
     ranking
 }
 
+fn task_seed_matches(
+    file: &SourceFile, project_roots: &[ProjectRoot], seeds: &TaskSeeds, task_terms: &BTreeSet<String>,
+) -> Vec<RankingSeedMatch> {
+    let mut matches = Vec::new();
+    for term in &seeds.search_terms {
+        if file_matches_term(file, term) {
+            let kind = if task_terms.contains(&term.to_ascii_lowercase()) {
+                RankingSeedKind::TaskTerm
+            } else {
+                RankingSeedKind::SearchTerm
+            };
+            matches.push(RankingSeedMatch { kind, seed: term.clone() });
+        }
+    }
+    for symbol in &seeds.symbols {
+        if file
+            .symbols
+            .iter()
+            .any(|candidate| symbol_matches_seed(candidate, symbol))
+        {
+            matches.push(RankingSeedMatch { kind: RankingSeedKind::Symbol, seed: symbol.clone() });
+        }
+    }
+    for path in &seeds.paths {
+        if path_matches_focus(&file.path, path) {
+            matches.push(RankingSeedMatch { kind: RankingSeedKind::Path, seed: path.clone() });
+        }
+    }
+    for language in &seeds.languages {
+        if file.language == *language {
+            matches.push(RankingSeedMatch { kind: RankingSeedKind::Language, seed: language.label().to_owned() });
+        }
+    }
+    let project_root = crate::landmarks::project_root_for_path(&file.path, project_roots);
+    for project in &seeds.projects {
+        if project_root
+            .as_deref()
+            .is_some_and(|root| path_matches_focus(root, project))
+        {
+            matches.push(RankingSeedMatch { kind: RankingSeedKind::Project, seed: project.clone() });
+        }
+    }
+    for change in &seeds.changes {
+        match change {
+            TaskChangeSeed::Path(path) if path_matches_focus(&file.path, path) => {
+                matches.push(RankingSeedMatch { kind: RankingSeedKind::ChangePath, seed: path.clone() });
+            }
+            TaskChangeSeed::Symbol(symbol)
+                if file
+                    .symbols
+                    .iter()
+                    .any(|candidate| symbol_matches_seed(candidate, symbol)) =>
+            {
+                matches.push(RankingSeedMatch { kind: RankingSeedKind::ChangeSymbol, seed: symbol.clone() });
+            }
+            TaskChangeSeed::Path(_) | TaskChangeSeed::Symbol(_) => {}
+        }
+    }
+    matches.sort();
+    matches.dedup();
+    matches
+}
+
+fn seed_proximity(seed_paths: &BTreeSet<String>, edges: &[LexicalEdge]) -> BTreeMap<String, (u64, String)> {
+    use std::collections::VecDeque;
+
+    let mut neighbors = BTreeMap::<String, BTreeSet<String>>::new();
+    for edge in edges {
+        neighbors
+            .entry(edge.source.clone())
+            .or_default()
+            .insert(edge.target.clone());
+        neighbors
+            .entry(edge.target.clone())
+            .or_default()
+            .insert(edge.source.clone());
+    }
+    let mut distances = BTreeMap::<String, (usize, String)>::new();
+    let mut pending = VecDeque::new();
+    for path in seed_paths {
+        distances.insert(path.clone(), (0, path.clone()));
+        pending.push_back(path.clone());
+    }
+    while let Some(path) = pending.pop_front() {
+        let (distance, seed_path) = distances[&path].clone();
+        if distance >= 2 {
+            continue;
+        }
+        for neighbor in neighbors.get(&path).into_iter().flatten() {
+            if distances.contains_key(neighbor) {
+                continue;
+            }
+            distances.insert(neighbor.clone(), (distance + 1, seed_path.clone()));
+            pending.push_back(neighbor.clone());
+        }
+    }
+    distances
+        .into_iter()
+        .filter_map(|(path, (distance, seed_path))| match distance {
+            1 => Some((path, (250_000, seed_path))),
+            2 => Some((path, (125_000, seed_path))),
+            _ => None,
+        })
+        .collect()
+}
+
+fn file_matches_term(file: &SourceFile, term: &str) -> bool {
+    let term = term.trim().to_ascii_lowercase();
+    !term.is_empty()
+        && (file.path.to_ascii_lowercase().contains(&term)
+            || file.symbols.iter().any(|symbol| {
+                symbol.name.to_ascii_lowercase().contains(&term) || symbol.context.to_ascii_lowercase().contains(&term)
+            }))
+}
+
+fn symbol_matches_seed(symbol: &SourceSymbol, seed: &str) -> bool {
+    let qualified = if symbol.scope.is_empty() {
+        symbol.name.clone()
+    } else {
+        format!("{}::{}", symbol.scope.join("::"), symbol.name)
+    };
+    symbol.name.eq_ignore_ascii_case(seed.trim()) || qualified.eq_ignore_ascii_case(seed.trim())
+}
+
 pub fn select_snippets(
     files: &[SourceFile], edges: &[LexicalEdge], ranking: &[FileRank], token_budget: usize, settings: &MapSettings,
 ) -> MapSelection {
+    let seeds = settings.effective_task_seeds();
     let mut reference_counts = BTreeMap::<(String, String), u64>::new();
     for edge in edges {
         *reference_counts
@@ -248,9 +435,20 @@ pub fn select_snippets(
                 .filter(|focus| symbol_matches_focus(symbol, focus))
                 .count() as u64
                 * 250_000;
+            let task_symbol_boost = seeds
+                .symbols
+                .iter()
+                .chain(seeds.changes.iter().filter_map(|change| match change {
+                    TaskChangeSeed::Symbol(symbol) => Some(symbol),
+                    TaskChangeSeed::Path(_) => None,
+                }))
+                .filter(|seed| symbol_matches_seed(symbol, seed))
+                .count() as u64
+                * 300_000;
             let symbol_score = file_score
                 .saturating_add(reference_count.saturating_mul(1_000))
-                .saturating_add(focus_boost);
+                .saturating_add(focus_boost)
+                .saturating_add(task_symbol_boost);
             candidates.push(SnippetCandidate {
                 path: file.path.clone(),
                 language: file.language,

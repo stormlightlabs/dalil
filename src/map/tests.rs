@@ -1134,7 +1134,13 @@ fn snippet_selection_respects_every_tiny_token_budget() {
         classifications: Vec::new(),
         classification_overridden: false,
     };
-    let ranking = vec![FileRank { path: file.path.clone(), score: 1_000_000, focus_matches: 0 }];
+    let ranking = vec![FileRank {
+        path: file.path.clone(),
+        score: 1_000_000,
+        focus_matches: 0,
+        contributions: RankingContributions::default(),
+        matched_seeds: Vec::new(),
+    }];
     let settings = MapSettings::default();
     for budget in 1..=64 {
         let selection = select_snippets(std::slice::from_ref(&file), &[], &ranking, budget, &settings);
@@ -1146,6 +1152,59 @@ fn snippet_selection_respects_every_tiny_token_budget() {
                 .all(|snippet| snippet.estimated_tokens <= budget)
         );
     }
+}
+
+#[test]
+fn task_text_changes_ranking_and_retains_its_contributions() {
+    let file = |path: &str, source: &[u8]| {
+        let ParsedSource { symbols, .. } = parse_source(source, &RUST_SUPPORT);
+        SourceFile {
+            path: path.to_owned(),
+            language: SourceLanguage::Rust,
+            extension: "rs".to_owned(),
+            worktree_state: WorktreeState::Tracked,
+            status: FileAnalysisStatus::Complete,
+            symbols,
+            limitations: Vec::new(),
+            classifications: Vec::new(),
+            classification_overridden: false,
+        }
+    };
+    let files = [
+        file("src/parser.rs", b"pub fn parse_request() {}"),
+        file("src/render.rs", b"pub fn render_response() {}"),
+    ];
+    let parser_settings = MapSettings {
+        task_seeds: TaskSeeds { task: Some("parse request".to_owned()), ..TaskSeeds::default() },
+        ..MapSettings::default()
+    };
+    let render_settings = MapSettings {
+        task_seeds: TaskSeeds { task: Some("render response".to_owned()), ..TaskSeeds::default() },
+        ..MapSettings::default()
+    };
+
+    let parser_ranking = rank_files(&files, &[], &[], &BTreeMap::new(), &parser_settings);
+    let render_ranking = rank_files(&files, &[], &[], &BTreeMap::new(), &render_settings);
+
+    assert_eq!(parser_ranking[0].path, "src/parser.rs");
+    assert_eq!(render_ranking[0].path, "src/render.rs");
+    assert!(parser_ranking[0].contributions.lexical_relevance > 0);
+    assert!(
+        parser_ranking[0]
+            .matched_seeds
+            .iter()
+            .any(|seed| seed.kind == RankingSeedKind::TaskTerm && seed.seed == "parse")
+    );
+    assert_eq!(
+        parser_ranking[0].score,
+        parser_ranking[0]
+            .contributions
+            .centrality
+            .saturating_add(parser_ranking[0].contributions.seed_proximity)
+            .saturating_add(parser_ranking[0].contributions.lexical_relevance)
+            .saturating_add(parser_ranking[0].contributions.history_evidence)
+            .saturating_add(parser_ranking[0].contributions.explicit_focus)
+    );
 }
 
 #[test]

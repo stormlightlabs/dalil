@@ -337,6 +337,37 @@ pub fn build_reading_plan(history: &HistoryReport, map: &MapReport) -> ReadingPl
                 },
             );
         }
+        if let Some(rank) = rank {
+            let task_matches = rank
+                .matched_seeds
+                .iter()
+                .filter(|seed| {
+                    !matches!(
+                        seed.kind,
+                        RankingSeedKind::Focus | RankingSeedKind::FocusPath | RankingSeedKind::History
+                    )
+                })
+                .map(|seed| format!("{}:{}", seed.kind.label(), seed.seed))
+                .collect::<Vec<_>>();
+            if !task_matches.is_empty() {
+                add_reading_candidate(
+                    &mut candidates,
+                    ReadingCandidateInput {
+                        purpose: ReadingPurpose::Architecture,
+                        path: file.path.clone(),
+                        project_root: root.clone(),
+                        evidence_kinds: [ReadingEvidenceKind::SourceMap].into_iter().collect(),
+                        score: 3_500_000_000u64.saturating_add(rank.score),
+                        confidence: ConfidenceTier::High,
+                        reason: format!(
+                            "task seeds matched {}",
+                            task_matches.into_iter().take(3).collect::<Vec<_>>().join(", ")
+                        ),
+                        limitations: Vec::new(),
+                    },
+                );
+            }
+        }
     }
 
     for landmark in &evidence.landmarks {

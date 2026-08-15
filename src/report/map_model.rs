@@ -97,6 +97,9 @@ pub struct MapReport {
     #[serde(default)]
     pub query_packs: BTreeMap<String, String>,
     pub exclusions: Vec<String>,
+    /// Normalized task-derived and caller-supplied seeds used for ranking.
+    #[serde(default)]
+    pub task_seeds: TaskSeeds,
     pub inventory: MapInventory,
     #[serde(default)]
     pub classifications: MapClassificationSummary,
@@ -448,12 +451,98 @@ pub struct LexicalEdge {
     pub target_visibility: SymbolVisibility,
 }
 
+/// Typed task inputs that can personalize source ranking without interpreting a
+/// conversation or calling a remote service.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TaskSeeds {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<String>,
+    #[serde(default)]
+    pub symbols: Vec<String>,
+    #[serde(default)]
+    pub paths: Vec<String>,
+    #[serde(default)]
+    pub languages: Vec<SourceLanguage>,
+    #[serde(default)]
+    pub projects: Vec<String>,
+    #[serde(default)]
+    pub changes: Vec<TaskChangeSeed>,
+    #[serde(default)]
+    pub search_terms: Vec<String>,
+}
+
+/// A changed repository target supplied as part of a task.
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case", tag = "kind", content = "value")]
+pub enum TaskChangeSeed {
+    Path(String),
+    Symbol(String),
+}
+
+/// The source of a visible ranking contribution.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RankingSeedKind {
+    TaskTerm,
+    SearchTerm,
+    Symbol,
+    Path,
+    Language,
+    Project,
+    ChangePath,
+    ChangeSymbol,
+    SeedProximity,
+    Focus,
+    FocusPath,
+    History,
+}
+
+impl RankingSeedKind {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::TaskTerm => "task_term",
+            Self::SearchTerm => "search_term",
+            Self::Symbol => "symbol",
+            Self::Path => "path",
+            Self::Language => "language",
+            Self::Project => "project",
+            Self::ChangePath => "change_path",
+            Self::ChangeSymbol => "change_symbol",
+            Self::SeedProximity => "seed_proximity",
+            Self::Focus => "focus",
+            Self::FocusPath => "focus_path",
+            Self::History => "history",
+        }
+    }
+}
+
+/// One seed that matched or supported a ranked path.
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct RankingSeedMatch {
+    pub kind: RankingSeedKind,
+    pub seed: String,
+}
+
+/// Each score component is scaled by 1,000,000 and adds exactly to `score`.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RankingContributions {
+    pub centrality: u64,
+    pub seed_proximity: u64,
+    pub lexical_relevance: u64,
+    pub history_evidence: u64,
+    pub explicit_focus: u64,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct FileRank {
     pub path: String,
-    /// PageRank plus explicit-focus score scaled by 1,000,000.
+    /// The sum of `contributions`, scaled by 1,000,000.
     pub score: u64,
     pub focus_matches: usize,
+    #[serde(default)]
+    pub contributions: RankingContributions,
+    #[serde(default)]
+    pub matched_seeds: Vec<RankingSeedMatch>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

@@ -59,13 +59,21 @@ Git repository and keeps the selected scope inside that repository.
 then includes up to five concise, evidence-backed history observations and brief
 evidence notes. JSON retains the complete map and history report.
 
-The source map accepts the same focus, token-budget, exclusion, cache, and color controls described below:
+The source map accepts task, focus, token-budget, exclusion, cache, and color
+controls:
 
 ```sh
+dalil --task 'fix parser cache invalidation' --changed-path src/map/cache.rs .
+dalil map --symbol parse_source --language rust --search cache --json
 dalil --focus parser --focus-path src --budget 500 .
 dalil --no-cache --json .
 dalil --profile evidence --json .
 ```
+
+`--task` derives local search terms from concise task text. Add `--symbol`,
+`--task-path`, `--language`, `--project`, `--changed-path`, `--changed-symbol`,
+or `--search` when you know relevant targets. JSON ranking entries show the
+normalized task inputs, matched inputs, and each score contribution.
 
 The report keeps history caveats, source-map limitations, query-pack provenance,
 partial-file diagnostics, and omitted-path reasons beside the evidence they qualify.
@@ -108,7 +116,9 @@ An exact focus path can also include a classified `bin/` entry within the normal
   and literal `@import` paths
 - language- and import-aware lexical file edges with a resolution reason,
   confidence tier, candidate-group identity, and deterministic centrality ranking
-- optional explicit `--focus` and `--focus-path` boosts
+- task-aware ranking from `--task`, symbols, paths, languages, project roots,
+  changed paths or symbols, search terms, and optional `--focus` or
+  `--focus-path` boosts
 - repository landmarks for README and agent/contributor instructions, manifests and lockfiles,
   project roots, build/task entry points, test roots, CI, ownership, licenses, submodules, and
   nested repositories

@@ -3,7 +3,7 @@ title: Reports
 description: Render Dalil reports as Markdown, JSON, or standalone HTML.
 section: Reference
 group: Reference
-order: 5
+order: 6
 ---
 
 Dalil renders the same typed report model as Markdown, JSON, or HTML. The
@@ -40,6 +40,13 @@ dalil explain Parser --json
 ```
 
 `--json` is shorthand for `--format json`.
+
+With task context, JSON records normalized inputs in `map.task_seeds`. Each
+`map.ranking` entry includes `matched_seeds` and score contributions for
+centrality, seed proximity, lexical relevance, history evidence, and focus.
+Their sum is the entry's `score`. Supply `--task`, `--symbol`, `--task-path`,
+`--language`, `--project`, `--changed-path`, `--changed-symbol`, or `--search`
+to provide task context.
 
 JSON reports use `schema_version: 1`. The schema is available at
 [`schema/v1/dalil.json`](https://github.com/stormlightlabs/dalil/blob/main/schema/v1/dalil.json),

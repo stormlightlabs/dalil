@@ -17,16 +17,16 @@ deterministic, explainable way.
 
 **Acceptance criteria:**
 
-- [ ] Represent typed task seeds for symbols, paths, languages, projects,
+- [x] Represent typed task seeds for symbols, paths, languages, projects,
       change sets, and concise search terms.
-- [ ] Derive deterministic lexical seeds from task text without an LLM or
+- [x] Derive deterministic lexical seeds from task text without an LLM or
       network service.
-- [ ] Combine seed proximity, lexical relevance, structural centrality,
+- [x] Combine seed proximity, lexical relevance, structural centrality,
       history evidence, and explicit focus without hiding any contribution.
-- [ ] Keep a stable orientation fallback when task seeds are absent or weak.
-- [ ] Ensure `--focus`, path, symbol, and project restrictions consistently
+- [x] Keep a stable orientation fallback when task seeds are absent or weak.
+- [x] Ensure `--focus`, path, symbol, and project restrictions consistently
       affect ranking and remain visible in provenance.
-- [ ] Improve representative retrieval fixtures without crossing established
+- [x] Improve representative retrieval fixtures without crossing established
       latency, work, or token limits.
 
 **Verification:** Add ranking fixtures where changing only the task changes the

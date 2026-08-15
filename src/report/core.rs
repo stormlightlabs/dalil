@@ -796,6 +796,8 @@ pub struct EffectiveMapOptions {
     pub excludes: Vec<String>,
     pub focuses: Vec<String>,
     pub focus_paths: Vec<String>,
+    #[serde(default)]
+    pub task_seeds: TaskSeeds,
     pub map_tokens: usize,
     pub cache_mode: CacheMode,
     pub cache_files: Vec<String>,
@@ -809,6 +811,7 @@ impl Default for EffectiveMapOptions {
             excludes: Vec::new(),
             focuses: Vec::new(),
             focus_paths: Vec::new(),
+            task_seeds: TaskSeeds::default(),
             map_tokens: 1_000,
             cache_mode: CacheMode::Auto,
             cache_files: Vec::new(),
@@ -1077,7 +1080,8 @@ impl Report {
                     history::analyze(&path, req.history.clone(), None, req.profile).map_err(ReportError::History)?;
                 let mut map_settings = req.map.clone();
                 map_settings.profile = req.profile;
-                let map_report = map::analyze(&path, &map_settings).map_err(ReportError::Map)?;
+                let map_report =
+                    map::analyze_with_history(&path, &map_settings, Some(&history_report)).map_err(ReportError::Map)?;
                 let summary = analysis::briefing_summary(&history_report, &map_report);
                 Ok(Self::from_parts(
                     req,
@@ -1112,7 +1116,8 @@ impl Report {
             CommandName::Map => {
                 let mut map_settings = req.map.clone();
                 map_settings.profile = req.profile;
-                let map_report = map::analyze(&req.command.path, &map_settings).map_err(ReportError::Map)?;
+                let map_report =
+                    map::analyze_with_history(&req.command.path, &map_settings, None).map_err(ReportError::Map)?;
                 let summary = &map_report.summary();
                 Ok(Self::from_parts(
                     req,
@@ -1130,7 +1135,8 @@ impl Report {
                     history::analyze(&path, req.history.clone(), None, req.profile).map_err(ReportError::History)?;
                 let mut map_settings = req.map.clone();
                 map_settings.profile = req.profile;
-                let map_report = map::analyze(&path, &map_settings).map_err(ReportError::Map)?;
+                let map_report =
+                    map::analyze_with_history(&path, &map_settings, Some(&history_report)).map_err(ReportError::Map)?;
                 let explain = analysis::explain_report(&target, &map_report, &history_report);
                 let summary = format!(
                     "Explained `{target}` using {} source files and {} retained graph edges within scoped history evidence.",
@@ -1191,6 +1197,7 @@ impl Report {
                 excludes: req.map.excludes.clone(),
                 focuses: req.map.focuses.clone(),
                 focus_paths: req.map.focus_paths.clone(),
+                task_seeds: req.map.effective_task_seeds(),
                 map_tokens: req.map.map_tokens,
                 cache_mode: req.map.cache_mode,
                 cache_files: req.map.cache_files.clone(),

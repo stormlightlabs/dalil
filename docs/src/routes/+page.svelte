@@ -33,7 +33,7 @@
 				<span>dalil · repository briefing</span>
 			</figcaption>
 			<pre><code
-					><span class="prompt">$</span> dalil --json --focus parser --budget 500
+					><span class="prompt">$</span> dalil --json --task "parser cache invalidation"
 &#123;
   <span class="result">"schema_version"</span>: 1,
   "command": &#123; "name": "briefing" &#125;,
