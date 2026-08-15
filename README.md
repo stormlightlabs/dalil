@@ -12,6 +12,7 @@ need more evidence:
   points, tests, useful history, and limitations.
 - `dalil map` inventories the current worktree and extracts structural maps for
   Rust, JavaScript, JSX, TypeScript, TSX, Python, Ruby, Java, C#, Go, Lua, and Zig files.
+- `dalil search` finds a few path, symbol, or concept anchors for the next source read.
 - `dalil history` summarizes five Git-history signals
   1. churn
   2. contributors
@@ -40,23 +41,17 @@ Then run it from a Git worktree:
 ```sh
 dalil
 dalil orient
-dalil --json
-dalil orient --json
-dalil --html > dalil-report.html
-dalil --html --open
 dalil map
-dalil map --json
+dalil context --task 'fix parser cache invalidation' --changed-path src/map/cache.rs --teach
+dalil impact --revision-range 'HEAD~1..HEAD'
+dalil search parser
+dalil search --symbol CacheStore
+dalil explain src/map.rs
+
+# Machine-readable forms
+dalil search parser --json
 dalil map src --exclude 'src/generated/**' --json
-dalil map --recursive --json
-dalil history
-dalil history contributors src --json
-dalil explain src/map.rs --json
-dalil explain Parser --focus Parser --json
-dalil context --task 'fix parser cache invalidation' --changed-path src/map/cache.rs --teach --json
 dalil context --task 'review the last change' --revision-range 'HEAD~1..HEAD' --json
-dalil impact --revision-range 'HEAD~1..HEAD' --json
-dalil capabilities --json
-dalil doctor . --json
 ```
 
 `PATH` defaults to the current directory. `dalil` discovers the enclosing
@@ -201,6 +196,25 @@ repository metadata. It never writes to the repository. Use `--no-cache` to
 bypass both reads and writes; `dalil cache status`, `prune`, and `clear` manage
 the user-cache data.
 
+### `dalil search <QUERY> [OPTIONS] [PATH]`
+
+Search starts a source read when you do not know the target yet. A plain query
+matches paths, retained symbols, and source context. `--symbol NAME` performs an
+exact symbol lookup:
+
+```sh
+dalil search parser
+dalil search --symbol CacheStore --json
+dalil search cache --limit 3 --budget 600
+```
+
+The result contains up to five anchors by default. Each anchor has a path,
+reason, evidence kind, confidence, limitations, and a score. A directly related
+file or test appears only when retained lexical evidence makes it a useful next
+read. Search reports a shortfall when strong matches are missing or the shared
+result and token budget ends selection. It does not provide caller, callee,
+centrality, path-finding, or graph-query modes.
+
 ### `dalil explain <PATH-OR-SYMBOL> [PATH]`
 
 Explain turns a path or symbol into a reading decision. For each resolved path it
@@ -272,6 +286,8 @@ one path definitively calls another or that the change will break code.
 
 `impact` reads revisions through Dalil's embedded Git library. It never invokes
 Git, hooks, filters, repository programs, or remotes.
+
+## Evidence inspection
 
 ### `dalil history [OPERATION] [OPTIONS] [PATH]`
 

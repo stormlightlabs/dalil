@@ -163,6 +163,7 @@ pub enum CommandName {
     Explain,
     Context,
     Impact,
+    Search,
 }
 
 impl CommandName {
@@ -175,6 +176,7 @@ impl CommandName {
             Self::Explain => "explain",
             Self::Context => "context",
             Self::Impact => "impact",
+            Self::Search => "search",
         }
     }
 }
@@ -1104,6 +1106,8 @@ pub struct Report {
     pub context: Option<ContextBundle>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub impact: Option<ImpactReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub search: Option<SearchResults>,
 }
 
 impl Report {
@@ -1186,6 +1190,33 @@ impl Report {
                     Some(map_report),
                     None,
                 ))
+            }
+            CommandName::Search => {
+                let mut map_settings = req.map.clone();
+                map_settings.profile = req.profile;
+                let map_report =
+                    map::analyze_with_history(&req.command.path, &map_settings, None).map_err(ReportError::Map)?;
+                let search_request = req.search.clone().unwrap_or_default();
+                let search = super::search::compile(search_request, &map_report);
+                let summary = format!(
+                    "Found {} search anchor(s) from {} candidate(s).",
+                    search.matches.len(),
+                    search.budget.total_candidates,
+                );
+                let quality_settings = req.map.clone();
+                let mut report = Self::from_parts(req, captured_at, summary, None, Some(map_report), None);
+                report.quality = analysis::report_quality(
+                    None,
+                    report.map.as_ref(),
+                    None,
+                    None,
+                    Some(&search),
+                    CommandName::Search,
+                    &quality_settings,
+                );
+                report.search = Some(search);
+                report.map = None;
+                Ok(report)
             }
             CommandName::Context => {
                 let path = req.command.path.clone();
@@ -1342,6 +1373,7 @@ impl Report {
             map.as_ref(),
             reading_plan.as_ref(),
             explain.as_ref(),
+            None,
             req.command.name,
             &req.map,
         );
@@ -1381,6 +1413,7 @@ impl Report {
             explain,
             context: None,
             impact: None,
+            search: None,
         }
     }
 
@@ -1389,7 +1422,7 @@ impl Report {
         let output = match format {
             OutputFormat::Markdown => {
                 let output = self.render_markdown();
-                if self.profile == AnalysisProfile::Compact {
+                if self.profile == AnalysisProfile::Compact && self.command.name != CommandName::Search {
                     Ok(bound_compact_markdown(
                         output,
                         self.provenance.effective_options.map.map_tokens,
@@ -1453,6 +1486,9 @@ impl Report {
         if let Some(impact) = &self.impact {
             Render::impact_markdown(&mut output, impact);
         }
+        if let Some(search) = &self.search {
+            Render::search_markdown(&mut output, search);
+        }
 
         if self.command.name == CommandName::Briefing {
             if let Some(map) = &self.map {
@@ -1478,7 +1514,11 @@ impl Report {
             }
         } else if !matches!(
             self.command.name,
-            CommandName::Orient | CommandName::Explain | CommandName::Context | CommandName::Impact
+            CommandName::Orient
+                | CommandName::Explain
+                | CommandName::Context
+                | CommandName::Impact
+                | CommandName::Search
         ) {
             if let Some(history) = &self.history {
                 if self.profile == AnalysisProfile::Compact && self.command.operation.is_none() {

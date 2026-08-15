@@ -5,6 +5,7 @@ mod impact;
 mod model;
 mod orientation;
 mod render;
+mod search;
 #[cfg(test)]
 mod tests;
 

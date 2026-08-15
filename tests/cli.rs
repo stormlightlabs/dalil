@@ -2270,6 +2270,120 @@ fn explain_reports_bounded_reading_guidance_in_json_and_markdown() {
 }
 
 #[test]
+fn search_returns_path_symbol_concept_and_budget_limited_anchors() {
+    let fixture = MapFixtureRepository::new();
+
+    let path = fixture.run(&["search", "src/one.rs", "--no-cache", "--json"]);
+    assert!(
+        path.status.success(),
+        "path search failed: {}",
+        String::from_utf8_lossy(&path.stderr)
+    );
+    let path: Value = serde_json::from_str(&stdout(&path)).expect("valid path search JSON");
+    assert_eq!(path["command"]["name"], "search");
+    assert_eq!(path["search"]["request"]["mode"], "plain");
+    assert!(path["map"].is_null());
+    assert!(path["history"].is_null());
+    assert!(
+        path["search"]["matches"]
+            .as_array()
+            .is_some_and(|matches| matches.iter().any(|result| result["path"] == "src/one.rs"))
+    );
+    let path_markdown = fixture.run(&["search", "src/one.rs", "--no-cache"]);
+    assert!(path_markdown.status.success());
+    assert!(stdout(&path_markdown).contains("`src/one.rs`"));
+
+    let symbol = fixture.run(&["search", "--symbol", "duplicate", "--no-cache", "--json"]);
+    assert!(
+        symbol.status.success(),
+        "symbol search failed: {}",
+        String::from_utf8_lossy(&symbol.stderr)
+    );
+    let symbol: Value = serde_json::from_str(&stdout(&symbol)).expect("valid symbol search JSON");
+    assert_eq!(symbol["search"]["request"]["mode"], "symbol");
+    let matches = symbol["search"]["matches"].as_array().expect("symbol matches");
+    assert!(matches.len() >= 2, "ambiguous symbol matches: {matches:?}");
+    let symbol_matches = matches
+        .iter()
+        .filter(|result| result["target"] == "symbol")
+        .collect::<Vec<_>>();
+    assert!(symbol_matches.len() >= 2, "symbol matches: {matches:?}");
+    assert!(
+        symbol_matches
+            .iter()
+            .all(|result| result["symbol"]["name"] == "duplicate")
+    );
+    assert!(matches.iter().all(|result| {
+        result["reason"].is_string()
+            && result["evidence_kinds"]
+                .as_array()
+                .is_some_and(|evidence| !evidence.is_empty())
+            && result["confidence"].is_string()
+            && result["limitations"].is_array()
+    }));
+    let symbol_markdown = fixture.run(&["search", "--symbol", "duplicate", "--no-cache"]);
+    assert!(symbol_markdown.status.success());
+    assert!(stdout(&symbol_markdown).contains("Query: `duplicate` (symbol)"));
+
+    let concept = fixture.run(&["search", "duplicate", "--no-cache", "--json"]);
+    assert!(concept.status.success());
+    let concept: Value = serde_json::from_str(&stdout(&concept)).expect("valid concept search JSON");
+    assert!(
+        concept["search"]["matches"]
+            .as_array()
+            .is_some_and(|matches| !matches.is_empty())
+    );
+    let ordinals = concept["search"]["matches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|result| result["ordinal"].as_u64().expect("ordinal"))
+        .collect::<Vec<_>>();
+    assert_eq!(ordinals, (1..=ordinals.len() as u64).collect::<Vec<_>>());
+    assert!(
+        concept["search"]["budget"]["estimated_tokens"]
+            .as_u64()
+            .is_some_and(|tokens| tokens <= 1_000)
+    );
+
+    let missing = fixture.run(&["search", "unfindable-search-fixture", "--no-cache", "--json"]);
+    assert!(missing.status.success());
+    let missing: Value = serde_json::from_str(&stdout(&missing)).expect("valid missing search JSON");
+    assert!(missing["search"]["matches"].as_array().is_some_and(Vec::is_empty));
+    assert!(
+        missing["search"]["shortfall"]["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("No strong"))
+    );
+    let missing_markdown = fixture.run(&["search", "unfindable-search-fixture", "--no-cache"]);
+    assert!(missing_markdown.status.success());
+    assert!(stdout(&missing_markdown).contains("No strong anchors fit this search."));
+
+    let limited = fixture.run(&["search", "duplicate", "--budget", "1", "--no-cache", "--json"]);
+    assert!(limited.status.success());
+    let limited: Value = serde_json::from_str(&stdout(&limited)).expect("valid limited search JSON");
+    assert!(limited["search"]["matches"].as_array().is_some_and(Vec::is_empty));
+    assert_eq!(limited["search"]["budget"]["token_budget"], 1);
+    assert_eq!(limited["search"]["budget"]["estimated_tokens"], 1);
+    assert!(
+        limited["search"]["shortfall"]["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("token budget"))
+    );
+    let limited_markdown = fixture.run(&["search", "duplicate", "--budget", "1", "--no-cache"]);
+    assert!(limited_markdown.status.success());
+    assert!(stdout(&limited_markdown).contains("Shortfall:"));
+
+    let markdown = fixture.run(&["search", "duplicate", "--no-cache"]);
+    assert!(markdown.status.success());
+    let markdown = stdout(&markdown);
+    assert_plain_report(&markdown);
+    assert!(markdown.contains("Search results"));
+    assert!(markdown.contains("Query: `duplicate` (plain)"));
+    assert!(!markdown.contains("Lexical dependency edges"));
+}
+
+#[test]
 fn context_compiles_one_budgeted_bundle_in_json_and_markdown() {
     let fixture = MapFixtureRepository::new();
     let arguments = [

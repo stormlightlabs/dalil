@@ -728,6 +728,116 @@ pub struct SourceSymbol {
     pub evidence: SymbolEvidence,
 }
 
+/// The typed input for one path, symbol, or concept lookup.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SearchRequest {
+    pub repository: String,
+    pub query: String,
+    #[serde(default)]
+    pub mode: SearchQueryMode,
+    #[serde(default = "default_search_result_limit")]
+    pub result_limit: usize,
+    pub budget: usize,
+    #[serde(default)]
+    pub profile: AnalysisProfile,
+}
+
+const fn default_search_result_limit() -> usize {
+    5
+}
+
+impl Default for SearchRequest {
+    fn default() -> Self {
+        Self {
+            repository: String::new(),
+            query: String::new(),
+            mode: SearchQueryMode::Plain,
+            result_limit: default_search_result_limit(),
+            budget: 1_000,
+            profile: AnalysisProfile::Compact,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SearchQueryMode {
+    #[default]
+    Plain,
+    Symbol,
+}
+
+impl SearchQueryMode {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Plain => "plain",
+            Self::Symbol => "symbol",
+        }
+    }
+}
+
+/// Search emits a small set of reading anchors, rather than a graph traversal.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SearchResults {
+    #[serde(default)]
+    pub request: SearchRequest,
+    #[serde(default)]
+    pub matches: Vec<SearchMatch>,
+    #[serde(default)]
+    pub budget: SearchBudget,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shortfall: Option<SearchShortfall>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub limitations: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SearchMatch {
+    /// Reuses the recommendation target, purpose, reason, evidence, confidence,
+    /// and limitations shared by orientation, context, impact, and explain.
+    #[serde(flatten)]
+    pub recommendation: ReadingRecommendation,
+    pub target: SearchTarget,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<SourceSymbol>,
+    pub score: u64,
+    #[serde(default)]
+    pub anchor: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SearchTarget {
+    Path,
+    Symbol,
+}
+
+impl SearchTarget {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Path => "path",
+            Self::Symbol => "symbol",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SearchBudget {
+    pub token_budget: usize,
+    pub result_limit: usize,
+    pub total_candidates: usize,
+    pub returned: usize,
+    pub estimated_tokens: usize,
+    pub truncated: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SearchShortfall {
+    pub requested: usize,
+    pub returned: usize,
+    pub reason: String,
+}
+
 /// A normalized request for one task-oriented context bundle.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ContextRequest {

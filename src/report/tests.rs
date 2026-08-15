@@ -24,6 +24,7 @@ fn markdown_escapes_report_content_that_could_add_control_sequences() {
         explain: None,
         context: None,
         impact: None,
+        search: None,
     };
 
     let markdown = report.render(OutputFormat::Markdown).expect("markdown renders");
@@ -60,6 +61,7 @@ fn compact_markdown_applies_the_map_token_budget_to_the_whole_report() {
         explain: None,
         context: None,
         impact: None,
+        search: None,
     };
 
     let markdown = report.render(OutputFormat::Markdown).expect("markdown renders");
@@ -102,6 +104,7 @@ fn evidence_markdown_is_not_projected_to_the_compact_token_budget() {
         explain: None,
         context: None,
         impact: None,
+        search: None,
     };
 
     let markdown = report.render(OutputFormat::Markdown).expect("markdown renders");
@@ -132,6 +135,7 @@ fn html_is_embedded_deterministic_and_escapes_report_content() {
         explain: None,
         context: None,
         impact: None,
+        search: None,
     };
 
     let first = report.render(OutputFormat::Html).expect("HTML renders");
@@ -171,6 +175,7 @@ fn schema_and_golden_v1_corpus_cover_all_report_variants() {
     assert!(schema["$defs"]["analysis_report"]["properties"]["orientation"].is_object());
     assert!(schema["$defs"]["analysis_report"]["properties"]["context"].is_object());
     assert!(schema["$defs"]["analysis_report"]["properties"]["impact"].is_object());
+    assert!(schema["$defs"]["analysis_report"]["properties"]["search"].is_object());
     assert!(
         schema["$defs"]["command"]["properties"]["name"]
             .to_string()
@@ -186,6 +191,11 @@ fn schema_and_golden_v1_corpus_cover_all_report_variants() {
             .to_string()
             .contains("impact")
     );
+    assert!(
+        schema["$defs"]["command"]["properties"]["name"]
+            .to_string()
+            .contains("search")
+    );
 
     let analysis = [
         include_str!("../../schema/v1/golden/briefing.json"),
@@ -193,6 +203,7 @@ fn schema_and_golden_v1_corpus_cover_all_report_variants() {
         include_str!("../../schema/v1/golden/map.json"),
         include_str!("../../schema/v1/golden/history.json"),
         include_str!("../../schema/v1/golden/context.json"),
+        include_str!("../../schema/v1/golden/search.json"),
     ];
     for document in analysis {
         let report: Report = serde_json::from_str(document).expect("historical v1 report remains readable");
@@ -425,6 +436,7 @@ fn explain_guidance_retains_full_evidence_and_renders_every_guidance_kind() {
         explain: Some(explain),
         context: None,
         impact: None,
+        search: None,
     };
     let markdown = report
         .render(OutputFormat::Markdown)

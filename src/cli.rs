@@ -16,8 +16,8 @@ use serde::{Deserialize, Serialize};
 use crate::map::{CacheCommand, CacheControlReport, MapSettings};
 use crate::report::{
     AnalysisProfile, CacheMode, CapabilitiesReport, CommandDescriptor, ContextRequest, ContextRevisionContext,
-    DoctorReport, HistoryOperation, HistorySettings, KeywordMatchMode, Report, SourceLanguage, StrictIssue,
-    TaskChangeSeed, TaskSeeds,
+    DoctorReport, HistoryOperation, HistorySettings, KeywordMatchMode, Report, SearchQueryMode, SearchRequest,
+    SourceLanguage, StrictIssue, TaskChangeSeed, TaskSeeds,
 };
 use crate::utils;
 
@@ -31,6 +31,8 @@ enum SubcommandName {
     Context(ContextCommand),
     /// Inspect bounded evidence surrounding a local revision range or dirty worktree.
     Impact(ImpactCommand),
+    /// Find a few strong path, symbol, or concept anchors for the next source read.
+    Search(SearchCommand),
     /// Explain the bounded evidence behind a path or symbol recommendation.
     Explain(ExplainCommand),
     /// Produce Git-history findings, or select one focused history signal.
@@ -255,8 +257,8 @@ struct CacheCommandCli {
 The default command and `orient` return the same concise orientation report.
 
 Primary workflows: `orient`, `map`, `context`, `impact`, `search`, and `explain`.
-`search` is not available in this release. Use `history` for focused evidence
-inspection. Use `cache`, `capabilities`, and `doctor` for maintenance.
+Use `history` for focused evidence inspection. Use `cache`, `capabilities`, and
+`doctor` for maintenance.
 
 Examples:
     dalil .
@@ -268,6 +270,8 @@ Examples:
     dalil --focus parser --focus-path src .
     dalil --no-cache .
     dalil map --json
+    dalil search parser --json
+    dalil search --symbol CacheStore --json
     dalil history contributors .
     dalil explain src/parser.rs --json
     dalil context --task 'inspect parser cache' --json
@@ -325,11 +329,12 @@ impl From<Cli> for CommandRequest {
         let strict = cli.output.strict;
         let profile = cli.output.profile.into();
         let default_map_settings = cli.map_options.settings();
-        let (command, history, map_settings, context) = match cli.command {
+        let (command, history, map_settings, context, search) = match cli.command {
             None => (
                 CommandDescriptor::orient(cli.path),
                 HistorySettings::default(),
                 default_map_settings,
+                None,
                 None,
             ),
             Some(SubcommandName::Orient(orient)) => {
@@ -339,6 +344,7 @@ impl From<Cli> for CommandRequest {
                     HistorySettings::default(),
                     options.settings(),
                     None,
+                    None,
                 )
             }
             Some(SubcommandName::Map(map)) => {
@@ -347,6 +353,7 @@ impl From<Cli> for CommandRequest {
                     CommandDescriptor::map(path),
                     HistorySettings::default(),
                     options.settings(),
+                    None,
                     None,
                 )
             }
@@ -360,12 +367,14 @@ impl From<Cli> for CommandRequest {
                             settings,
                             MapSettings::default(),
                             None,
+                            None,
                         )
                     }
                     None => (
                         CommandDescriptor::history(history.path, None),
                         inherited,
                         MapSettings::default(),
+                        None,
                         None,
                     ),
                 }
@@ -375,11 +384,50 @@ impl From<Cli> for CommandRequest {
                 HistorySettings::default(),
                 default_map_settings,
                 None,
+                None,
             ),
+            Some(SubcommandName::Search(search)) => {
+                let SearchCommand { options, symbol, limit, arguments } = search;
+                let (query, path, mode) = match symbol {
+                    Some(symbol) => (
+                        symbol,
+                        arguments
+                            .first()
+                            .map(PathBuf::from)
+                            .unwrap_or_else(|| PathBuf::from(".")),
+                        SearchQueryMode::Symbol,
+                    ),
+                    None => (
+                        arguments.first().cloned().unwrap_or_default(),
+                        arguments
+                            .get(1)
+                            .map(PathBuf::from)
+                            .unwrap_or_else(|| PathBuf::from(".")),
+                        SearchQueryMode::Plain,
+                    ),
+                };
+                let map = options.settings(&query, mode);
+                let request = SearchRequest {
+                    repository: path.to_string_lossy().into_owned(),
+                    query: query.clone(),
+                    mode,
+                    result_limit: limit,
+                    budget: map.map_tokens,
+                    profile,
+                };
+                (
+                    CommandDescriptor::search(query, path),
+                    HistorySettings::default(),
+                    map,
+                    None,
+                    Some(request),
+                )
+            }
             Some(SubcommandName::Explain(explain)) => (
                 CommandDescriptor::explain(explain.target, explain.path),
                 HistorySettings::default(),
                 explain.options.settings(),
+                None,
                 None,
             ),
             Some(SubcommandName::Context(context)) => {
@@ -391,6 +439,7 @@ impl From<Cli> for CommandRequest {
                     HistorySettings::default(),
                     map,
                     Some(request),
+                    None,
                 )
             }
             Some(SubcommandName::Impact(impact)) => {
@@ -402,13 +451,14 @@ impl From<Cli> for CommandRequest {
                     HistorySettings::default(),
                     map,
                     Some(request),
+                    None,
                 )
             }
         };
 
         let mut map = map_settings;
         map.profile = profile;
-        CommandRequest { command, history, map, context, profile, output_format, color_policy, strict }
+        CommandRequest { command, history, map, context, search, profile, output_format, color_policy, strict }
     }
 }
 
@@ -428,6 +478,22 @@ impl Cli {
         }
         if let Some(SubcommandName::Map(map)) = &self.command {
             map.options.validate()?;
+        }
+        if let Some(SubcommandName::Search(search)) = &self.command {
+            search.options.validate()?;
+            if search.limit == 0 || search.limit > 12 {
+                return Err(ApplicationError::usage("`--limit` must be between 1 and 12"));
+            }
+            let valid_arguments = match (&search.symbol, search.arguments.as_slice()) {
+                (Some(symbol), [] | [_]) => !symbol.trim().is_empty(),
+                (None, [query] | [query, _]) => !query.trim().is_empty(),
+                _ => false,
+            };
+            if !valid_arguments {
+                return Err(ApplicationError::usage(
+                    "`search` requires QUERY [PATH] or `--symbol NAME [PATH]`",
+                ));
+            }
         }
         if let Some(SubcommandName::Explain(explain)) = &self.command {
             explain.options.validate()?;
@@ -489,6 +555,112 @@ struct MapCommand {
         help = "Repository or subdirectory to analyze (default: current directory)."
     )]
     path: PathBuf,
+}
+
+#[derive(Debug, clap::Args)]
+#[command(after_help = "Examples:
+    dalil search parser
+    dalil search --symbol CacheStore --json
+    dalil search cache --limit 3 --budget 600
+
+Search returns path, symbol, and direct lexical anchors for the next source read.
+It does not expose graph traversal, callers, or a general graph-query language.
+
+Support: https://github.com/stormlightlabs/dalil/issues
+")]
+struct SearchCommand {
+    #[command(flatten)]
+    options: SearchOptions,
+
+    /// Treat `--symbol` as an exact source-symbol lookup rather than a concept or path query.
+    #[arg(long, value_name = "NAME")]
+    symbol: Option<String>,
+
+    /// Maximum number of returned anchors (default: 5, maximum: 12).
+    #[arg(long, value_name = "N", default_value_t = 5, value_parser = clap::value_parser!(usize))]
+    limit: usize,
+
+    #[arg(
+        value_names = ["QUERY", "PATH"],
+        num_args = 0..=2,
+        help = "Plain query and optional repository or subdirectory to search."
+    )]
+    arguments: Vec<String>,
+}
+
+#[derive(Debug, clap::Args)]
+struct SearchOptions {
+    /// Exclude paths from analysis using a Git-style glob; repeat for multiple exclusions.
+    #[arg(long = "exclude", value_name = "GLOB", action = ArgAction::Append)]
+    excludes: Vec<String>,
+
+    /// Rank matching anchors in this source language; repeat for multiple languages.
+    #[arg(long = "language", value_name = "LANGUAGE", action = ArgAction::Append, value_parser = parse_source_language)]
+    languages: Vec<SourceLanguage>,
+
+    /// Prefer matching anchors in this project root; repeat for multiple roots.
+    #[arg(long = "project", value_name = "PATH", action = ArgAction::Append)]
+    projects: Vec<String>,
+
+    /// Total estimated-token budget for returned search anchors (default: 1000).
+    #[arg(long = "budget", value_name = "N", default_value_t = 1_000, value_parser = clap::value_parser!(usize))]
+    budget: usize,
+
+    /// Cache policy: auto, always, files, or manual (default: auto).
+    #[arg(long = "cache", visible_alias = "cache-mode", value_name = "MODE", value_enum, default_value_t = CacheModeOption::Auto)]
+    cache_mode: CacheModeOption,
+
+    /// Refresh only these paths when `--cache files` is selected; repeat as needed.
+    #[arg(long = "cache-file", visible_alias = "changed-file", value_name = "PATH", action = ArgAction::Append)]
+    cache_files: Vec<String>,
+
+    /// Disable all cache reads and writes.
+    #[arg(long = "no-cache", action = ArgAction::SetTrue)]
+    no_cache: bool,
+
+    /// Descend into nested repositories and checked-out submodules.
+    #[arg(long = "recursive", action = ArgAction::SetTrue)]
+    recursive: bool,
+}
+
+impl SearchOptions {
+    fn settings(&self, query: &str, mode: SearchQueryMode) -> MapSettings {
+        MapSettings {
+            excludes: self.excludes.clone(),
+            task_seeds: TaskSeeds {
+                task: (mode == SearchQueryMode::Plain).then(|| query.to_owned()),
+                symbols: if mode == SearchQueryMode::Symbol { vec![query.to_owned()] } else { Vec::new() },
+                languages: self.languages.clone(),
+                projects: self.projects.clone(),
+                ..TaskSeeds::default()
+            },
+            map_tokens: self.budget,
+            cache_mode: if self.no_cache { CacheMode::Disabled } else { self.cache_mode.into() },
+            cache_files: self.cache_files.clone(),
+            recursive: self.recursive,
+            ..MapSettings::default()
+        }
+    }
+
+    fn validate(&self) -> Result<(), ApplicationError> {
+        if self.budget == 0 {
+            return Err(ApplicationError::usage("`--budget` must be greater than zero"));
+        }
+        if self.no_cache && self.cache_mode != CacheModeOption::Auto {
+            return Err(ApplicationError::usage(
+                "`--no-cache` cannot be combined with an explicit `--cache` mode",
+            ));
+        }
+        if self.cache_mode == CacheModeOption::Files && self.cache_files.is_empty() && !self.no_cache {
+            return Err(ApplicationError::usage(
+                "`--cache files` requires at least one `--cache-file` path",
+            ));
+        }
+        if self.cache_files.iter().any(|path| path.trim().is_empty()) {
+            return Err(ApplicationError::usage("`--cache-file` paths must not be empty"));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, clap::Args)]
@@ -1006,6 +1178,7 @@ pub struct CommandRequest {
     pub history: HistorySettings,
     pub map: MapSettings,
     pub context: Option<ContextRequest>,
+    pub search: Option<SearchRequest>,
     pub profile: AnalysisProfile,
     pub output_format: OutputFormat,
     pub color_policy: ColorPolicy,
@@ -1372,6 +1545,34 @@ mod tests {
             ]
         );
         assert_eq!(request.map.task_seeds.search_terms, ["invalidation"]);
+    }
+
+    #[test]
+    fn search_flags_populate_a_typed_request() {
+        let request = CommandRequest::from(
+            Cli::try_parse_from([
+                "dalil",
+                "search",
+                "--symbol",
+                "CacheStore",
+                "src",
+                "--limit",
+                "3",
+                "--budget",
+                "600",
+            ])
+            .expect("search flags parse"),
+        );
+
+        assert_eq!(request.command.name, crate::report::CommandName::Search);
+        assert_eq!(request.command.target.as_deref(), Some("CacheStore"));
+        assert_eq!(request.command.path, PathBuf::from("src"));
+        let search = request.search.expect("search request");
+        assert_eq!(search.query, "CacheStore");
+        assert_eq!(search.mode, SearchQueryMode::Symbol);
+        assert_eq!(search.result_limit, 3);
+        assert_eq!(search.budget, 600);
+        assert_eq!(request.map.task_seeds.symbols, ["CacheStore"]);
     }
 
     #[test]

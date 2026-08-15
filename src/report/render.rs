@@ -200,6 +200,72 @@ impl Render {
         .expect("writing to a string cannot fail");
     }
 
+    pub fn search_markdown(output: &mut String, search: &super::SearchResults) {
+        Render::section_heading(output, "Search results");
+        writeln!(
+            output,
+            "Query: `{}` ({})",
+            utils::escape_inline_code(&search.request.query),
+            search.request.mode.label(),
+        )
+        .expect("writing to a string cannot fail");
+        if search.matches.is_empty() {
+            writeln!(output, "No strong anchors fit this search.").expect("writing to a string cannot fail");
+        }
+        for result in &search.matches {
+            let recommendation = &result.recommendation;
+            let target = match &result.symbol {
+                Some(symbol) => format!("{} `{}`", symbol.kind.label(), utils::escape_inline_code(&symbol.name)),
+                None => "path".to_owned(),
+            };
+            writeln!(
+                output,
+                "{}. `{}` ({target}, {} confidence) — {}",
+                recommendation.ordinal,
+                utils::escape_inline_code(&recommendation.path),
+                recommendation.confidence.label(),
+                utils::sanitize_text(&recommendation.reason),
+            )
+            .expect("writing to a string cannot fail");
+            let evidence = recommendation
+                .evidence_kinds
+                .iter()
+                .map(|kind| kind.label())
+                .collect::<Vec<_>>()
+                .join(", ");
+            writeln!(output, "   Evidence: {evidence}; score {}", result.score)
+                .expect("writing to a string cannot fail");
+            if result.anchor {
+                writeln!(output, "   Direct lexical anchor for the next read.")
+                    .expect("writing to a string cannot fail");
+            }
+            for limitation in &recommendation.limitations {
+                writeln!(output, "   Limitation: {}", utils::sanitize_text(limitation))
+                    .expect("writing to a string cannot fail");
+            }
+        }
+        if let Some(shortfall) = &search.shortfall {
+            writeln!(
+                output,
+                "Shortfall: {} of {} requested anchors — {}",
+                shortfall.returned,
+                shortfall.requested,
+                utils::sanitize_text(&shortfall.reason),
+            )
+            .expect("writing to a string cannot fail");
+        }
+        writeln!(
+            output,
+            "Search budget: {} of {} estimated tokens; {} of {} candidate anchors returned.",
+            search.budget.estimated_tokens,
+            search.budget.token_budget,
+            search.budget.returned,
+            search.budget.total_candidates,
+        )
+        .expect("writing to a string cannot fail");
+        Render::caveats(output, &search.limitations);
+    }
+
     fn orientation_recommendations(
         output: &mut String, heading: &str, recommendations: &[super::ReadingRecommendation],
     ) {

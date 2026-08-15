@@ -60,7 +60,7 @@ pub fn language_provenance(map: Option<&MapReport>) -> BTreeMap<String, Language
 
 pub fn report_quality(
     history: Option<&HistoryReport>, map: Option<&MapReport>, reading_plan: Option<&ReadingPlan>,
-    explain: Option<&ExplainReport>, command: CommandName, options: &map::MapSettings,
+    explain: Option<&ExplainReport>, search: Option<&SearchResults>, command: CommandName, options: &map::MapSettings,
 ) -> ReportQuality {
     let stale = map.is_some_and(|report| report.cache.status == CacheStatus::Stale || !report.cache.stale.is_empty());
     let map_collections = map.map(|report| {
@@ -112,7 +112,7 @@ pub fn report_quality(
                 .any(|limitation| limitation.contains("resource limit") || limitation.contains("elapsed-work limit"))
         });
     let unsafe_paths = map.is_some_and(|report| report.availability.unsafe_paths > 0);
-    let relevant_paths = relevant_map_paths(map, reading_plan, explain, command, options);
+    let relevant_paths = relevant_map_paths(map, reading_plan, explain, search, command, options);
     let unsupported = map.is_some_and(|report| {
         report
             .availability
@@ -175,8 +175,8 @@ fn expected_projection(summary: &CollectionSummary) -> bool {
 }
 
 fn relevant_map_paths(
-    map: Option<&MapReport>, reading_plan: Option<&ReadingPlan>, explain: Option<&ExplainReport>, command: CommandName,
-    options: &map::MapSettings,
+    map: Option<&MapReport>, reading_plan: Option<&ReadingPlan>, explain: Option<&ExplainReport>,
+    search: Option<&SearchResults>, command: CommandName, options: &map::MapSettings,
 ) -> BTreeSet<String> {
     let Some(map) = map else {
         return BTreeSet::new();
@@ -191,6 +191,9 @@ fn relevant_map_paths(
     }
     if let Some(explain) = explain {
         paths.extend(explain.matched_paths.iter().cloned());
+    }
+    if let Some(search) = search {
+        paths.extend(search.matches.iter().map(|result| result.recommendation.path.clone()));
     }
     for path in &map.files {
         let path_focus = options
@@ -220,7 +223,7 @@ fn relevant_map_paths(
     }
 
     let has_explicit_focus = !options.focuses.is_empty() || !options.focus_paths.is_empty();
-    let has_selection_context = reading_plan.is_some() || explain.is_some();
+    let has_selection_context = reading_plan.is_some() || explain.is_some() || search.is_some();
     if !has_selection_context && !has_explicit_focus {
         paths.extend(map.files.iter().map(|file| file.path.clone()));
         paths.extend(map.availability.unsupported_path_names.iter().cloned());

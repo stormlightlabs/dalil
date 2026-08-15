@@ -11,11 +11,19 @@ Start in the Git worktree you want to understand:
 ```sh
 dalil
 dalil orient
+dalil map
+dalil context --task 'fix parser cache invalidation' --changed-path src/map/cache.rs
+dalil impact --revision-range 'HEAD~1..HEAD'
+dalil search parser
+dalil explain src/map.rs
 ```
 
 Both commands return the same orientation report: repository identity, first
 reads, project roots, runtime entry points, tests, useful history, and any
 limitations that affect the result.
+
+`dalil search --symbol CacheStore` performs an exact symbol lookup. Use
+`dalil history` after these workflows when you need focused Git evidence.
 
 ## Task Briefing Rank
 
@@ -41,9 +49,25 @@ dalil explain Parser --focus Parser --json
 
 `--budget` limits ranked map selection and compact Markdown output. For
 `dalil context`, it applies to the selected evidence across the whole context
-bundle. Add `--teach` when you want a source-grounded reading sequence for an
-unfamiliar subsystem. Exact focus paths can include a classified `bin/` entry
-within the normal safety limits.
+bundle. Search applies its result limit and token budget to one anchor set.
+Add `--teach` when you want a source-grounded reading sequence for an unfamiliar
+subsystem. Exact focus paths can include a classified `bin/` entry within the
+normal safety limits.
+
+## Search before reading source
+
+Use a plain query for a path or concept. Use `--symbol NAME` when you know the
+exact identifier:
+
+```sh
+dalil search parser
+dalil search --symbol CacheStore --json
+dalil search cache --limit 3 --budget 600
+```
+
+Each result explains why it is an anchor and records its evidence, confidence,
+and limitations. Search can add one direct lexical file or test anchor. It does
+not expose caller, callee, centrality, traversal, or graph-query modes.
 
 ## Choose an output format
 

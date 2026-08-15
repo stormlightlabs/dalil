@@ -35,6 +35,7 @@
         "explain": { "type": ["object", "null"] },
         "context": { "$ref": "#/$defs/context_bundle" },
         "impact": { "$ref": "#/$defs/impact_report" },
+        "search": { "$ref": "#/$defs/search_results" },
         "orientation": { "$ref": "#/$defs/orientation_report" }
       },
       "additionalProperties": true
@@ -43,7 +44,7 @@
       "type": "object",
       "required": ["name"],
       "properties": {
-        "name": { "enum": ["briefing", "orient", "map", "history", "explain", "context", "impact"] },
+        "name": { "enum": ["briefing", "orient", "map", "history", "explain", "context", "impact", "search"] },
         "operation": { "enum": ["churn", "contributors", "bugs", "activity", "firefighting"] },
         "target": { "type": "string" }
       },
@@ -105,6 +106,72 @@
           },
           "additionalProperties": false
         }
+      },
+      "additionalProperties": false
+    },
+    "search_results": {
+      "type": "object",
+      "required": ["request", "matches", "budget"],
+      "properties": {
+        "request": {
+          "type": "object",
+          "required": ["repository", "query", "mode", "result_limit", "budget", "profile"],
+          "properties": {
+            "repository": { "type": "string" },
+            "query": { "type": "string", "minLength": 1 },
+            "mode": { "enum": ["plain", "symbol"] },
+            "result_limit": { "type": "integer", "minimum": 1, "maximum": 12 },
+            "budget": { "type": "integer", "minimum": 1 },
+            "profile": { "enum": ["compact", "evidence"] }
+          },
+          "additionalProperties": false
+        },
+        "matches": { "type": "array", "items": { "$ref": "#/$defs/search_match" } },
+        "budget": { "$ref": "#/$defs/search_budget" },
+        "shortfall": { "$ref": "#/$defs/search_shortfall" },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "search_match": {
+      "type": "object",
+      "required": ["ordinal", "purpose", "path", "project_root", "reason", "evidence_kinds", "confidence", "target", "score", "anchor"],
+      "properties": {
+        "ordinal": { "type": "integer", "minimum": 1 },
+        "purpose": { "enum": ["start_here", "architecture", "runtime", "tests", "supporting_context"] },
+        "path": { "type": "string" },
+        "project_root": { "type": ["string", "null"] },
+        "reason": { "type": "string" },
+        "evidence_kinds": { "type": "array", "items": { "enum": ["landmark", "project_topology", "source_map", "graph", "focus", "history_overlap"] } },
+        "confidence": { "enum": ["high", "medium", "low"] },
+        "limitations": { "type": "array", "items": { "type": "string" } },
+        "target": { "enum": ["path", "symbol"] },
+        "symbol": { "type": ["object", "null"] },
+        "score": { "type": "integer", "minimum": 0 },
+        "anchor": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "search_budget": {
+      "type": "object",
+      "required": ["token_budget", "result_limit", "total_candidates", "returned", "estimated_tokens", "truncated"],
+      "properties": {
+        "token_budget": { "type": "integer", "minimum": 1 },
+        "result_limit": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "total_candidates": { "type": "integer", "minimum": 0 },
+        "returned": { "type": "integer", "minimum": 0 },
+        "estimated_tokens": { "type": "integer", "minimum": 0 },
+        "truncated": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "search_shortfall": {
+      "type": "object",
+      "required": ["requested", "returned", "reason"],
+      "properties": {
+        "requested": { "type": "integer", "minimum": 1 },
+        "returned": { "type": "integer", "minimum": 0 },
+        "reason": { "type": "string" }
       },
       "additionalProperties": false
     },

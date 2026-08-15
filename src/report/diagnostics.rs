@@ -28,6 +28,10 @@ impl CommandDescriptor {
         Self { name: CommandName::Explain, operation: None, target: Some(target), path }
     }
 
+    pub fn search(query: String, path: PathBuf) -> Self {
+        Self { name: CommandName::Search, operation: None, target: Some(query), path }
+    }
+
     pub fn context(path: PathBuf) -> Self {
         Self { name: CommandName::Context, operation: None, target: None, path }
     }

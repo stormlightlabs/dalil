@@ -170,6 +170,12 @@ pub(super) fn render_report(report: &Report) -> Result<String, ReportError> {
             .chain(&orientation.next_reads)
             .map(recommendation_card)
             .collect()
+    } else if let Some(search) = &report.search {
+        search
+            .matches
+            .iter()
+            .map(|result| recommendation_card(&result.recommendation))
+            .collect()
     } else {
         Vec::new()
     };
@@ -605,6 +611,10 @@ fn command_text(report: &Report) -> String {
         ),
         CommandName::Context => format!("dalil context --format html {path}"),
         CommandName::Impact => format!("dalil impact --format html {path}"),
+        CommandName::Search => format!(
+            "dalil search {} --format html {path}",
+            report.command.target.as_deref().unwrap_or("query")
+        ),
     }
 }
 

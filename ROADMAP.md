@@ -117,6 +117,8 @@ dalil orient [OPTIONS] [PATH]
 dalil map [OPTIONS] [PATH]
 dalil context [OPTIONS] [PATH]
 dalil impact [OPTIONS] [PATH]
+dalil search <QUERY> [OPTIONS] [PATH]
+dalil search --symbol <NAME> [OPTIONS] [PATH]
 dalil explain [OPTIONS] <PATH-OR-SYMBOL> [PATH]
 dalil history [OPTIONS] [PATH]
 dalil history <churn|contributors|bugs|activity|firefighting> [OPTIONS] [PATH]
@@ -172,7 +174,9 @@ limitations where those fields fit. Each operation can add the information its
 question needs without creating parallel meanings for the same ideas. `orient`
 answers where to start, `context` answers what matters to a task, `impact`
 answers what surrounds a change, and `search` anchors a path, symbol, or
-concept. `explain` expands the evidence behind one selected recommendation.
+concept. Plain search accepts one query; `search --symbol NAME` performs an exact
+lookup against retained syntax evidence. `explain` expands the evidence behind one
+selected recommendation.
 
 ### Orientation Briefing
 
@@ -405,12 +409,19 @@ Rendering stays outside the analysis core where practical. The compiled CLI
 remains the highest-level black-box compatibility boundary even after a library
 API is available.
 
+Implement the operations in a `dalil-core` workspace crate. The root `dalil`
+package remains the CLI package, owns request parsing and rendering, and
+preserves `cargo install dalil`. Its dependency on `dalil-core` points inward;
+the core does not depend on CLI, transport, or protocol code.
+
 ### Agent Interfaces
 
 - The CLI remains the universal interface for humans, shell-capable agents,
   scripts, CI, unsupported hosts, and integration debugging.
-- MCP exposes the primary workflows, including the bounded repository map, and
-  preserves response budgets, provenance, uncertainty, and quality metadata.
+- A separate MCP workspace crate exposes the primary workflows, including the
+  bounded repository map, and preserves response budgets, provenance,
+  uncertainty, and quality metadata. MCP protocol and runtime dependencies stay
+  in that crate.
 - Native hosts prefer the core library when they can pass task text, inspected
   files, edited files, identifiers, budget, and worktree changes directly.
 
@@ -421,7 +432,10 @@ reading source.
 Lifecycle adapters may offer a small orientation notice at session start, pass
 typed task hints before exploration, invalidate or refresh analysis after edits,
 and request impact context at the review boundary. Hooks remain advisory and
-bounded, and they do not inject a large report after every write.
+bounded, and they do not inject a large report after every write. Add a
+workspace crate for a named host only when its adapter brings protocol or runtime
+dependencies or needs a separate executable boundary. The agent skill remains a
+packaged asset rather than a Rust crate.
 
 ## Technical Plan
 
@@ -436,6 +450,9 @@ bounded, and they do not inject a large report after every write.
   lexical ranking, report models, and rendering.
 - Build every report from typed intermediates. Do not parse rendered Markdown
   or duplicate analysis for different interfaces.
+- Keep workspace dependencies directed from CLI, MCP, and approved host adapter
+  crates into `dalil-core`. Package publishable crates in dependency order while
+  keeping `dalil` as the CLI installation package.
 - Add dependencies only for reviewed grammar support or when the standard
   library and current stack are insufficient.
 
@@ -490,7 +507,7 @@ cargo check --workspace --all-targets --all-features
 cargo test --workspace --all-features
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
-cargo package --locked
+cargo package --workspace --exclude xtask --locked
 cargo release-assets
 ```
 

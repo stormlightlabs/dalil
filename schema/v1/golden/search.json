@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "profile": "compact",
+  "limits": {
+    "max_files": 4096,
+    "max_file_bytes": 1048576,
+    "max_total_bytes": 67108864,
+    "max_syntax_depth": 2048,
+    "max_symbols_per_file": 128,
+    "max_symbols": 20000,
+    "max_candidates_per_reference": 32,
+    "max_edges": 2000,
+    "max_findings": 2000,
+    "max_commits": 100000,
+    "max_history_evidence": 128,
+    "max_elapsed_ms": 30000,
+    "max_output_bytes": 8388608,
+    "max_landmarks": 64,
+    "max_project_roots": 32
+  },
+  "command": { "name": "search", "target": "cache" },
+  "scope": { "selected_path": "." },
+  "status": "analyzed",
+  "summary": "Found one search anchor.",
+  "quality": {},
+  "findings": [],
+  "limitations": [],
+  "search": {
+    "request": {
+      "repository": "/fixture",
+      "query": "cache",
+      "mode": "plain",
+      "result_limit": 5,
+      "budget": 1000,
+      "profile": "compact"
+    },
+    "matches": [],
+    "budget": {
+      "token_budget": 1000,
+      "result_limit": 5,
+      "total_candidates": 1,
+      "returned": 0,
+      "estimated_tokens": 0,
+      "truncated": true
+    },
+    "shortfall": {
+      "requested": 5,
+      "returned": 0,
+      "reason": "fixture"
+    },
+    "limitations": []
+  }
+}

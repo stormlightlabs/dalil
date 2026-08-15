@@ -17,26 +17,8 @@ padding the result with weak files.
 
 ### T3 — Turn explanations into reading guidance
 
-**Outcome:** `explain` tells the user why to read an item, what evidence supports
+`explain` tells the user why to read an item, what evidence supports
 it, and what to inspect next.
-
-**Blocked by:** T1 and T2.
-
-**Acceptance criteria:**
-
-- [x] Report the strongest ranking contributions, confidence, provenance, and
-      relevant relationships for each recommendation.
-- [x] Suggest a next file or symbol using the same bounded selection rules.
-- [x] Provide an entry-point-to-subsystem walkthrough when the evidence supports
-      one.
-- [x] Include concise recent-commit context when it materially changes the
-      recommendation.
-- [x] State ambiguity, unsupported languages, omissions, and budget truncation
-      beside the affected guidance.
-- [x] Keep Markdown and JSON semantically equivalent.
-
-**Verification:** JSON and Markdown fixtures cover strong, ambiguous, partial,
-and budget-limited guidance; run the focused report and CLI fixture tests.
 
 ## Milestone: Task-oriented context bundles
 
@@ -46,45 +28,13 @@ relationships, tests, history, uncertainty, and next reads.
 
 ### T4 — Deliver the context bundle end to end
 
-**Outcome:** One typed request and one typed result serve orientation,
+One typed request and one typed result serve orientation,
 implementation, debugging, refactoring, and review workflows.
-
-**Blocked by:** T2 and T3.
-
-**Acceptance criteria:**
-
-- [x] Define a typed request for repository, task text, symbols, paths,
-      projects, changes, revision context, budget, and output profile.
-- [x] Define a typed result containing orientation, ranked files and symbols,
-      relationships, relevant tests, history, risks, uncertainty, provenance,
-      omissions, and next reads.
-- [x] Keep graph, parser, history, manifest, and cache details behind the
-      request/result boundary unless a consumer needs them.
-- [x] Expose the operation through the CLI in Markdown and JSON without
-      breaking existing commands or schema compatibility promises.
-- [x] Apply one total budget across all sections and prefer useful evidence over
-      fixed per-section quotas.
-- [x] Produce the same semantics from cold and valid warm analysis state.
-
-**Verification:** Add unit tests for request normalization and composition,
-schema fixtures for the result, and black-box CLI tests for each request mode.
 
 ### T5 — Add a source-based teaching scaffold
 
-**Outcome:** A context bundle can optionally explain an unfamiliar subsystem in
+A context bundle can optionally explain an unfamiliar subsystem in
 a concise sequence grounded in repository evidence.
-
-**Blocked by:** T4.
-
-**Acceptance criteria:**
-
-- [x] Build the scaffold only from returned files, symbols, relationships,
-      manifests, and history evidence.
-- [x] Cover where execution or behavior starts, the main control flow, state or
-      data boundaries, relevant tests, and the next useful read.
-- [x] Distinguish observed evidence from inferred ordering.
-- [x] Omit unsupported sections instead of inventing a complete narrative.
-- [x] Keep the scaffold within the request's total token budget.
 
 **Verification:** Added fixtures for a clear entry flow, multiple plausible
 entry points, and insufficient evidence. The CLI fixture verifies that every
@@ -98,52 +48,13 @@ dependencies, relevant tests, ownership, and history.
 
 ### T6 — Resolve change inputs safely
 
-**Outcome:** Callers can name a revision range or dirty worktree without losing
+Callers can name a revision range or dirty worktree without losing
 read-only guarantees or receiving an ambiguous change set.
-
-**Blocked by:** T4.
-
-**Acceptance criteria:**
-
-- [x] Accept base/head revisions, a revision range, or dirty-worktree state
-      through typed request fields and CLI options.
-- [x] Resolve renamed, added, deleted, modified, and untracked paths without
-      following paths outside repository scope.
-- [x] Derive changed symbols from bounded syntax and line evidence where the
-      language pack supports it.
-- [x] Report unresolved revisions, unsupported files, truncation, and partial
-      work as typed uncertainty.
-- [x] Keep all reads local and never invoke repository-controlled filters,
-      hooks, programs, or remotes.
-
-**Verification:** Unit and black-box coverage exercises range and dirty-worktree
-resolution, cache safety, detached revisions, and unsupported paths. The resolver
-uses isolated `gix` access and reports missing objects or unsafe tree/index paths
-in `change_resolution.uncertainty`.
 
 ### T7 — Return impact context
 
-**Outcome:** Reviewers receive evidence-backed inspection targets around a
+Reviewers receive evidence-backed inspection targets around a
 change without a prediction that the change will break them.
-
-**Blocked by:** T6.
-
-**Acceptance criteria:**
-
-- [x] Return changed symbols, directly related files and symbols, likely tests,
-      ownership signals, and relevant history under one total budget.
-- [x] Rank impact candidates by task relevance and evidence strength rather
-      than returning every reachable graph node.
-- [x] Label lexical, structural, manifest, and history relationships by evidence
-      type and confidence.
-- [x] Avoid compiler-grade claims such as definitive caller, callee, or breakage
-      when the evidence does not establish them.
-- [x] Expose impact context through the same CLI and typed context operation.
-
-**Verification:** Black-box coverage exercises implementation, test-only,
-shared-library manifest, ambiguous-symbol, and unsupported-language changes,
-along with ownership, history, and budget evidence. Existing change-resolution
-and cache-safety tests cover the shared local resolver.
 
 ## Milestone: Primary CLI workflows
 
@@ -153,33 +64,8 @@ or caches.
 
 ### R2 — Add first-class orientation
 
-**Outcome:** `dalil` and `dalil orient` give a concise, typed answer about where
+`dalil` and `dalil orient` give a concise, typed answer about where
 to start without exposing the complete repository analysis by default.
-
-**Blocked by:** T7.
-
-**Acceptance criteria:**
-
-- [x] Define `OrientationReport` around repository identity, starting points,
-      important roots, runtime entry points, tests, useful history, next reads,
-      and uncertainty.
-- [x] Make `dalil` and `dalil orient` return semantically equivalent
-      `OrientationReport` values in Markdown and JSON.
-- [x] Keep complete file, symbol, edge, history, ranking, and parser evidence
-      behind `map`, focused evidence commands, or internal analysis boundaries.
-- [x] Build orientation from typed analysis results rather than parsing or
-      projecting rendered output.
-- [x] Preserve schema compatibility through an additive revision or a new
-      schema version where field meanings change.
-- [x] Organize CLI help around `orient`, `map`, `context`, `impact`, `search`,
-      and `explain`, with focused history inspection and maintenance commands in
-      secondary groups.
-- [x] Keep existing command lines compatible and document orientation using
-      the same terminology and options shown by CLI help.
-
-**Verification:** Root and `orient` integration coverage compares JSON and
-Markdown output byte-for-byte, exercises help and dispatch, and confirms the
-default result omits raw map, history, and reading-plan collections.
 
 ### R3 — Add bounded search
 
@@ -190,31 +76,31 @@ subsequent context request or source read.
 
 **Acceptance criteria:**
 
-- [ ] Accept plain queries and an explicit symbol query through the CLI and
+- [x] Accept plain queries and an explicit symbol query through the CLI and
       typed operation.
-- [ ] Return a small ranked set of matching paths and symbols with a reason,
+- [x] Return a small ranked set of matching paths and symbols with a reason,
       evidence, confidence, and limitations for each result.
-- [ ] Reuse the recommendation fields already needed by orientation, context,
+- [x] Reuse the recommendation fields already needed by orientation, context,
       impact, and explain where they fit instead of introducing parallel result
       meanings.
-- [ ] Include a directly related file or test only when it helps anchor the
+- [x] Include a directly related file or test only when it helps anchor the
       next read.
-- [ ] Apply one result and token budget with deterministic ordering and an
+- [x] Apply one result and token budget with deterministic ordering and an
       explicit shortfall when strong matches do not exist.
-- [ ] Do not expose graph traversal, callers, paths, centrality, or a general
+- [x] Do not expose graph traversal, callers, paths, centrality, or a general
       graph query language as public search modes.
-- [ ] Lead the quick start with orientation, repository mapping, task context,
+- [x] Lead the quick start with orientation, repository mapping, task context,
       change impact, search, and explanation examples.
-- [ ] Keep focused `history` usage in an evidence-inspection section while
+- [x] Keep focused `history` usage in an evidence-inspection section while
       retaining its documented behavior.
-- [ ] Keep README usage concise and link to detailed guides where needed.
-- [ ] Keep help, README examples, generated man pages, and completions aligned
+- [x] Keep README usage concise and link to detailed guides where needed.
+- [x] Keep help, README examples, generated man pages, and completions aligned
       with the packaged command surface.
 
-**Verification:** Add Markdown and JSON fixtures for path, symbol, concept,
-ambiguous, missing, and budget-limited queries. Run the documented workflows
-against the compiled CLI and verify generated help, man pages, and completions
-use the same commands and option spelling.
+**Verification:** CLI coverage exercises path, exact-symbol, concept,
+ambiguous-symbol, missing, and budget-limited queries in Markdown and JSON.
+The release-asset generator verifies help, man pages, and completions use the
+packaged command and option spelling.
 
 ## Milestone: Incremental analysis
 
@@ -284,8 +170,13 @@ depending on CLI parsing or renderer internals.
 
 - [ ] Expose orientation, map, context, impact, explain, search, capabilities,
       and cache operations through typed inputs and outputs.
+- [ ] Extract analysis and reusable storage into a `dalil-core` workspace crate.
+      Keep the root `dalil` package as the CLI package and preserve
+      `cargo install dalil`.
 - [ ] Separate analysis, storage, rendering, and transport boundaries while
       reusing current domain types where they already fit.
+- [ ] Keep dependencies directed from the CLI into `dalil-core`; the core must
+      not depend on CLI parsing, rendering, transport, or protocol code.
 - [ ] Keep internal graph and parser structures private unless a demonstrated
       consumer needs them.
 - [ ] Define cancellation, progress, budget, warning, and error behavior for
@@ -304,6 +195,8 @@ tool surface.
 
 **Acceptance criteria:**
 
+- [ ] Implement MCP as a separate workspace crate that depends on `dalil-core`,
+      keeping MCP protocol and runtime dependencies out of the core and CLI.
 - [ ] Map MCP tools to orientation, repository map, context, impact, explain, search,
       capabilities, and cache-status operations.
 - [ ] Keep responses task-oriented and bounded; do not expose an exhaustive
@@ -356,6 +249,8 @@ at useful lifecycle points without hidden background behavior.
       daemon.
 - [ ] Add only adapters with a named host, demonstrated demand, and a stable
       integration boundary.
+- [ ] Give an approved adapter its own workspace crate only when it adds
+      protocol or runtime dependencies or has a separate executable boundary.
 - [ ] Preserve identical analysis semantics across native, CLI, and MCP paths.
 
 **Verification:** For each approved adapter, add lifecycle, cancellation,
@@ -561,6 +456,8 @@ package from the audited source.
 - [ ] Produce checksummed archives for every supported distribution target.
 - [ ] Confirm packaged completions, man pages, licenses, schemas, and agent
       instructions match the candidate binary.
+- [ ] Package publishable workspace crates in dependency order while preserving
+      `cargo install dalil` as the CLI installation path.
 - [ ] Confirm a clean rebuild reproduces the expected package contents and
       metadata.
 
