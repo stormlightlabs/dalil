@@ -31,6 +31,10 @@ impl CommandDescriptor {
     pub fn context(path: PathBuf) -> Self {
         Self { name: CommandName::Context, operation: None, target: None, path }
     }
+
+    pub fn impact(path: PathBuf) -> Self {
+        Self { name: CommandName::Impact, operation: None, target: None, path }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

@@ -605,6 +605,7 @@ fn command_text(report: &Report) -> String {
             report.command.target.as_deref().unwrap_or("target")
         ),
         CommandName::Context => format!("dalil context --format html {path}"),
+        CommandName::Impact => format!("dalil impact --format html {path}"),
     }
 }
 

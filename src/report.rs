@@ -1,6 +1,7 @@
 mod analysis;
 mod context;
 mod html;
+mod impact;
 mod model;
 mod render;
 #[cfg(test)]

@@ -50,6 +50,7 @@ dalil explain src/map.rs --json
 dalil explain Parser --focus Parser --json
 dalil context --task 'fix parser cache invalidation' --changed-path src/map/cache.rs --teach --json
 dalil context --task 'review the last change' --revision-range 'HEAD~1..HEAD' --json
+dalil impact --revision-range 'HEAD~1..HEAD' --json
 dalil capabilities --json
 dalil doctor . --json
 ```
@@ -251,6 +252,25 @@ records direct observations and labels its reading order as `inferred` or
 quotas. The result's `context.budget` describes the estimated token use and any
 projection. If the scaffold cannot fit with the selected source evidence, it is
 omitted and the budget is marked truncated.
+
+### `dalil impact [OPTIONS] [PATH]`
+
+`impact` uses the same local revision and dirty-worktree inputs as `context` to
+prepare a bounded review list around a change:
+
+```sh
+dalil impact --revision-range 'HEAD~1..HEAD'
+dalil impact --dirty-worktree --task 'review parser changes' --json
+```
+
+The report includes changed symbols, inspection targets, likely tests,
+ownership configuration, and relevant path history under one budget. Every
+relationship is labeled as lexical, structural, manifest, or history evidence
+with a confidence tier. A relationship is evidence to inspect, not a claim that
+one path definitively calls another or that the change will break code.
+
+`impact` reads revisions through Dalil's embedded Git library. It never invokes
+Git, hooks, filters, repository programs, or remotes.
 
 ### `dalil history [OPERATION] [OPTIONS] [PATH]`
 

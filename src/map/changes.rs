@@ -119,15 +119,25 @@ pub fn enrich_change_symbols(resolution: &mut ChangeResolution, map: &MapReport)
             continue;
         }
         let Some(source) = sources.iter().find(|source| source.path == change.path) else {
-            if !map.omissions.iter().any(|omission| omission.path == change.path) {
-                resolution.uncertainty.push(change_uncertainty(
-                    "unsupported_or_unavailable",
-                    format!(
-                        "`{}` was changed but was not available to the bounded source parser.",
-                        change.path
-                    ),
-                ));
+            let omission = map.omissions.iter().find(|omission| omission.path == change.path);
+            if omission.is_some_and(|omission| {
+                matches!(
+                    omission.reason,
+                    OmissionReason::IgnoredUntracked | OmissionReason::NonSource
+                )
+            }) {
+                continue;
             }
+            let detail = omission
+                .map(|omission| format!(" {}", omission.detail))
+                .unwrap_or_default();
+            resolution.uncertainty.push(change_uncertainty(
+                "unsupported_or_unavailable",
+                format!(
+                    "`{}` was changed but was not available to the bounded source parser.{detail}",
+                    change.path
+                ),
+            ));
             continue;
         };
         if change.changed_lines.is_empty() {

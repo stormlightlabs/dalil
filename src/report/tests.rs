@@ -22,6 +22,7 @@ fn markdown_escapes_report_content_that_could_add_control_sequences() {
         map: None,
         explain: None,
         context: None,
+        impact: None,
     };
 
     let markdown = report.render(OutputFormat::Markdown).expect("markdown renders");
@@ -56,6 +57,7 @@ fn compact_markdown_applies_the_map_token_budget_to_the_whole_report() {
         map: None,
         explain: None,
         context: None,
+        impact: None,
     };
 
     let markdown = report.render(OutputFormat::Markdown).expect("markdown renders");
@@ -96,6 +98,7 @@ fn evidence_markdown_is_not_projected_to_the_compact_token_budget() {
         map: None,
         explain: None,
         context: None,
+        impact: None,
     };
 
     let markdown = report.render(OutputFormat::Markdown).expect("markdown renders");
@@ -124,6 +127,7 @@ fn html_is_embedded_deterministic_and_escapes_report_content() {
         map: None,
         explain: None,
         context: None,
+        impact: None,
     };
 
     let first = report.render(OutputFormat::Html).expect("HTML renders");
@@ -161,10 +165,16 @@ fn schema_and_golden_v1_corpus_cover_all_report_variants() {
     );
     assert!(schema["$defs"]["analysis_report"]["properties"]["reading_plan"].is_object());
     assert!(schema["$defs"]["analysis_report"]["properties"]["context"].is_object());
+    assert!(schema["$defs"]["analysis_report"]["properties"]["impact"].is_object());
     assert!(
         schema["$defs"]["command"]["properties"]["name"]
             .to_string()
             .contains("context")
+    );
+    assert!(
+        schema["$defs"]["command"]["properties"]["name"]
+            .to_string()
+            .contains("impact")
     );
 
     let analysis = [
@@ -376,6 +386,7 @@ fn explain_guidance_retains_full_evidence_and_renders_every_guidance_kind() {
         map: None,
         explain: Some(explain),
         context: None,
+        impact: None,
     };
     let markdown = report
         .render(OutputFormat::Markdown)

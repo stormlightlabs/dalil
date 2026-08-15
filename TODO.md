@@ -130,19 +130,20 @@ change without a prediction that the change will break them.
 
 **Acceptance criteria:**
 
-- [ ] Return changed symbols, directly related files and symbols, likely tests,
+- [x] Return changed symbols, directly related files and symbols, likely tests,
       ownership signals, and relevant history under one total budget.
-- [ ] Rank impact candidates by task relevance and evidence strength rather
+- [x] Rank impact candidates by task relevance and evidence strength rather
       than returning every reachable graph node.
-- [ ] Label lexical, structural, manifest, and history relationships by evidence
+- [x] Label lexical, structural, manifest, and history relationships by evidence
       type and confidence.
-- [ ] Avoid compiler-grade claims such as definitive caller, callee, or breakage
+- [x] Avoid compiler-grade claims such as definitive caller, callee, or breakage
       when the evidence does not establish them.
-- [ ] Expose impact context through the same CLI and typed context operation.
+- [x] Expose impact context through the same CLI and typed context operation.
 
-**Verification:** Add black-box fixtures for implementation changes, test-only
-changes, shared-library changes, ambiguous symbols, and unsupported languages;
-run security and budget tests.
+**Verification:** Black-box coverage exercises implementation, test-only,
+shared-library manifest, ambiguous-symbol, and unsupported-language changes,
+along with ownership, history, and budget evidence. Existing change-resolution
+and cache-safety tests cover the shared local resolver.
 
 ## Milestone: Primary CLI workflows
 

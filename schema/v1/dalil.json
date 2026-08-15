@@ -33,7 +33,8 @@
         "history": { "type": ["object", "null"] },
         "map": { "type": ["object", "null"] },
         "explain": { "type": ["object", "null"] },
-        "context": { "$ref": "#/$defs/context_bundle" }
+        "context": { "$ref": "#/$defs/context_bundle" },
+        "impact": { "$ref": "#/$defs/impact_report" }
       },
       "additionalProperties": true
     },
@@ -41,7 +42,7 @@
       "type": "object",
       "required": ["name"],
       "properties": {
-        "name": { "enum": ["briefing", "map", "history", "explain", "context"] },
+        "name": { "enum": ["briefing", "map", "history", "explain", "context", "impact"] },
         "operation": { "enum": ["churn", "contributors", "bugs", "activity", "firefighting"] },
         "target": { "type": "string" }
       },
@@ -93,6 +94,31 @@
         "omissions": { "type": "array", "items": { "type": "object" } },
         "next_reads": { "type": "array", "items": { "$ref": "#/$defs/reading_recommendation" } },
         "teaching": { "$ref": "#/$defs/teaching_scaffold" },
+        "budget": {
+          "type": "object",
+          "required": ["token_budget", "estimated_tokens", "truncated"],
+          "properties": {
+            "token_budget": { "type": "integer", "minimum": 1 },
+            "estimated_tokens": { "type": "integer", "minimum": 0 },
+            "truncated": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "impact_report": {
+      "type": "object",
+      "required": ["request", "change_resolution", "targets", "relationships", "likely_tests", "ownership", "history", "uncertainty", "budget"],
+      "properties": {
+        "request": { "type": "object" },
+        "change_resolution": { "$ref": "#/$defs/change_resolution" },
+        "targets": { "type": "array", "items": { "type": "object" } },
+        "relationships": { "type": "array", "items": { "type": "object" } },
+        "likely_tests": { "type": "array", "items": { "type": "object" } },
+        "ownership": { "type": "array", "items": { "type": "object" } },
+        "history": { "type": "array", "items": { "type": "object" } },
+        "uncertainty": { "type": "array", "items": { "type": "object" } },
         "budget": {
           "type": "object",
           "required": ["token_budget", "estimated_tokens", "truncated"],

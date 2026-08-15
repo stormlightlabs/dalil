@@ -160,6 +160,7 @@ pub enum CommandName {
     History,
     Explain,
     Context,
+    Impact,
 }
 
 impl CommandName {
@@ -170,6 +171,7 @@ impl CommandName {
             Self::History => "history",
             Self::Explain => "explain",
             Self::Context => "context",
+            Self::Impact => "impact",
         }
     }
 }
@@ -1094,6 +1096,8 @@ pub struct Report {
     pub explain: Option<ExplainReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<ContextBundle>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub impact: Option<ImpactReport>,
 }
 
 impl Report {
@@ -1158,27 +1162,8 @@ impl Report {
                 let path = req.command.path.clone();
                 let history_report =
                     history::analyze(&path, req.history.clone(), None, req.profile).map_err(ReportError::History)?;
-                let mut context_request = req.context.clone().unwrap_or(ContextRequest {
-                    repository: path.to_string_lossy().into_owned(),
-                    budget: req.map.map_tokens,
-                    profile: req.profile,
-                    ..ContextRequest::default()
-                });
-                let mut change_resolution =
-                    map::resolve_changes(&path, &context_request.revision_context).map_err(ReportError::Map)?;
-                let mut map_settings = req.map.clone();
-                map_settings.profile = req.profile;
-                map_settings
-                    .task_seeds
-                    .changes
-                    .extend(change_resolution.changes.iter().flat_map(|change| {
-                        std::iter::once(TaskChangeSeed::Path(change.path.clone()))
-                            .chain(change.previous_path.clone().map(TaskChangeSeed::Path))
-                    }));
-                let map_report =
-                    map::analyze_with_history(&path, &map_settings, Some(&history_report)).map_err(ReportError::Map)?;
-                map::enrich_change_symbols(&mut change_resolution, &map_report);
-                context_request.change_resolution = change_resolution.clone();
+                let (context_request, change_resolution, map_report) =
+                    Self::change_evidence(&path, &req, &history_report)?;
                 let context = super::context::compile(context_request, &map_report, &history_report, change_resolution);
                 let summary = format!(
                     "Compiled task context with {} recommended file(s), {} relationship(s), and {} history observation(s).",
@@ -1189,6 +1174,26 @@ impl Report {
                 let mut report =
                     Self::from_parts(req, captured_at, summary, Some(history_report), Some(map_report), None);
                 report.context = Some(context);
+                report.history = None;
+                report.map = None;
+                Ok(report)
+            }
+            CommandName::Impact => {
+                let path = req.command.path.clone();
+                let history_report =
+                    history::analyze(&path, req.history.clone(), None, req.profile).map_err(ReportError::History)?;
+                let (context_request, change_resolution, map_report) =
+                    Self::change_evidence(&path, &req, &history_report)?;
+                let impact = super::impact::compile(context_request, &map_report, &history_report, change_resolution);
+                let summary = format!(
+                    "Compiled impact context with {} inspection target(s), {} relationship(s), and {} likely test(s).",
+                    impact.targets.len(),
+                    impact.relationships.len(),
+                    impact.likely_tests.len(),
+                );
+                let mut report =
+                    Self::from_parts(req, captured_at, summary, Some(history_report), Some(map_report), None);
+                report.impact = Some(impact);
                 report.history = None;
                 report.map = None;
                 Ok(report)
@@ -1217,6 +1222,32 @@ impl Report {
                 ))
             }
         }
+    }
+
+    fn change_evidence(
+        path: &std::path::Path, req: &CommandRequest, history: &HistoryReport,
+    ) -> Result<(ContextRequest, ChangeResolution, MapReport), ReportError> {
+        let mut context_request = req.context.clone().unwrap_or(ContextRequest {
+            repository: path.to_string_lossy().into_owned(),
+            budget: req.map.map_tokens,
+            profile: req.profile,
+            ..ContextRequest::default()
+        });
+        let mut change_resolution =
+            map::resolve_changes(path, &context_request.revision_context).map_err(ReportError::Map)?;
+        let mut map_settings = req.map.clone();
+        map_settings.profile = req.profile;
+        map_settings
+            .task_seeds
+            .changes
+            .extend(change_resolution.changes.iter().flat_map(|change| {
+                std::iter::once(TaskChangeSeed::Path(change.path.clone()))
+                    .chain(change.previous_path.clone().map(TaskChangeSeed::Path))
+            }));
+        let map_report = map::analyze_with_history(path, &map_settings, Some(history)).map_err(ReportError::Map)?;
+        map::enrich_change_symbols(&mut change_resolution, &map_report);
+        context_request.change_resolution = change_resolution.clone();
+        Ok((context_request, change_resolution, map_report))
     }
 
     fn from_parts(
@@ -1317,6 +1348,7 @@ impl Report {
             map,
             explain,
             context: None,
+            impact: None,
         }
     }
 
@@ -1382,6 +1414,9 @@ impl Report {
         if let Some(context) = &self.context {
             Render::context_markdown(&mut output, context);
         }
+        if let Some(impact) = &self.impact {
+            Render::impact_markdown(&mut output, impact);
+        }
 
         if self.command.name == CommandName::Briefing {
             if let Some(map) = &self.map {
@@ -1405,7 +1440,10 @@ impl Report {
             } else if let Some(map) = &self.map {
                 Render::map_markdown(&mut output, map);
             }
-        } else if !matches!(self.command.name, CommandName::Explain | CommandName::Context) {
+        } else if !matches!(
+            self.command.name,
+            CommandName::Explain | CommandName::Context | CommandName::Impact
+        ) {
             if let Some(history) = &self.history {
                 if self.profile == AnalysisProfile::Compact && self.command.operation.is_none() {
                     Render::history_briefing_markdown(&mut output, history);

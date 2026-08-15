@@ -963,6 +963,91 @@ pub struct ContextBudget {
     pub truncated: bool,
 }
 
+/// A bounded, review-oriented view of evidence surrounding resolved local changes.
+/// It identifies inspection targets without claiming semantic callers, callees, or breakage.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ImpactReport {
+    pub request: ContextRequest,
+    pub change_resolution: ChangeResolution,
+    #[serde(default)]
+    pub targets: Vec<ImpactTarget>,
+    #[serde(default)]
+    pub relationships: Vec<ImpactRelationship>,
+    #[serde(default)]
+    pub likely_tests: Vec<ContextTest>,
+    #[serde(default)]
+    pub ownership: Vec<ImpactOwnershipSignal>,
+    #[serde(default)]
+    pub history: Vec<ImpactHistoryEvidence>,
+    #[serde(default)]
+    pub uncertainty: Vec<ContextUncertainty>,
+    pub budget: ContextBudget,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ImpactTarget {
+    pub path: String,
+    #[serde(default)]
+    pub symbols: Vec<ContextSymbol>,
+    #[serde(default)]
+    pub evidence: Vec<ImpactEvidenceKind>,
+    pub confidence: ConfidenceTier,
+    pub score: u64,
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub limitations: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImpactEvidenceKind {
+    Lexical,
+    Structural,
+    Manifest,
+    History,
+}
+
+impl ImpactEvidenceKind {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Lexical => "lexical",
+            Self::Structural => "structural",
+            Self::Manifest => "manifest",
+            Self::History => "history",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ImpactRelationship {
+    pub source: String,
+    pub target: String,
+    pub evidence: ImpactEvidenceKind,
+    pub confidence: ConfidenceTier,
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
+    #[serde(default)]
+    pub ambiguous: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ImpactOwnershipSignal {
+    pub path: String,
+    pub confidence: ConfidenceTier,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ImpactHistoryEvidence {
+    pub path: String,
+    pub evidence: ImpactEvidenceKind,
+    pub confidence: ConfidenceTier,
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commits: Vec<CommitEvidence>,
+}
+
 /// A concise explanation of how to inspect an unfamiliar subsystem. Every
 /// observation references evidence already selected in the context bundle.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]

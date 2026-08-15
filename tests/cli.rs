@@ -2430,6 +2430,179 @@ fn context_resolves_dirty_worktree_paths_and_changed_symbols() {
 }
 
 #[test]
+fn impact_returns_budgeted_change_evidence_without_breakage_claims() {
+    let fixture = MapFixtureRepository::new();
+    fs::create_dir_all(fixture.root.join("tests")).expect("create impact test root");
+    write_file(
+        fixture.root.join("src/one.rs"),
+        b"fn helper() {}\npub fn duplicate() { helper(); let changed = true; let _ = changed; }\n",
+    );
+    write_file(
+        fixture.root.join("src/use.rs"),
+        b"fn use_it() { duplicate(); let changed = true; let _ = changed; }\n",
+    );
+    write_file(
+        fixture.root.join("tests/duplicate.rs"),
+        b"#[test]\nfn duplicate_still_works() { duplicate(); }\n",
+    );
+    write_file(
+        fixture.root.join("Cargo.toml"),
+        b"[package]\nname = \"impact-fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[lib]\npath = \"src/one.rs\"\n",
+    );
+    write_file(fixture.root.join("CODEOWNERS"), b"src/ @maintainers\n");
+
+    let output = fixture.run(&[
+        "impact",
+        "--dirty-worktree",
+        "--task",
+        "review duplicate implementation",
+        "--focus",
+        "duplicate",
+        "--budget",
+        "8000",
+        "--no-cache",
+        "--json",
+    ]);
+    assert!(
+        output.status.success(),
+        "impact failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    let json: Value = serde_json::from_str(&stdout(&output)).expect("valid impact JSON");
+    assert_eq!(json["command"]["name"], "impact");
+    assert!(json["context"].is_null());
+    assert!(json["map"].is_null());
+    assert!(json["history"].is_null());
+    assert!(
+        json["impact"]["change_resolution"]["changes"]
+            .as_array()
+            .is_some_and(|changes| changes.iter().any(|change| {
+                change["path"] == "src/one.rs"
+                    && change["symbols"]
+                        .as_array()
+                        .is_some_and(|symbols| symbols.iter().any(|symbol| symbol["name"] == "duplicate"))
+            }))
+    );
+    assert!(
+        json["impact"]["targets"]
+            .as_array()
+            .is_some_and(|targets| targets.iter().any(|target| target["path"] == "src/one.rs"))
+    );
+    assert!(json["impact"]["relationships"].as_array().is_some_and(|relationships| {
+        relationships
+            .iter()
+            .any(|relationship| relationship["evidence"] == "lexical")
+    }));
+    assert!(json["impact"]["relationships"].as_array().is_some_and(|relationships| {
+        relationships
+            .iter()
+            .any(|relationship| relationship["evidence"] == "manifest")
+    }));
+    assert!(json["impact"]["relationships"].as_array().is_some_and(|relationships| {
+        relationships
+            .iter()
+            .any(|relationship| relationship["evidence"] == "structural")
+    }));
+    assert!(
+        json["impact"]["likely_tests"]
+            .as_array()
+            .is_some_and(|tests| tests.iter().any(|test| test["path"] == "tests/duplicate.rs"))
+    );
+    assert!(
+        json["impact"]["ownership"]
+            .as_array()
+            .is_some_and(|signals| signals.iter().any(|signal| signal["path"] == "CODEOWNERS"))
+    );
+    assert!(
+        json["impact"]["budget"]["estimated_tokens"]
+            .as_u64()
+            .is_some_and(|tokens| tokens <= 8_000)
+    );
+
+    let markdown = fixture.run(&["impact", "--dirty-worktree", "--budget", "8000", "--no-cache"]);
+    assert!(markdown.status.success());
+    let markdown = stdout(&markdown);
+    assert!(markdown.contains("Impact context"));
+    assert!(markdown.contains("Evidence relationships"));
+    assert!(markdown.contains("Impact relationships are bounded lexical"));
+}
+
+#[test]
+fn impact_identifies_a_test_only_dirty_worktree_change() {
+    let fixture = MapFixtureRepository::new();
+    write_file(fixture.root.join("src/lib.rs"), b"pub fn parse() {}\n");
+    fs::remove_file(fixture.root.join("src/untracked.rs")).expect("remove fixture implementation change");
+    fs::create_dir_all(fixture.root.join("tests")).expect("create test-only fixture root");
+    write_file(
+        fixture.root.join("tests/parser.rs"),
+        b"#[test]\nfn parser_handles_empty_input() {}\n",
+    );
+
+    let output = fixture.run(&["impact", "--dirty-worktree", "--no-cache", "--json"]);
+    assert!(
+        output.status.success(),
+        "test-only impact failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: Value = serde_json::from_str(&stdout(&output)).expect("valid test-only impact JSON");
+    assert!(
+        json["impact"]["change_resolution"]["changes"]
+            .as_array()
+            .is_some_and(|changes| changes.iter().any(|change| change["path"] == "tests/parser.rs"))
+    );
+    assert!(
+        json["impact"]["likely_tests"]
+            .as_array()
+            .is_some_and(|tests| tests.iter().any(|test| test["path"] == "tests/parser.rs"))
+    );
+}
+
+#[test]
+fn impact_keeps_ambiguous_lexical_candidates_explicit() {
+    let fixture = MixedMapFixtureRepository::new();
+    fs::remove_file(fixture.root.join("src/panel.jsx")).expect("remove fixture worktree change");
+    write_file(
+        fixture.root.join("src/duplicate_one.go"),
+        b"package fixture\nfunc Duplicate() { helper() }\nfunc helper() {}\n",
+    );
+
+    let output = fixture.run(&["impact", "--dirty-worktree", "--no-cache", "--json"]);
+    assert!(
+        output.status.success(),
+        "ambiguous impact failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: Value = serde_json::from_str(&stdout(&output)).expect("valid ambiguous impact JSON");
+    assert!(json["impact"]["relationships"].as_array().is_some_and(|relationships| {
+        relationships
+            .iter()
+            .any(|relationship| relationship["evidence"] == "lexical" && relationship["ambiguous"] == true)
+    }));
+}
+
+#[test]
+fn impact_reports_unsupported_changed_source_as_uncertainty() {
+    let fixture = MapFixtureRepository::new();
+    write_file(fixture.root.join("src/lib.rs"), b"pub fn parse() {}\n");
+    fs::remove_file(fixture.root.join("src/untracked.rs")).expect("remove fixture implementation change");
+    write_file(fixture.root.join("src/unsupported.swift"), b"func parse() {}\n");
+
+    let output = fixture.run(&["impact", "--dirty-worktree", "--no-cache", "--json"]);
+    assert!(
+        output.status.success(),
+        "unsupported impact failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: Value = serde_json::from_str(&stdout(&output)).expect("valid unsupported impact JSON");
+    assert!(json["impact"]["uncertainty"].as_array().is_some_and(|items| {
+        items
+            .iter()
+            .any(|item| item["kind"] == "change_unsupported_or_unavailable")
+    }));
+}
+
+#[test]
 fn context_teaching_scaffold_is_opt_in_and_cites_selected_evidence() {
     let fixture = MapFixtureRepository::new();
     write_file(

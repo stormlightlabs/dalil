@@ -35,6 +35,8 @@ enum SubcommandName {
     Explain(ExplainCommand),
     /// Compile one bounded, task-oriented context bundle.
     Context(ContextCommand),
+    /// Inspect bounded evidence surrounding a local revision range or dirty worktree.
+    Impact(ImpactCommand),
     /// Check local discovery and Dalil support without analyzing source.
     Doctor(DoctorCommand),
 }
@@ -250,7 +252,7 @@ struct CacheCommandCli {
 
 The default command combines Git-history signals with a ranked source map.
 
-Use `map`, `history`, `explain`, or `context` for focused reports.
+Use `map`, `history`, `context`, `impact`, or `explain` for focused reports.
 
 Examples:
     dalil .
@@ -263,6 +265,7 @@ Examples:
     dalil history contributors .
     dalil explain src/parser.rs --json
     dalil context --task 'inspect parser cache' --json
+    dalil impact --revision-range 'HEAD~1..HEAD' --json
     dalil capabilities --json
     dalil doctor --json
 
@@ -367,21 +370,20 @@ impl From<Cli> for CommandRequest {
             Some(SubcommandName::Context(context)) => {
                 let ContextCommand { options, revision, teach, path } = context;
                 let map = options.settings();
-                let request = ContextRequest {
-                    repository: path.to_string_lossy().into_owned(),
-                    task: map.task_seeds.task.clone(),
-                    symbols: map.task_seeds.symbols.clone(),
-                    paths: map.task_seeds.paths.clone(),
-                    projects: map.task_seeds.projects.clone(),
-                    changes: map.task_seeds.changes.clone(),
-                    revision_context: revision.into(),
-                    change_resolution: Default::default(),
-                    budget: map.map_tokens,
-                    profile,
-                    teaching: teach,
-                };
+                let request = change_context_request(&path, &map, revision, profile, teach);
                 (
                     CommandDescriptor::context(path),
+                    HistorySettings::default(),
+                    map,
+                    Some(request),
+                )
+            }
+            Some(SubcommandName::Impact(impact)) => {
+                let ImpactCommand { options, revision, path } = impact;
+                let map = options.settings();
+                let request = change_context_request(&path, &map, revision, profile, false);
+                (
+                    CommandDescriptor::impact(path),
                     HistorySettings::default(),
                     map,
                     Some(request),
@@ -420,6 +422,10 @@ impl Cli {
         if let Some(SubcommandName::Context(context)) = &self.command {
             context.options.validate()?;
             context.revision.validate()?;
+        }
+        if let Some(SubcommandName::Impact(impact)) = &self.command {
+            impact.options.validate()?;
+            impact.revision.validate()?;
         }
         Ok(())
     }
@@ -500,6 +506,48 @@ struct ContextCommand {
         help = "Repository or subdirectory to analyze (default: current directory)."
     )]
     path: PathBuf,
+}
+
+#[derive(Debug, clap::Args)]
+#[command(after_help = "Examples:
+    dalil impact --revision-range 'HEAD~1..HEAD'
+    dalil impact --dirty-worktree --task 'review parser changes' --json
+
+Impact reports changed symbols, related inspection targets, likely tests, ownership configuration, and history evidence. It labels lexical, structural, manifest, and history relationships without claiming that a change will break code.
+
+Support: https://github.com/stormlightlabs/dalil/issues
+")]
+struct ImpactCommand {
+    #[command(flatten)]
+    options: MapOptions,
+
+    #[command(flatten)]
+    revision: ContextRevisionOptions,
+
+    #[arg(
+        value_name = "PATH",
+        default_value = ".",
+        help = "Repository or subdirectory to analyze (default: current directory)."
+    )]
+    path: PathBuf,
+}
+
+fn change_context_request(
+    path: &Path, map: &MapSettings, revision: ContextRevisionOptions, profile: AnalysisProfile, teaching: bool,
+) -> ContextRequest {
+    ContextRequest {
+        repository: path.to_string_lossy().into_owned(),
+        task: map.task_seeds.task.clone(),
+        symbols: map.task_seeds.symbols.clone(),
+        paths: map.task_seeds.paths.clone(),
+        projects: map.task_seeds.projects.clone(),
+        changes: map.task_seeds.changes.clone(),
+        revision_context: revision.into(),
+        change_resolution: Default::default(),
+        budget: map.map_tokens,
+        profile,
+        teaching,
+    }
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -1310,6 +1358,30 @@ mod tests {
         assert_eq!(context.revision_context.head.as_deref(), Some("HEAD"));
         assert!(context.revision_context.dirty_worktree);
         assert!(context.teaching);
+    }
+
+    #[test]
+    fn impact_reuses_the_typed_change_context_request() {
+        let request = CommandRequest::from(
+            Cli::try_parse_from([
+                "dalil",
+                "impact",
+                "--task",
+                "review parser changes",
+                "--revision-range",
+                "main~1..HEAD",
+                "--budget",
+                "600",
+            ])
+            .expect("impact flags parse"),
+        );
+
+        assert_eq!(request.command.name, CommandDescriptor::impact(PathBuf::from(".")).name);
+        let impact = request.context.expect("impact request");
+        assert_eq!(impact.task.as_deref(), Some("review parser changes"));
+        assert_eq!(impact.revision_context.range.as_deref(), Some("main~1..HEAD"));
+        assert_eq!(impact.budget, 600);
+        assert!(!impact.teaching);
     }
 
     #[test]
