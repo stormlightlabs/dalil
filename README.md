@@ -57,6 +57,12 @@ dalil context --task 'review the last change' --revision-range 'HEAD~1..HEAD' --
 `PATH` defaults to the current directory. `dalil` discovers the enclosing
 Git repository and keeps the selected scope inside that repository.
 
+## Library
+
+The CLI calls the typed operations in the `dalil-core` workspace crate. Native
+adapters can call those operations directly; see [the core API guide](docs/src/content/docs/guides/embeddable-core.md).
+`cargo install dalil` continues to install the CLI.
+
 ## Orientation
 
 `dalil [PATH]` and `dalil orient [PATH]` return the same `OrientationReport`.

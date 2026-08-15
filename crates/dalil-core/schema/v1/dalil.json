@@ -1,0 +1,443 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/stormlightlabs/dalil/schema/v1/dalil.json",
+  "title": "Dalil schema version 1",
+  "description": "The additive machine-report contract for Dalil v1. Existing fields may not be removed, retyped, or semantically reused without changing schema_version.",
+  "oneOf": [
+    { "$ref": "#/$defs/analysis_report" },
+    { "$ref": "#/$defs/capabilities_report" },
+    { "$ref": "#/$defs/doctor_report" }
+  ],
+  "$defs": {
+    "analysis_report": {
+      "type": "object",
+      "required": ["schema_version", "command", "scope", "status", "summary", "findings", "limitations"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "profile": { "enum": ["compact", "evidence"] },
+        "limits": { "$ref": "#/$defs/limits" },
+        "command": { "$ref": "#/$defs/command" },
+        "scope": {
+          "type": "object",
+          "required": ["selected_path"],
+          "properties": { "selected_path": { "type": "string" } },
+          "additionalProperties": true
+        },
+        "status": { "enum": ["foundation", "analyzed"] },
+        "summary": { "type": "string" },
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "quality": { "$ref": "#/$defs/quality" },
+        "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+        "limitations": { "type": "array", "items": { "$ref": "#/$defs/limitation" } },
+        "reading_plan": { "$ref": "#/$defs/reading_plan" },
+        "history": { "type": ["object", "null"] },
+        "map": { "type": ["object", "null"] },
+        "explain": { "type": ["object", "null"] },
+        "context": { "$ref": "#/$defs/context_bundle" },
+        "impact": { "$ref": "#/$defs/impact_report" },
+        "search": { "$ref": "#/$defs/search_results" },
+        "orientation": { "$ref": "#/$defs/orientation_report" }
+      },
+      "additionalProperties": true
+    },
+    "command": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "enum": ["briefing", "orient", "map", "history", "explain", "context", "impact", "search"] },
+        "operation": { "enum": ["churn", "contributors", "bugs", "activity", "firefighting"] },
+        "target": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "finding": {
+      "type": "object",
+      "required": ["title", "detail"],
+      "properties": { "title": { "type": "string" }, "detail": { "type": "string" } },
+      "additionalProperties": true
+    },
+    "limitation": {
+      "type": "object",
+      "required": ["detail"],
+      "properties": { "detail": { "type": "string" } },
+      "additionalProperties": true
+    },
+    "context_bundle": {
+      "type": "object",
+      "required": ["request", "orientation", "files", "relationships", "relevant_tests", "history", "risks", "uncertainty", "provenance", "omissions", "next_reads", "budget"],
+      "properties": {
+        "request": {
+          "type": "object",
+          "required": ["repository", "symbols", "paths", "projects", "changes", "revision_context", "budget", "profile"],
+          "properties": {
+            "repository": { "type": "string" },
+            "task": { "type": ["string", "null"] },
+            "symbols": { "type": "array", "items": { "type": "string" } },
+            "paths": { "type": "array", "items": { "type": "string" } },
+            "projects": { "type": "array", "items": { "type": "string" } },
+            "changes": { "type": "array", "items": { "type": "object" } },
+            "revision_context": { "type": "object" },
+            "change_resolution": { "$ref": "#/$defs/change_resolution" },
+            "budget": { "type": "integer", "minimum": 1 },
+            "profile": { "enum": ["compact", "evidence"] },
+            "teaching": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "orientation": { "type": "object" },
+        "change_resolution": { "$ref": "#/$defs/change_resolution" },
+        "files": { "type": "array", "items": { "type": "object" } },
+        "relationships": { "type": "array", "items": { "type": "object" } },
+        "relevant_tests": { "type": "array", "items": { "type": "object" } },
+        "history": { "type": "array", "items": { "type": "object" } },
+        "risks": { "type": "array", "items": { "type": "object" } },
+        "uncertainty": { "type": "array", "items": { "type": "object" } },
+        "provenance": { "type": "object" },
+        "omissions": { "type": "array", "items": { "type": "object" } },
+        "next_reads": { "type": "array", "items": { "$ref": "#/$defs/reading_recommendation" } },
+        "teaching": { "$ref": "#/$defs/teaching_scaffold" },
+        "budget": {
+          "type": "object",
+          "required": ["token_budget", "estimated_tokens", "truncated"],
+          "properties": {
+            "token_budget": { "type": "integer", "minimum": 1 },
+            "estimated_tokens": { "type": "integer", "minimum": 0 },
+            "truncated": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "search_results": {
+      "type": "object",
+      "required": ["request", "matches", "budget"],
+      "properties": {
+        "request": {
+          "type": "object",
+          "required": ["repository", "query", "mode", "result_limit", "budget", "profile"],
+          "properties": {
+            "repository": { "type": "string" },
+            "query": { "type": "string", "minLength": 1 },
+            "mode": { "enum": ["plain", "symbol"] },
+            "result_limit": { "type": "integer", "minimum": 1, "maximum": 12 },
+            "budget": { "type": "integer", "minimum": 1 },
+            "profile": { "enum": ["compact", "evidence"] }
+          },
+          "additionalProperties": false
+        },
+        "matches": { "type": "array", "items": { "$ref": "#/$defs/search_match" } },
+        "budget": { "$ref": "#/$defs/search_budget" },
+        "shortfall": { "$ref": "#/$defs/search_shortfall" },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "search_match": {
+      "type": "object",
+      "required": ["ordinal", "purpose", "path", "project_root", "reason", "evidence_kinds", "confidence", "target", "score", "anchor"],
+      "properties": {
+        "ordinal": { "type": "integer", "minimum": 1 },
+        "purpose": { "enum": ["start_here", "architecture", "runtime", "tests", "supporting_context"] },
+        "path": { "type": "string" },
+        "project_root": { "type": ["string", "null"] },
+        "reason": { "type": "string" },
+        "evidence_kinds": { "type": "array", "items": { "enum": ["landmark", "project_topology", "source_map", "graph", "focus", "history_overlap"] } },
+        "confidence": { "enum": ["high", "medium", "low"] },
+        "limitations": { "type": "array", "items": { "type": "string" } },
+        "target": { "enum": ["path", "symbol"] },
+        "symbol": { "type": ["object", "null"] },
+        "score": { "type": "integer", "minimum": 0 },
+        "anchor": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "search_budget": {
+      "type": "object",
+      "required": ["token_budget", "result_limit", "total_candidates", "returned", "estimated_tokens", "truncated"],
+      "properties": {
+        "token_budget": { "type": "integer", "minimum": 1 },
+        "result_limit": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "total_candidates": { "type": "integer", "minimum": 0 },
+        "returned": { "type": "integer", "minimum": 0 },
+        "estimated_tokens": { "type": "integer", "minimum": 0 },
+        "truncated": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "search_shortfall": {
+      "type": "object",
+      "required": ["requested", "returned", "reason"],
+      "properties": {
+        "requested": { "type": "integer", "minimum": 1 },
+        "returned": { "type": "integer", "minimum": 0 },
+        "reason": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "impact_report": {
+      "type": "object",
+      "required": ["request", "change_resolution", "targets", "relationships", "likely_tests", "ownership", "history", "uncertainty", "budget"],
+      "properties": {
+        "request": { "type": "object" },
+        "change_resolution": { "$ref": "#/$defs/change_resolution" },
+        "targets": { "type": "array", "items": { "type": "object" } },
+        "relationships": { "type": "array", "items": { "type": "object" } },
+        "likely_tests": { "type": "array", "items": { "type": "object" } },
+        "ownership": { "type": "array", "items": { "type": "object" } },
+        "history": { "type": "array", "items": { "type": "object" } },
+        "uncertainty": { "type": "array", "items": { "type": "object" } },
+        "budget": {
+          "type": "object",
+          "required": ["token_budget", "estimated_tokens", "truncated"],
+          "properties": {
+            "token_budget": { "type": "integer", "minimum": 1 },
+            "estimated_tokens": { "type": "integer", "minimum": 0 },
+            "truncated": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "change_resolution": {
+      "type": "object",
+      "required": ["status", "changes", "uncertainty"],
+      "properties": {
+        "status": { "enum": ["not_requested", "resolved", "partial", "unresolved"] },
+        "base": { "type": ["string", "null"] },
+        "head": { "type": ["string", "null"] },
+        "changes": { "type": "array", "items": { "type": "object" } },
+        "uncertainty": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": false
+    },
+    "teaching_scaffold": {
+      "type": "object",
+      "required": ["steps"],
+      "properties": {
+        "steps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/teaching_step" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "teaching_step": {
+      "type": "object",
+      "required": ["topic", "explanation", "observed", "ordering"],
+      "properties": {
+        "topic": {
+          "enum": ["behavior_start", "control_flow", "state_or_data_boundary", "relevant_tests", "next_read"]
+        },
+        "explanation": { "type": "string" },
+        "observed": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/teaching_evidence" }
+        },
+        "ordering": { "enum": ["inferred", "ambiguous"] }
+      },
+      "additionalProperties": false
+    },
+    "teaching_evidence": {
+      "type": "object",
+      "required": ["kind", "path"],
+      "properties": {
+        "kind": { "enum": ["file", "symbol", "relationship", "manifest", "test", "history", "next_read"] },
+        "path": { "type": "string" },
+        "symbol": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "reading_plan": {
+      "type": "object",
+      "required": ["recommendations"],
+      "properties": {
+        "recommendations": { "type": "array", "items": { "$ref": "#/$defs/reading_recommendation" } },
+        "primary_languages": { "type": "array", "items": { "type": "string" } },
+        "omitted_project_roots": { "type": "array", "items": { "$ref": "#/$defs/reading_plan_root_omission" } },
+        "omitted_relevant_paths": { "type": "array", "items": { "$ref": "#/$defs/reading_plan_path_omission" } },
+        "shortfall": { "$ref": "#/$defs/reading_plan_shortfall" },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "orientation_report": {
+      "type": "object",
+      "required": ["repository", "starting_points", "important_roots", "runtime_entry_points", "tests", "history", "next_reads", "uncertainty"],
+      "properties": {
+        "repository": {
+          "type": "object",
+          "required": ["root", "scope_path", "head", "worktree", "primary_languages"],
+          "properties": {
+            "root": { "type": "string" },
+            "scope_path": { "type": "string" },
+            "head": { "type": "object" },
+            "worktree": { "enum": ["clean", "modified", "untracked", "mixed", "unknown"] },
+            "primary_languages": { "type": "array", "items": { "type": "string" } }
+          },
+          "additionalProperties": false
+        },
+        "starting_points": { "type": "array", "items": { "$ref": "#/$defs/reading_recommendation" } },
+        "important_roots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "kind", "reason"],
+            "properties": {
+              "path": { "type": "string" },
+              "kind": { "enum": ["workspace", "package", "mixed", "unknown"] },
+              "reason": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "runtime_entry_points": { "type": "array", "items": { "$ref": "#/$defs/reading_recommendation" } },
+        "tests": { "type": "array", "items": { "$ref": "#/$defs/reading_recommendation" } },
+        "history": { "type": "array", "items": { "type": "object" } },
+        "next_reads": { "type": "array", "items": { "$ref": "#/$defs/reading_recommendation" } },
+        "uncertainty": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind", "detail"],
+            "properties": { "kind": { "type": "string" }, "detail": { "type": "string" } },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "reading_recommendation": {
+      "type": "object",
+      "required": ["ordinal", "purpose", "path", "project_root", "reason", "evidence_kinds", "confidence"],
+      "properties": {
+        "ordinal": { "type": "integer", "minimum": 1 },
+        "purpose": { "enum": ["start_here", "architecture", "runtime", "tests", "supporting_context"] },
+        "path": { "type": "string" },
+        "project_root": { "type": ["string", "null"] },
+        "reason": { "type": "string" },
+        "evidence_kinds": {
+          "type": "array",
+          "items": { "enum": ["landmark", "project_topology", "source_map", "graph", "focus", "history_overlap"] }
+        },
+        "confidence": { "enum": ["high", "medium", "low"] },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "reading_plan_root_omission": {
+      "type": "object",
+      "required": ["project_root", "reason"],
+      "properties": {
+        "project_root": { "type": "string" },
+        "reason": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "reading_plan_path_omission": {
+      "type": "object",
+      "required": ["path", "reason"],
+      "properties": {
+        "path": { "type": "string" },
+        "reason": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "reading_plan_shortfall": {
+      "type": "object",
+      "required": ["target_minimum", "returned", "reason"],
+      "properties": {
+        "target_minimum": { "type": "integer", "minimum": 1 },
+        "returned": { "type": "integer", "minimum": 0 },
+        "reason": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "limits": {
+      "type": "object",
+      "required": ["max_files", "max_file_bytes", "max_total_bytes", "max_syntax_depth", "max_symbols_per_file", "max_symbols", "max_candidates_per_reference", "max_edges", "max_findings", "max_commits", "max_history_evidence", "max_elapsed_ms", "max_output_bytes", "max_landmarks", "max_project_roots"],
+      "properties": {
+        "max_files": { "type": "integer", "minimum": 1 },
+        "max_file_bytes": { "type": "integer", "minimum": 1 },
+        "max_total_bytes": { "type": "integer", "minimum": 1 },
+        "max_syntax_depth": { "type": "integer", "minimum": 1 },
+        "max_symbols_per_file": { "type": "integer", "minimum": 1 },
+        "max_symbols": { "type": "integer", "minimum": 1 },
+        "max_candidates_per_reference": { "type": "integer", "minimum": 1 },
+        "max_edges": { "type": "integer", "minimum": 1 },
+        "max_findings": { "type": "integer", "minimum": 1 },
+        "max_commits": { "type": "integer", "minimum": 1 },
+        "max_history_evidence": { "type": "integer", "minimum": 1 },
+        "max_elapsed_ms": { "type": "integer", "minimum": 1 },
+        "max_output_bytes": { "type": "integer", "minimum": 1 },
+        "max_landmarks": { "type": "integer", "minimum": 1 },
+        "max_project_roots": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": true
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["tool_version", "captured_at", "reference_time", "effective_options", "repository", "head", "worktree", "languages", "cache", "path_encoding"],
+      "properties": {
+        "tool_version": { "type": "string" },
+        "captured_at": { "type": "string", "format": "date-time" },
+        "reference_time": { "type": "string", "format": "date-time" },
+        "effective_options": { "type": "object" },
+        "repository": { "type": "object" },
+        "head": { "type": "object" },
+        "worktree": { "type": "object" },
+        "languages": { "type": "object", "additionalProperties": { "type": "object" } },
+        "cache": { "type": "object" },
+        "path_encoding": { "type": "object" },
+        "history": { "type": ["object", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "quality": {
+      "type": "object",
+      "required": ["projection", "stale", "truncated", "resource_limited", "incomplete", "unsafe_paths", "unsupported", "partial", "strict_issues"],
+      "properties": {
+        "projection": { "type": "boolean" },
+        "stale": { "type": "boolean" },
+        "truncated": { "type": "boolean" },
+        "resource_limited": { "type": "boolean" },
+        "incomplete": { "type": "boolean" },
+        "unsafe_paths": { "type": "boolean" },
+        "unsupported": { "type": "boolean" },
+        "partial": { "type": "boolean" },
+        "strict_issues": { "type": "array", "items": { "enum": ["stale", "resource_limit", "truncated", "incomplete", "unsafe_path", "unsupported", "partial"] } }
+      },
+      "additionalProperties": true
+    },
+    "capabilities_report": {
+      "type": "object",
+      "required": ["schema_version", "report_kind", "tool_version", "languages", "query_packs_valid", "limits"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "report_kind": { "const": "capabilities" },
+        "tool_version": { "type": "string" },
+        "languages": { "type": "array", "items": { "type": "object" } },
+        "query_packs_valid": { "type": "boolean" },
+        "limits": { "type": "object", "additionalProperties": { "$ref": "#/$defs/limits" } }
+      },
+      "additionalProperties": true
+    },
+    "doctor_report": {
+      "type": "object",
+      "required": ["schema_version", "report_kind", "tool_version", "requested_path", "checks", "limits", "source_evidence_collected", "repository_state_changed"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "report_kind": { "const": "doctor" },
+        "tool_version": { "type": "string" },
+        "requested_path": { "type": "string" },
+        "repository": { "type": ["object", "null"] },
+        "checks": { "type": "array", "items": { "type": "object" } },
+        "limits": { "type": "object", "additionalProperties": { "$ref": "#/$defs/limits" } },
+        "source_evidence_collected": { "const": false },
+        "repository_state_changed": { "const": false }
+      },
+      "additionalProperties": true
+    }
+  }
+}

@@ -96,41 +96,6 @@ impl CapabilitiesReport {
             limits,
         }
     }
-
-    pub fn render(&self, format: OutputFormat) -> Result<String, ReportError> {
-        match format {
-            OutputFormat::Json => {
-                let mut output = serde_json::to_string_pretty(self)?;
-                output.push('\n');
-                Ok(output)
-            }
-            OutputFormat::Html => super::html::render_capabilities(self),
-            OutputFormat::Markdown => {
-                let mut output = String::from("# Dalil capabilities\n\n");
-                writeln!(output, "Schema version: {}", self.schema_version)
-                    .expect("writing capabilities to a string cannot fail");
-                writeln!(output, "Tool version: {}", self.tool_version)
-                    .expect("writing capabilities to a string cannot fail");
-                writeln!(output, "Query packs valid: {}", self.query_packs_valid)
-                    .expect("writing capabilities to a string cannot fail");
-                writeln!(output, "\n## Languages\n").expect("writing capabilities to a string cannot fail");
-                for language in &self.languages {
-                    writeln!(
-                        output,
-                        "- {} (`{}`) — grammar {} {}, query pack {} {}",
-                        language.language.display_label(),
-                        language.extensions.join(", "),
-                        language.grammar,
-                        language.grammar_version,
-                        language.query_pack,
-                        language.query_pack_version
-                    )
-                    .expect("writing capabilities to a string cannot fail");
-                }
-                Ok(output)
-            }
-        }
-    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -328,30 +293,5 @@ impl DoctorReport {
 
     pub fn is_ok(&self) -> bool {
         self.checks.iter().all(|check| check.status != DoctorCheckStatus::Fail)
-    }
-
-    pub fn render(&self, format: OutputFormat) -> Result<String, ReportError> {
-        match format {
-            OutputFormat::Json => {
-                let mut output = serde_json::to_string_pretty(self)?;
-                output.push('\n');
-                Ok(output)
-            }
-            OutputFormat::Html => super::html::render_doctor(self),
-            OutputFormat::Markdown => {
-                let mut output = String::from("# Dalil doctor\n\n");
-                writeln!(output, "Tool version: {}", self.tool_version)
-                    .expect("writing doctor output to a string cannot fail");
-                writeln!(output, "Source evidence collected: {}", self.source_evidence_collected)
-                    .expect("writing doctor output to a string cannot fail");
-                writeln!(output, "Repository state changed: {}\n", self.repository_state_changed)
-                    .expect("writing doctor output to a string cannot fail");
-                for check in &self.checks {
-                    writeln!(output, "- **{:?}** {}: {}", check.status, check.name, check.detail)
-                        .expect("writing doctor output to a string cannot fail");
-                }
-                Ok(output)
-            }
-        }
     }
 }

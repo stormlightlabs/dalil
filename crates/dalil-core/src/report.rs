@@ -1,13 +1,9 @@
 mod analysis;
 mod context;
-mod html;
 mod impact;
 mod model;
 mod orientation;
-mod render;
 mod search;
-#[cfg(test)]
-mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
@@ -16,15 +12,13 @@ use std::io;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-use render::Render;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::cli::{ColorPolicy, CommandRequest, OutputFormat};
+use crate::api::{AnalysisRequest, ColorPolicy, OutputFormat};
 use crate::utils::token_count;
 use crate::{history, map, security, utils};
 
-pub(crate) use html::render_cache as render_cache_html;
 pub use model::*;
 
 /// The current compatibility version of the JSON report envelope.

@@ -122,12 +122,6 @@ pub enum ReportError {
     History(#[source] history::HistoryError),
     #[error("{0}")]
     Map(#[source] map::MapError),
-    #[error("could not serialize the report as JSON")]
-    Json(#[from] serde_json::Error),
-    #[error("could not render the embedded HTML report template")]
-    Html(#[from] minijinja::Error),
-    #[error("{0}")]
-    OutputLimit(String),
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1117,7 +1111,7 @@ pub struct Report {
 }
 
 impl Report {
-    pub fn analyze(req: CommandRequest) -> Result<Self, ReportError> {
+    pub fn analyze(req: AnalysisRequest) -> Result<Self, ReportError> {
         let captured_at = utils::capture_date(SystemTime::now());
         match req.command.name {
             CommandName::Orient => {
@@ -1291,7 +1285,7 @@ impl Report {
     }
 
     fn change_evidence(
-        path: &std::path::Path, req: &CommandRequest, history: &HistoryReport,
+        path: &std::path::Path, req: &AnalysisRequest, history: &HistoryReport,
     ) -> Result<(ContextRequest, ChangeResolution, MapReport), ReportError> {
         let mut context_request = req.context.clone().unwrap_or(ContextRequest {
             repository: path.to_string_lossy().into_owned(),
@@ -1317,7 +1311,7 @@ impl Report {
     }
 
     fn from_parts(
-        req: CommandRequest, captured_at: String, summary: String, history: Option<HistoryReport>,
+        req: AnalysisRequest, captured_at: String, summary: String, history: Option<HistoryReport>,
         map: Option<MapReport>, explain: Option<ExplainReport>,
     ) -> Self {
         let scope_path = map
@@ -1424,169 +1418,4 @@ impl Report {
             search: None,
         }
     }
-
-    /// Render a report from the shared typed model without parsing or transforming Markdown.
-    pub fn render(&self, format: OutputFormat) -> Result<String, ReportError> {
-        let output = match format {
-            OutputFormat::Markdown => {
-                let output = self.render_markdown();
-                if self.profile == AnalysisProfile::Compact && self.command.name != CommandName::Search {
-                    Ok(bound_compact_markdown(
-                        output,
-                        self.provenance.effective_options.map.map_tokens,
-                    ))
-                } else {
-                    Ok(output)
-                }
-            }
-            OutputFormat::Json => {
-                let mut output = serde_json::to_string_pretty(self)?;
-                output.push('\n');
-                Ok(output)
-            }
-            OutputFormat::Html => super::html::render_report(self),
-        }?;
-        if output.len() > self.limits.max_output_bytes {
-            return Err(ReportError::OutputLimit(format!(
-                "rendered report exceeds the {}-byte output limit; use the compact profile or a narrower scope",
-                self.limits.max_output_bytes
-            )));
-        }
-        Ok(output)
-    }
-
-    fn render_markdown(&self) -> String {
-        let mut output = String::new();
-        let command = match self.command.operation {
-            Some(operation) => format!("{}: {}", self.command.name.label(), operation.label()),
-            None => self.command.name.label().to_owned(),
-        };
-
-        writeln!(output, "# Dalil {command}").expect("writing to a string cannot fail");
-        writeln!(output).expect("writing to a string cannot fail");
-        writeln!(output, "Schema version: {}", self.schema_version).expect("writing to a string cannot fail");
-        writeln!(
-            output,
-            "Scope: `{}`",
-            utils::escape_inline_code(&self.scope.selected_path)
-        )
-        .expect("writing to a string cannot fail");
-        writeln!(output, "Status: {:?}", self.status).expect("writing to a string cannot fail");
-        writeln!(output).expect("writing to a string cannot fail");
-        writeln!(output, "## Summary").expect("writing to a string cannot fail");
-        writeln!(output).expect("writing to a string cannot fail");
-        writeln!(output, "{}", utils::sanitize_text(&self.summary)).expect("writing to a string cannot fail");
-        let compact_orientation = self.command.name == CommandName::Orient && self.profile == AnalysisProfile::Compact;
-        let compact_briefing = self.command.name == CommandName::Briefing && self.profile == AnalysisProfile::Compact;
-        if !compact_orientation && !compact_briefing {
-            Render::quality_markdown(&mut output, &self.quality, self.command.name);
-        }
-
-        if let Some(orientation) = &self.orientation {
-            Render::orientation_markdown(&mut output, orientation);
-        }
-        if let Some(explain) = &self.explain {
-            Render::explain_markdown(&mut output, explain);
-        }
-        if let Some(context) = &self.context {
-            Render::context_markdown(&mut output, context);
-        }
-        if let Some(impact) = &self.impact {
-            Render::impact_markdown(&mut output, impact);
-        }
-        if let Some(search) = &self.search {
-            Render::search_markdown(&mut output, search);
-        }
-
-        if self.command.name == CommandName::Briefing {
-            if let Some(map) = &self.map {
-                Render::briefing_overview(&mut output, map);
-            }
-            if let Some(reading_plan) = &self.reading_plan {
-                Render::reading_plan_markdown(&mut output, reading_plan);
-            }
-            if let Some(history) = &self.history {
-                if compact_briefing {
-                    Render::history_briefing_markdown(&mut output, history);
-                } else {
-                    Render::history_markdown(&mut output, history);
-                }
-            }
-            if compact_briefing {
-                Render::quality_markdown(&mut output, &self.quality, self.command.name);
-                if let Some(map) = &self.map {
-                    Render::briefing_evidence_notes(&mut output, map);
-                }
-            } else if let Some(map) = &self.map {
-                Render::map_markdown(&mut output, map);
-            }
-        } else if !matches!(
-            self.command.name,
-            CommandName::Orient
-                | CommandName::Explain
-                | CommandName::Context
-                | CommandName::Impact
-                | CommandName::Search
-        ) {
-            if let Some(history) = &self.history {
-                if self.profile == AnalysisProfile::Compact && self.command.operation.is_none() {
-                    Render::history_briefing_markdown(&mut output, history);
-                } else {
-                    Render::history_markdown(&mut output, history);
-                }
-            }
-            if let Some(map) = &self.map {
-                Render::map_markdown(&mut output, map);
-            }
-        }
-
-        if !self.findings.is_empty() {
-            writeln!(output).expect("writing to a string cannot fail");
-            writeln!(output, "## Findings").expect("writing to a string cannot fail");
-            writeln!(output).expect("writing to a string cannot fail");
-            for finding in &self.findings {
-                writeln!(
-                    output,
-                    "- **{}:** {}",
-                    utils::escape_markdown(&finding.title),
-                    utils::sanitize_text(&finding.detail)
-                )
-                .expect("writing to a string cannot fail");
-            }
-        }
-
-        if !self.limitations.is_empty() {
-            writeln!(output).expect("writing to a string cannot fail");
-            writeln!(output, "## Limitations").expect("writing to a string cannot fail");
-            writeln!(output).expect("writing to a string cannot fail");
-            for limitation in &self.limitations {
-                writeln!(output, "- {}", utils::sanitize_text(&limitation.detail))
-                    .expect("writing to a string cannot fail");
-            }
-        }
-
-        output
-    }
-}
-
-const COMPACT_MARKDOWN_TRUNCATION_NOTICE: &str = "\n\n_Report truncated at the compact Markdown token budget; use `--json` for complete typed collections or `--profile evidence` for verbose Markdown._\n";
-
-fn bound_compact_markdown(output: String, token_budget: usize) -> String {
-    if token_count(&output) <= token_budget {
-        return output;
-    }
-
-    let character_budget = token_budget.saturating_mul(4);
-    let notice_characters = COMPACT_MARKDOWN_TRUNCATION_NOTICE.chars().count();
-    if character_budget <= notice_characters {
-        return output.chars().take(character_budget).collect();
-    }
-
-    let content_budget = character_budget - notice_characters;
-    let mut bounded = output.chars().take(content_budget).collect::<String>();
-    if let Some(last_line_end) = bounded.rfind('\n') {
-        bounded.truncate(last_line_end);
-    }
-    bounded.push_str(COMPACT_MARKDOWN_TRUNCATION_NOTICE);
-    bounded
 }

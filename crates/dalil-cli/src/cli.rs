@@ -13,13 +13,13 @@ use clap::{
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 
-use crate::map::{CacheCommand, CacheControlReport, MapSettings};
 use crate::report::{
-    AnalysisProfile, CacheMode, CapabilitiesReport, CommandDescriptor, ContextRequest, ContextRevisionContext,
-    DoctorReport, HistoryOperation, HistorySettings, KeywordMatchMode, Report, SearchQueryMode, SearchRequest,
-    SourceLanguage, StrictIssue, TaskChangeSeed, TaskSeeds,
+    AnalysisProfile, CacheMode, CommandDescriptor, ContextRequest, ContextRevisionContext, DoctorReport,
+    HistoryOperation, HistorySettings, KeywordMatchMode, SearchQueryMode, SearchRequest, SourceLanguage, StrictIssue,
+    TaskChangeSeed, TaskSeeds,
 };
 use crate::utils;
+use dalil_core::{CacheCommand, CacheControlReport, MapSettings};
 
 #[derive(Debug, Subcommand)]
 enum SubcommandName {
@@ -92,6 +92,16 @@ pub enum OutputFormat {
     Html,
 }
 
+impl From<OutputFormat> for dalil_core::OutputFormat {
+    fn from(format: OutputFormat) -> Self {
+        match format {
+            OutputFormat::Markdown => Self::Markdown,
+            OutputFormat::Json => Self::Json,
+            OutputFormat::Html => Self::Html,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum CacheModeOption {
     Auto,
@@ -146,6 +156,16 @@ pub enum ColorPolicy {
     Never,
 }
 
+impl From<ColorPolicy> for dalil_core::ColorPolicy {
+    fn from(policy: ColorPolicy) -> Self {
+        match policy {
+            ColorPolicy::Auto => Self::Auto,
+            ColorPolicy::Always => Self::Always,
+            ColorPolicy::Never => Self::Never,
+        }
+    }
+}
+
 impl ColorPolicy {
     fn should_color(self, is_terminal: bool, environment: ColorEnvironment) -> bool {
         match self {
@@ -157,29 +177,7 @@ impl ColorPolicy {
 }
 
 /// Stable categories for command termination.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ExitCategory {
-    Success,
-    Usage,
-    Repository,
-    Input,
-    Analysis,
-    Internal,
-}
-
-impl ExitCategory {
-    /// The process status documented in command help.
-    pub const fn code(self) -> i32 {
-        match self {
-            Self::Success => 0,
-            Self::Usage => 2,
-            Self::Repository => 3,
-            Self::Input => 4,
-            Self::Analysis => 5,
-            Self::Internal => 70,
-        }
-    }
-}
+pub use dalil_core::ExitCategory;
 
 #[derive(Debug, thiserror::Error)]
 enum ApplicationError {
@@ -187,6 +185,10 @@ enum ApplicationError {
     Usage(String),
     #[error("{0}")]
     Report(#[source] crate::report::ReportError),
+    #[error("{0}")]
+    Core(#[source] dalil_core::CoreError),
+    #[error("{0}")]
+    Rendering(String),
     #[error("strict report policy rejected: {issues:?}")]
     Strict { issues: Vec<StrictIssue> },
     #[error("doctor found one or more failing checks")]
@@ -203,35 +205,39 @@ impl From<ApplicationError> for ExitCategory {
     fn from(error: ApplicationError) -> Self {
         match error {
             ApplicationError::Usage(_) => ExitCategory::Usage,
-            ApplicationError::Report(error) => match error {
-                crate::report::ReportError::History(error) => error.into(),
-                crate::report::ReportError::Map(error) => error.into(),
-                crate::report::ReportError::Json(_)
-                | crate::report::ReportError::Html(_)
-                | crate::report::ReportError::OutputLimit(_) => ExitCategory::Internal,
-            },
+            ApplicationError::Report(error) => report_exit_category(&error),
+            ApplicationError::Core(error) => core_exit_category(&error),
+            ApplicationError::Rendering(_) | ApplicationError::OpenReport { .. } => ExitCategory::Internal,
             ApplicationError::Strict { .. } => ExitCategory::Analysis,
             ApplicationError::DoctorFailed => ExitCategory::Repository,
-            ApplicationError::OpenReport { .. } => ExitCategory::Internal,
         }
     }
 }
 
 impl From<&ApplicationError> for ExitCategory {
-    fn from(value: &ApplicationError) -> Self {
-        match value {
+    fn from(error: &ApplicationError) -> Self {
+        match error {
             ApplicationError::Usage(_) => ExitCategory::Usage,
-            ApplicationError::Report(error) => match error {
-                crate::report::ReportError::History(error) => error.into(),
-                crate::report::ReportError::Map(error) => error.into(),
-                crate::report::ReportError::Json(_)
-                | crate::report::ReportError::Html(_)
-                | crate::report::ReportError::OutputLimit(_) => ExitCategory::Internal,
-            },
+            ApplicationError::Report(error) => report_exit_category(error),
+            ApplicationError::Core(error) => core_exit_category(error),
+            ApplicationError::Rendering(_) | ApplicationError::OpenReport { .. } => ExitCategory::Internal,
             ApplicationError::Strict { .. } => ExitCategory::Analysis,
             ApplicationError::DoctorFailed => ExitCategory::Repository,
-            ApplicationError::OpenReport { .. } => ExitCategory::Internal,
         }
+    }
+}
+
+fn report_exit_category(error: &crate::report::ReportError) -> ExitCategory {
+    match error {
+        crate::report::ReportError::History(error) => error.into(),
+        crate::report::ReportError::Map(error) => error.into(),
+    }
+}
+
+fn core_exit_category(error: &dalil_core::CoreError) -> ExitCategory {
+    match error {
+        dalil_core::CoreError::Report(error) => report_exit_category(error),
+        dalil_core::CoreError::Cancelled | dalil_core::CoreError::WrongOperation { .. } => ExitCategory::Input,
     }
 }
 
@@ -458,7 +464,17 @@ impl From<Cli> for CommandRequest {
 
         let mut map = map_settings;
         map.profile = profile;
-        CommandRequest { command, history, map, context, search, profile, output_format, color_policy, strict }
+        CommandRequest {
+            command,
+            history,
+            map,
+            context,
+            search,
+            profile,
+            output_format: output_format.into(),
+            color_policy: color_policy.into(),
+            strict,
+        }
     }
 }
 
@@ -1172,18 +1188,7 @@ impl ColorEnvironment {
     }
 }
 
-#[derive(Debug)]
-pub struct CommandRequest {
-    pub command: CommandDescriptor,
-    pub history: HistorySettings,
-    pub map: MapSettings,
-    pub context: Option<ContextRequest>,
-    pub search: Option<SearchRequest>,
-    pub profile: AnalysisProfile,
-    pub output_format: OutputFormat,
-    pub color_policy: ColorPolicy,
-    pub strict: bool,
-}
+pub type CommandRequest = dalil_core::AnalysisRequest;
 
 /// Parse and execute the command line using the process environment and standard streams.
 pub fn run() -> i32 {
@@ -1254,14 +1259,16 @@ fn invoke<W: Write, E: Write>(
     let open = cli.output.open;
     cli.validate()?;
     if matches!(&cli.command, Some(SubcommandName::Capabilities)) {
-        let report = CapabilitiesReport::current();
-        let output = report.render(output_format).map_err(ApplicationError::Report)?;
+        let report = dalil_core::capabilities();
+        let output = crate::report::render_capabilities(&report, output_format.into())
+            .map_err(|error| ApplicationError::Rendering(error.to_string()))?;
         deliver_output(output_format, open, output, stdout, stderr, "capabilities report")?;
         return Ok(());
     }
     if let Some(SubcommandName::Doctor(command)) = &cli.command {
         let report = DoctorReport::run(command.path.clone());
-        let output = report.render(output_format).map_err(ApplicationError::Report)?;
+        let output = crate::report::render_doctor(&report, output_format.into())
+            .map_err(|error| ApplicationError::Rendering(error.to_string()))?;
         deliver_output(output_format, open, output, stdout, stderr, "doctor report")?;
         if !report.is_ok() {
             return Err(ApplicationError::DoctorFailed.into());
@@ -1272,9 +1279,10 @@ fn invoke<W: Write, E: Write>(
         if stderr_is_terminal {
             let _ = writeln!(stderr, "dalil: reading cache metadata…");
         }
-        let report = crate::map::cache_control(cache.operation.into())
+        let report = dalil_core::cache(cache.operation.into())
             .map_err(|error| ApplicationError::Report(crate::report::ReportError::Map(error)))?;
-        let output = render_cache_control(&report, output_format).map_err(ApplicationError::Report)?;
+        let output = render_cache_control(&report, output_format)
+            .map_err(|error| ApplicationError::Rendering(error.to_string()))?;
         deliver_output(output_format, open, output, stdout, stderr, "cache report")?;
         return Ok(());
     }
@@ -1282,8 +1290,9 @@ fn invoke<W: Write, E: Write>(
         let _ = writeln!(stderr, "dalil: analyzing repository…");
     }
     let strict = cli.output.strict;
-    let report = Report::analyze(cli.into()).map_err(ApplicationError::Report)?;
-    let output = report.render(output_format).map_err(ApplicationError::Report)?;
+    let report = dalil_core::analyze(cli.into()).map_err(ApplicationError::Core)?;
+    let output = crate::report::render_report(&report, output_format.into())
+        .map_err(|error| ApplicationError::Rendering(error.to_string()))?;
     let strict_issues = report.quality.strict_issues.clone();
 
     deliver_output(output_format, open, output, stdout, stderr, "report")?;
@@ -1389,16 +1398,14 @@ fn write_stdout<W: Write>(stdout: &mut W, bytes: &[u8], label: &str) -> anyhow::
     }
 }
 
-fn render_cache_control(
-    report: &CacheControlReport, format: OutputFormat,
-) -> Result<String, crate::report::ReportError> {
+fn render_cache_control(report: &CacheControlReport, format: OutputFormat) -> anyhow::Result<String> {
     match format {
         OutputFormat::Json => {
-            let mut output = serde_json::to_string_pretty(report).map_err(crate::report::ReportError::Json)?;
+            let mut output = serde_json::to_string_pretty(report)?;
             output.push('\n');
             Ok(output)
         }
-        OutputFormat::Html => crate::report::render_cache_html(report),
+        OutputFormat::Html => crate::html::render_cache(report),
         OutputFormat::Markdown => {
             let path = utils::escape_inline_code(report.path.as_deref().unwrap_or("not configured"));
             let mut output = format!("# Dalil cache {}\n\n", report.operation);

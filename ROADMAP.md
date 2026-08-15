@@ -1,7 +1,7 @@
 ---
 title: "Dalil roadmap"
 status: "in-progress"
-updated: "2026-08-15"
+updated: "2026-08-16"
 ---
 
 Dalil is a local codebase reference engine for humans and coding agents. Its
@@ -392,7 +392,7 @@ implementation does not require a daemon.
 
 ### Embeddable Core
 
-The CLI should become one adapter over typed analysis operations:
+The CLI is one adapter over typed analysis operations:
 
 ```rust
 map(request) -> RepositoryReport
@@ -412,10 +412,10 @@ Rendering stays outside the analysis core where practical. The compiled CLI
 remains the highest-level black-box compatibility boundary even after a library
 API is available.
 
-Implement the operations in a `dalil-core` workspace crate. The root `dalil`
-package remains the CLI package, owns request parsing and rendering, and
-preserves `cargo install dalil`. Its dependency on `dalil-core` points inward;
-the core does not depend on CLI, transport, or protocol code.
+The operations live in the `dalil-core` workspace crate. The `dalil` package
+in `crates/dalil-cli` owns request parsing and rendering and preserves
+`cargo install dalil`. It depends on `dalil-core`; the core does not depend on
+CLI, transport, or protocol code. See [the core API guide](docs/src/content/docs/guides/embeddable-core.md).
 
 ### Agent Interfaces
 

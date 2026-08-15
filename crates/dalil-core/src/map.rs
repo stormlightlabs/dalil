@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
 
-use crate::cli::ExitCategory;
+use crate::api::ExitCategory;
 use crate::{landmarks, security};
 use crate::{report::*, utils};
 
@@ -479,7 +479,7 @@ impl Default for MapSettings {
 }
 
 impl MapSettings {
-    pub(crate) fn effective_task_seeds(&self) -> TaskSeeds {
+    pub fn effective_task_seeds(&self) -> TaskSeeds {
         let mut seeds = self.task_seeds.clone();
         seeds.task = seeds.task.and_then(normalize_seed);
         normalize_seed_values(&mut seeds.symbols);

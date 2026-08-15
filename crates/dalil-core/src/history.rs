@@ -6,7 +6,7 @@ use gix::bstr::ByteSlice;
 use gix::revision::walk::Sorting;
 use gix::traverse::commit::simple::CommitTimeOrder;
 
-use crate::cli::ExitCategory;
+use crate::api::ExitCategory;
 use crate::report::*;
 use crate::security;
 use crate::utils;

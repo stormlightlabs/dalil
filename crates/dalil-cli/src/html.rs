@@ -3,11 +3,11 @@ use std::path::Path;
 use minijinja::{Environment, UndefinedBehavior};
 use serde::Serialize;
 
-use super::{
+use dalil_core::CacheControlReport;
+use dalil_core::{
     CapabilitiesReport, CollectionSummary, CommandName, DoctorReport, HistoryObservation, HistoryReport, MapReport,
-    Report, ReportError, ReportStatus, TOOL_VERSION,
+    Report, ReportStatus, TOOL_VERSION,
 };
-use crate::map::CacheControlReport;
 
 const REPORT_TEMPLATE: &str = include_str!("templates/report.html");
 const REPORT_STYLESHEET: &str = include_str!("templates/report.css");
@@ -109,7 +109,7 @@ impl Evidence {
     }
 }
 
-pub(super) fn render_report(report: &Report) -> Result<String, ReportError> {
+pub(super) fn render_report(report: &Report) -> anyhow::Result<String> {
     let repository_name = Path::new(&report.provenance.repository.canonical_root)
         .file_name()
         .and_then(|name| name.to_str())
@@ -228,8 +228,8 @@ pub(super) fn render_report(report: &Report) -> Result<String, ReportError> {
             Fact::new(
                 "Profile",
                 match report.profile {
-                    super::AnalysisProfile::Compact => "compact",
-                    super::AnalysisProfile::Evidence => "evidence",
+                    dalil_core::AnalysisProfile::Compact => "compact",
+                    dalil_core::AnalysisProfile::Evidence => "evidence",
                 },
             ),
             Fact::new("Worktree", report.provenance.worktree.state.label()),
@@ -262,7 +262,7 @@ pub(super) fn render_report(report: &Report) -> Result<String, ReportError> {
     })
 }
 
-pub(super) fn render_capabilities(report: &CapabilitiesReport) -> Result<String, ReportError> {
+pub(super) fn render_capabilities(report: &CapabilitiesReport) -> anyhow::Result<String> {
     let cards = report
         .languages
         .iter()
@@ -324,21 +324,21 @@ pub(super) fn render_capabilities(report: &CapabilitiesReport) -> Result<String,
     })
 }
 
-pub(super) fn render_doctor(report: &DoctorReport) -> Result<String, ReportError> {
+pub(super) fn render_doctor(report: &DoctorReport) -> anyhow::Result<String> {
     let passing = report
         .checks
         .iter()
-        .filter(|check| check.status == super::DoctorCheckStatus::Pass)
+        .filter(|check| check.status == dalil_core::DoctorCheckStatus::Pass)
         .count();
     let warnings = report
         .checks
         .iter()
-        .filter(|check| check.status == super::DoctorCheckStatus::Warn)
+        .filter(|check| check.status == dalil_core::DoctorCheckStatus::Warn)
         .count();
     let failing = report
         .checks
         .iter()
-        .filter(|check| check.status == super::DoctorCheckStatus::Fail)
+        .filter(|check| check.status == dalil_core::DoctorCheckStatus::Fail)
         .count();
     render_page(HtmlPage {
         title: "Doctor".to_owned(),
@@ -377,7 +377,7 @@ pub(super) fn render_doctor(report: &DoctorReport) -> Result<String, ReportError
         notices: report
             .checks
             .iter()
-            .filter(|check| check.status != super::DoctorCheckStatus::Pass)
+            .filter(|check| check.status != dalil_core::DoctorCheckStatus::Pass)
             .map(|check| check.detail.clone())
             .collect(),
         report_json: serde_json::to_string_pretty(report)?,
@@ -387,7 +387,7 @@ pub(super) fn render_doctor(report: &DoctorReport) -> Result<String, ReportError
     })
 }
 
-pub(crate) fn render_cache(report: &CacheControlReport) -> Result<String, ReportError> {
+pub(crate) fn render_cache(report: &CacheControlReport) -> anyhow::Result<String> {
     render_page(HtmlPage {
         title: "Cache".to_owned(),
         eyebrow: format!("Dalil / {}", report.operation),
@@ -423,7 +423,7 @@ pub(crate) fn render_cache(report: &CacheControlReport) -> Result<String, Report
     })
 }
 
-fn render_page(page: HtmlPage) -> Result<String, ReportError> {
+fn render_page(page: HtmlPage) -> anyhow::Result<String> {
     let mut environment = Environment::new();
     environment.set_undefined_behavior(UndefinedBehavior::Strict);
     environment.add_template("report.html", REPORT_TEMPLATE)?;
@@ -568,7 +568,7 @@ fn observation_card(observation: &HistoryObservation) -> Card {
     }
 }
 
-fn counts_card(title: &str, meta: String, paths: &[super::PathCount], caveat: Option<String>) -> Card {
+fn counts_card(title: &str, meta: String, paths: &[dalil_core::PathCount], caveat: Option<String>) -> Card {
     let max = paths.iter().map(|path| path.commits).max().unwrap_or(1);
     Card {
         title: title.to_owned(),
@@ -618,7 +618,7 @@ fn command_text(report: &Report) -> String {
     }
 }
 
-fn recommendation_card(recommendation: &super::ReadingRecommendation) -> Recommendation {
+fn recommendation_card(recommendation: &dalil_core::ReadingRecommendation) -> Recommendation {
     Recommendation {
         ordinal: format!("{:02}", recommendation.ordinal),
         purpose: reading_purpose(recommendation.purpose),
@@ -629,13 +629,13 @@ fn recommendation_card(recommendation: &super::ReadingRecommendation) -> Recomme
     }
 }
 
-fn reading_purpose(purpose: super::ReadingPurpose) -> &'static str {
+fn reading_purpose(purpose: dalil_core::ReadingPurpose) -> &'static str {
     match purpose {
-        super::ReadingPurpose::StartHere => "Start here",
-        super::ReadingPurpose::Architecture => "Architecture",
-        super::ReadingPurpose::Runtime => "Runtime",
-        super::ReadingPurpose::Tests => "Tests",
-        super::ReadingPurpose::SupportingContext => "Supporting context",
+        dalil_core::ReadingPurpose::StartHere => "Start here",
+        dalil_core::ReadingPurpose::Architecture => "Architecture",
+        dalil_core::ReadingPurpose::Runtime => "Runtime",
+        dalil_core::ReadingPurpose::Tests => "Tests",
+        dalil_core::ReadingPurpose::SupportingContext => "Supporting context",
     }
 }
 

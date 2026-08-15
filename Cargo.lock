@@ -308,11 +308,23 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "dalil-core",
  "gix",
- "ignore",
  "libc",
  "minijinja",
  "owo-colors",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "dalil-core"
+version = "0.1.0"
+dependencies = [
+ "gix",
+ "ignore",
+ "libc",
  "serde",
  "serde_json",
  "sha2",

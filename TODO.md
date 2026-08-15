@@ -168,20 +168,20 @@ depending on CLI parsing or renderer internals.
 
 **Acceptance criteria:**
 
-- [ ] Expose orientation, map, context, impact, explain, search, capabilities,
+- [x] Expose orientation, map, context, impact, explain, search, capabilities,
       and cache operations through typed inputs and outputs.
-- [ ] Extract analysis and reusable storage into a `dalil-core` workspace crate.
-      Keep the root `dalil` package as the CLI package and preserve
+- [x] Extract analysis and reusable storage into a `dalil-core` workspace crate.
+      Keep the `dalil` CLI package in `crates/dalil-cli` and preserve
       `cargo install dalil`.
-- [ ] Separate analysis, storage, rendering, and transport boundaries while
+- [x] Separate analysis, storage, rendering, and transport boundaries while
       reusing current domain types where they already fit.
-- [ ] Keep dependencies directed from the CLI into `dalil-core`; the core must
+- [x] Keep dependencies directed from the CLI into `dalil-core`; the core does
       not depend on CLI parsing, rendering, transport, or protocol code.
-- [ ] Keep internal graph and parser structures private unless a demonstrated
+- [x] Keep internal graph and parser structures private unless a demonstrated
       consumer needs them.
-- [ ] Define cancellation, progress, budget, warning, and error behavior for
+- [x] Define cancellation, progress, budget, warning, and error behavior for
       long-running calls.
-- [ ] Prove CLI output still comes from the same operations.
+- [x] Prove CLI output still comes from the same operations.
 
 **Verification:** Add library integration tests and compare library-derived
 results with black-box CLI JSON fixtures.

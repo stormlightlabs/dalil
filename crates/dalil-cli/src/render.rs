@@ -6,7 +6,7 @@ use crate::utils;
 pub struct Render;
 
 impl Render {
-    fn commits(output: &mut String, commits: &[super::CommitEvidence]) {
+    fn commits(output: &mut String, commits: &[dalil_core::CommitEvidence]) {
         writeln!(output, "#### Evidence commits").expect("writing to a string cannot fail");
         if commits.is_empty() {
             writeln!(output, "No matching commits were found.").expect("writing to a string cannot fail");
@@ -47,7 +47,7 @@ impl Render {
         }
     }
 
-    pub fn briefing_overview(output: &mut String, map: &super::MapReport) {
+    pub fn briefing_overview(output: &mut String, map: &dalil_core::MapReport) {
         writeln!(output).expect("writing to a string cannot fail");
         writeln!(output, "## Repository overview").expect("writing to a string cannot fail");
         writeln!(output).expect("writing to a string cannot fail");
@@ -86,12 +86,12 @@ impl Render {
             .filter(|landmark| {
                 matches!(
                     landmark.kind,
-                    super::LandmarkKind::AgentInstructions
-                        | super::LandmarkKind::ContributorInstructions
-                        | super::LandmarkKind::Readme
-                        | super::LandmarkKind::Manifest
-                        | super::LandmarkKind::WorkspaceRoot
-                        | super::LandmarkKind::PackageRoot
+                    dalil_core::LandmarkKind::AgentInstructions
+                        | dalil_core::LandmarkKind::ContributorInstructions
+                        | dalil_core::LandmarkKind::Readme
+                        | dalil_core::LandmarkKind::Manifest
+                        | dalil_core::LandmarkKind::WorkspaceRoot
+                        | dalil_core::LandmarkKind::PackageRoot
                 )
             })
             .take(5)
@@ -114,7 +114,7 @@ impl Render {
         }
     }
 
-    pub fn orientation_markdown(output: &mut String, orientation: &super::OrientationReport) {
+    pub fn orientation_markdown(output: &mut String, orientation: &dalil_core::OrientationReport) {
         writeln!(output).expect("writing to a string cannot fail");
         writeln!(output, "## Repository overview").expect("writing to a string cannot fail");
         writeln!(output).expect("writing to a string cannot fail");
@@ -200,7 +200,7 @@ impl Render {
         .expect("writing to a string cannot fail");
     }
 
-    pub fn search_markdown(output: &mut String, search: &super::SearchResults) {
+    pub fn search_markdown(output: &mut String, search: &dalil_core::SearchResults) {
         Render::section_heading(output, "Search results");
         writeln!(
             output,
@@ -267,7 +267,7 @@ impl Render {
     }
 
     fn orientation_recommendations(
-        output: &mut String, heading: &str, recommendations: &[super::ReadingRecommendation],
+        output: &mut String, heading: &str, recommendations: &[dalil_core::ReadingRecommendation],
     ) {
         if recommendations.is_empty() {
             return;
@@ -303,7 +303,7 @@ impl Render {
         }
     }
 
-    fn orientation_roots(output: &mut String, roots: &[super::OrientationRoot]) {
+    fn orientation_roots(output: &mut String, roots: &[dalil_core::OrientationRoot]) {
         if roots.is_empty() {
             return;
         }
@@ -320,7 +320,7 @@ impl Render {
         }
     }
 
-    pub fn reading_plan_markdown(output: &mut String, plan: &super::ReadingPlan) {
+    pub fn reading_plan_markdown(output: &mut String, plan: &dalil_core::ReadingPlan) {
         writeln!(output).expect("writing to a string cannot fail");
         writeln!(output, "## Reading plan").expect("writing to a string cannot fail");
         writeln!(output).expect("writing to a string cannot fail");
@@ -424,7 +424,9 @@ impl Render {
         }
     }
 
-    pub fn quality_markdown(output: &mut String, quality: &super::ReportQuality, command: super::CommandName) {
+    pub fn quality_markdown(
+        output: &mut String, quality: &dalil_core::ReportQuality, command: dalil_core::CommandName,
+    ) {
         if !quality.projection && quality.strict_issues.is_empty() {
             return;
         }
@@ -449,7 +451,7 @@ impl Render {
                 "dalil doctor"
             } else if quality.stale {
                 "dalil map --cache always"
-            } else if command == super::CommandName::History {
+            } else if command == dalil_core::CommandName::History {
                 "dalil history --profile evidence"
             } else {
                 "dalil map --profile evidence"
@@ -458,7 +460,7 @@ impl Render {
         }
     }
 
-    pub fn history_markdown(output: &mut String, history: &super::HistoryReport) {
+    pub fn history_markdown(output: &mut String, history: &dalil_core::HistoryReport) {
         Render::history_header(output, history);
 
         if let Some(churn) = &history.churn {
@@ -479,7 +481,7 @@ impl Render {
         Render::history_limitations(output, history);
     }
 
-    pub fn history_briefing_markdown(output: &mut String, history: &super::HistoryReport) {
+    pub fn history_briefing_markdown(output: &mut String, history: &dalil_core::HistoryReport) {
         writeln!(output).expect("writing to a string cannot fail");
         writeln!(output, "## History analysis").expect("writing to a string cannot fail");
         writeln!(output).expect("writing to a string cannot fail");
@@ -511,7 +513,7 @@ impl Render {
         Render::history_limitations(output, history);
     }
 
-    pub fn briefing_evidence_notes(output: &mut String, map: &super::MapReport) {
+    pub fn briefing_evidence_notes(output: &mut String, map: &dalil_core::MapReport) {
         let has_notes = map.classifications.total > 0
             || map.availability.unsupported_paths > 0
             || map.availability.partial_files > 0
@@ -561,7 +563,7 @@ impl Render {
         .expect("writing to a string cannot fail");
     }
 
-    fn history_header(output: &mut String, history: &super::HistoryReport) {
+    fn history_header(output: &mut String, history: &dalil_core::HistoryReport) {
         writeln!(output).expect("writing to a string cannot fail");
         writeln!(output, "## History analysis").expect("writing to a string cannot fail");
         writeln!(output).expect("writing to a string cannot fail");
@@ -619,16 +621,16 @@ impl Render {
         }
     }
 
-    fn history_limitations(output: &mut String, history: &super::HistoryReport) {
+    fn history_limitations(output: &mut String, history: &dalil_core::HistoryReport) {
         for limitation in &history.limitations {
             writeln!(output, "- Limitation: {}", utils::sanitize_text(limitation))
                 .expect("writing to a string cannot fail");
         }
     }
 
-    fn history_observation(output: &mut String, observation: &super::HistoryObservation) {
+    fn history_observation(output: &mut String, observation: &dalil_core::HistoryObservation) {
         match observation {
-            super::HistoryObservation::Churn { paths, window_days, caveat } => {
+            dalil_core::HistoryObservation::Churn { paths, window_days, caveat } => {
                 writeln!(
                     output,
                     "- **Churn:** {} changed over the last {} days. Caveat: {}",
@@ -638,7 +640,7 @@ impl Render {
                 )
                 .expect("writing to a string cannot fail");
             }
-            super::HistoryObservation::Contributors { contributor, total_commits, window_days, caveat } => {
+            dalil_core::HistoryObservation::Contributors { contributor, total_commits, window_days, caveat } => {
                 let window = window_days.map_or_else(
                     || "across observed history".to_owned(),
                     |days| format!("in the recent {days}-day window"),
@@ -655,7 +657,7 @@ impl Render {
                 )
                 .expect("writing to a string cannot fail");
             }
-            super::HistoryObservation::BugOverlap { paths, bug_commits, window_days, caveat } => {
+            dalil_core::HistoryObservation::BugOverlap { paths, bug_commits, window_days, caveat } => {
                 writeln!(
                     output,
                     "- **Bug/churn overlap:** {} overlapped across {} matching bug commits in the last {} days. Caveat: {}",
@@ -666,7 +668,7 @@ impl Render {
                 )
                 .expect("writing to a string cannot fail");
             }
-            super::HistoryObservation::Activity { month, commits, observed_months, observed_commits, caveat } => {
+            dalil_core::HistoryObservation::Activity { month, commits, observed_months, observed_commits, caveat } => {
                 writeln!(
                     output,
                     "- **Activity:** `{}` was the busiest observed month with {} commits across {} observed commits and {} months. Caveat: {}",
@@ -678,7 +680,7 @@ impl Render {
                 )
                 .expect("writing to a string cannot fail");
             }
-            super::HistoryObservation::Firefighting { commits, paths, window_days, caveat } => {
+            dalil_core::HistoryObservation::Firefighting { commits, paths, window_days, caveat } => {
                 writeln!(
                     output,
                     "- **Firefighting language:** {} matching commits touched {} over the last {} days. Caveat: {}",
@@ -692,7 +694,7 @@ impl Render {
         }
     }
 
-    fn path_counts_inline(paths: &[super::PathCount]) -> String {
+    fn path_counts_inline(paths: &[dalil_core::PathCount]) -> String {
         paths
             .iter()
             .map(|path| format!("`{}` ({} commits)", utils::escape_inline_code(&path.path), path.commits))
@@ -700,7 +702,7 @@ impl Render {
             .join(", ")
     }
 
-    pub fn map_markdown(output: &mut String, map: &super::MapReport) {
+    pub fn map_markdown(output: &mut String, map: &dalil_core::MapReport) {
         writeln!(output).expect("writing to a string cannot fail");
         writeln!(output, "## Source map").expect("writing to a string cannot fail");
         writeln!(output).expect("writing to a string cannot fail");
@@ -817,7 +819,7 @@ impl Render {
             writeln!(output, "- {}", utils::sanitize_text(limitation)).expect("writing to a string cannot fail");
         }
 
-        let mut files_by_language: BTreeMap<super::SourceLanguage, Vec<&super::SourceFile>> = BTreeMap::new();
+        let mut files_by_language: BTreeMap<dalil_core::SourceLanguage, Vec<&dalil_core::SourceFile>> = BTreeMap::new();
         for file in &map.files {
             files_by_language.entry(file.language).or_default().push(file);
         }
@@ -1013,8 +1015,8 @@ impl Render {
                         .changes
                         .iter()
                         .map(|change| match change {
-                            super::TaskChangeSeed::Path(path) => format!("path:{path}"),
-                            super::TaskChangeSeed::Symbol(symbol) => format!("symbol:{symbol}"),
+                            dalil_core::TaskChangeSeed::Path(path) => format!("path:{path}"),
+                            dalil_core::TaskChangeSeed::Symbol(symbol) => format!("symbol:{symbol}"),
                         })
                         .collect::<Vec<_>>();
                     task_seed_groups.push(format!("changes {}", utils::inline_code_list(&changes)));
@@ -1128,7 +1130,7 @@ impl Render {
         }
     }
 
-    pub fn context_markdown(output: &mut String, context: &super::ContextBundle) {
+    pub fn context_markdown(output: &mut String, context: &dalil_core::ContextBundle) {
         Render::section_heading(output, "Task context");
         if let Some(task) = &context.request.task {
             writeln!(output, "Task: {}", utils::sanitize_text(task)).expect("writing to a string cannot fail");
@@ -1171,7 +1173,7 @@ impl Render {
             }
         }
 
-        if context.change_resolution.status != super::ChangeResolutionStatus::NotRequested {
+        if context.change_resolution.status != dalil_core::ChangeResolutionStatus::NotRequested {
             Render::section_heading(output, "Resolved changes");
             writeln!(output, "Status: {}", context.change_resolution.status.label())
                 .expect("writing to a string cannot fail");
@@ -1357,7 +1359,7 @@ impl Render {
         .expect("writing to a string cannot fail");
     }
 
-    pub fn impact_markdown(output: &mut String, impact: &super::ImpactReport) {
+    pub fn impact_markdown(output: &mut String, impact: &dalil_core::ImpactReport) {
         Render::section_heading(output, "Impact context");
         if let Some(task) = &impact.request.task {
             writeln!(output, "Task: {}", utils::sanitize_text(task)).expect("writing to a string cannot fail");
@@ -1503,9 +1505,9 @@ impl Render {
         .expect("writing to a string cannot fail");
     }
 
-    fn context_history_observation(observation: &super::HistoryObservation) -> String {
+    fn context_history_observation(observation: &dalil_core::HistoryObservation) -> String {
         match observation {
-            super::HistoryObservation::Churn { paths, window_days, caveat } => format!(
+            dalil_core::HistoryObservation::Churn { paths, window_days, caveat } => format!(
                 "{} churn path(s) over {window_days} days: {}; {}",
                 paths.len(),
                 paths
@@ -1515,13 +1517,13 @@ impl Render {
                     .join(", "),
                 utils::sanitize_text(caveat),
             ),
-            super::HistoryObservation::Contributors { contributor, total_commits, caveat, .. } => format!(
+            dalil_core::HistoryObservation::Contributors { contributor, total_commits, caveat, .. } => format!(
                 "{} has {} of {total_commits} commits; {}",
                 utils::sanitize_text(&contributor.name),
                 contributor.commits,
                 utils::sanitize_text(caveat),
             ),
-            super::HistoryObservation::BugOverlap { paths, bug_commits, caveat, .. } => format!(
+            dalil_core::HistoryObservation::BugOverlap { paths, bug_commits, caveat, .. } => format!(
                 "{bug_commits} bug-keyword commit(s) overlap {}; {}",
                 paths
                     .iter()
@@ -1530,11 +1532,11 @@ impl Render {
                     .join(", "),
                 utils::sanitize_text(caveat),
             ),
-            super::HistoryObservation::Activity { month, commits, caveat, .. } => format!(
+            dalil_core::HistoryObservation::Activity { month, commits, caveat, .. } => format!(
                 "{month} has {commits} observed commit(s); {}",
                 utils::sanitize_text(caveat),
             ),
-            super::HistoryObservation::Firefighting { commits, paths, caveat, .. } => format!(
+            dalil_core::HistoryObservation::Firefighting { commits, paths, caveat, .. } => format!(
                 "{commits} firefighting-keyword commit(s) touch {}; {}",
                 paths
                     .iter()
@@ -1546,7 +1548,7 @@ impl Render {
         }
     }
 
-    pub fn explain_markdown(output: &mut String, explain: &super::ExplainReport) {
+    pub fn explain_markdown(output: &mut String, explain: &dalil_core::ExplainReport) {
         Render::section_heading(output, "Recommendation explanation");
         writeln!(
             output,
@@ -1603,8 +1605,8 @@ impl Render {
             output,
             "- profile `{}`; {} analyzed source file(s); {} retained lexical relationship(s); history scope `{}`",
             match explain.provenance.profile {
-                super::AnalysisProfile::Compact => "compact",
-                super::AnalysisProfile::Evidence => "evidence",
+                dalil_core::AnalysisProfile::Compact => "compact",
+                dalil_core::AnalysisProfile::Evidence => "evidence",
             },
             explain.provenance.source_files_analyzed,
             explain.provenance.retained_relationships,
@@ -1772,7 +1774,7 @@ impl Render {
         Render::caveats(output, &explain.limitations);
     }
 
-    fn explain_task_seeds(task_seeds: &super::TaskSeeds) -> Vec<String> {
+    fn explain_task_seeds(task_seeds: &dalil_core::TaskSeeds) -> Vec<String> {
         let mut seeds = Vec::new();
         if let Some(task) = &task_seeds.task {
             seeds.push(format!("task `{}`", utils::escape_inline_code(task)));
@@ -1797,15 +1799,15 @@ impl Render {
         }
         for change in &task_seeds.changes {
             let (kind, value) = match change {
-                super::TaskChangeSeed::Path(value) => ("changed path", value),
-                super::TaskChangeSeed::Symbol(value) => ("changed symbol", value),
+                dalil_core::TaskChangeSeed::Path(value) => ("changed path", value),
+                dalil_core::TaskChangeSeed::Symbol(value) => ("changed symbol", value),
             };
             seeds.push(format!("{kind} `{}`", utils::escape_inline_code(value)));
         }
         seeds
     }
 
-    fn explain_ranking_markdown(output: &mut String, ranking: &super::ExplainRanking, indent: &str) {
+    fn explain_ranking_markdown(output: &mut String, ranking: &dalil_core::ExplainRanking, indent: &str) {
         let contributions = &ranking.contributions;
         writeln!(
             output,
@@ -1836,7 +1838,7 @@ impl Render {
         }
     }
 
-    fn explain_relationship_markdown(output: &mut String, edge: &super::LexicalEdge, indent: &str) {
+    fn explain_relationship_markdown(output: &mut String, edge: &dalil_core::LexicalEdge, indent: &str) {
         let candidates = if edge.candidates.is_empty() {
             "none retained".to_owned()
         } else {
@@ -1858,7 +1860,7 @@ impl Render {
         .expect("writing to a string cannot fail");
     }
 
-    fn explain_omission_markdown(output: &mut String, omission: &super::SourceOmission, indent: &str) {
+    fn explain_omission_markdown(output: &mut String, omission: &dalil_core::SourceOmission, indent: &str) {
         let classifications = if omission.classifications.is_empty() {
             String::new()
         } else {
@@ -1888,7 +1890,7 @@ impl Render {
         .expect("writing to a string cannot fail");
     }
 
-    fn source_files(output: &mut String, files: &[&super::SourceFile]) {
+    fn source_files(output: &mut String, files: &[&dalil_core::SourceFile]) {
         for file in files {
             writeln!(
                 output,
@@ -1913,14 +1915,14 @@ impl Render {
         }
     }
 
-    fn format_location(location: &super::SourceLocation) -> String {
+    fn format_location(location: &dalil_core::SourceLocation) -> String {
         format!(
             "{}:{}-{}:{}",
             location.start.line, location.start.column, location.end.line, location.end.column
         )
     }
 
-    fn churn_markdown(output: &mut String, churn: &super::ChurnReport) {
+    fn churn_markdown(output: &mut String, churn: &dalil_core::ChurnReport) {
         Render::section_heading(output, "Churn hotspots");
         writeln!(output, "Window: {} days", churn.window_days).expect("writing to a string cannot fail");
         if churn.paths.is_empty() {
@@ -1965,7 +1967,7 @@ impl Render {
         Render::caveats(output, &churn.caveats);
     }
 
-    fn contributors_markdown(output: &mut String, contributors: &super::ContributorReport) {
+    fn contributors_markdown(output: &mut String, contributors: &dalil_core::ContributorReport) {
         Render::section_heading(output, "Contributor concentration");
         writeln!(output, "Committed .mailmap applied: {}", contributors.mailmap_applied)
             .expect("writing to a string cannot fail");
@@ -1982,7 +1984,7 @@ impl Render {
         Render::caveats(output, &contributors.caveats);
     }
 
-    fn contributors_group(output: &mut String, label: &str, contributors: &[super::ContributorCount]) {
+    fn contributors_group(output: &mut String, label: &str, contributors: &[dalil_core::ContributorCount]) {
         writeln!(output, "#### {label}").expect("writing to a string cannot fail");
         if contributors.is_empty() {
             writeln!(output, "No contributors were found.").expect("writing to a string cannot fail");
@@ -2008,7 +2010,7 @@ impl Render {
         }
     }
 
-    fn bugs_markdown(output: &mut String, bugs: &super::BugReport) {
+    fn bugs_markdown(output: &mut String, bugs: &dalil_core::BugReport) {
         Render::section_heading(output, "Bug-related clusters");
         writeln!(output, "Window: {} days", bugs.window_days).expect("writing to a string cannot fail");
         writeln!(
@@ -2024,7 +2026,7 @@ impl Render {
         Render::caveats(output, &bugs.caveats);
     }
 
-    fn activity_markdown(output: &mut String, activity: &super::ActivityReport) {
+    fn activity_markdown(output: &mut String, activity: &dalil_core::ActivityReport) {
         Render::section_heading(output, "Monthly activity");
         if activity.months.is_empty() {
             writeln!(output, "No commits were found.").expect("writing to a string cannot fail");
@@ -2037,7 +2039,7 @@ impl Render {
         Render::caveats(output, &activity.caveats);
     }
 
-    fn firefighting_markdown(output: &mut String, firefighting: &super::FirefightingReport) {
+    fn firefighting_markdown(output: &mut String, firefighting: &dalil_core::FirefightingReport) {
         Render::section_heading(output, "Firefighting commits");
         writeln!(
             output,
@@ -2051,7 +2053,7 @@ impl Render {
         Render::caveats(output, &firefighting.caveats);
     }
 
-    fn paths(output: &mut String, label: &str, paths: &[super::PathCount]) {
+    fn paths(output: &mut String, label: &str, paths: &[dalil_core::PathCount]) {
         writeln!(output, "#### {label}").expect("writing to a string cannot fail");
         if paths.is_empty() {
             writeln!(output, "No paths were found.").expect("writing to a string cannot fail");
