@@ -365,7 +365,7 @@ impl From<Cli> for CommandRequest {
                 None,
             ),
             Some(SubcommandName::Context(context)) => {
-                let ContextCommand { options, revision, path } = context;
+                let ContextCommand { options, revision, teach, path } = context;
                 let map = options.settings();
                 let request = ContextRequest {
                     repository: path.to_string_lossy().into_owned(),
@@ -377,6 +377,7 @@ impl From<Cli> for CommandRequest {
                     revision_context: revision.into(),
                     budget: map.map_tokens,
                     profile,
+                    teaching: teach,
                 };
                 (
                     CommandDescriptor::context(path),
@@ -476,8 +477,9 @@ struct ExplainCommand {
 
 Context combines orientation, selected files and symbols, lexical relationships,
 likely tests, bounded history, uncertainty, omissions, and next reads under one
-budget. Revision fields are recorded as request context; change resolution is
-reported separately when it becomes available.
+budget. Add `--teach` for a source-grounded reading sequence. Revision fields
+are recorded as request context; change resolution is reported separately when
+it becomes available.
 
 Support: https://github.com/stormlightlabs/dalil/issues
 ")]
@@ -487,6 +489,10 @@ struct ContextCommand {
 
     #[command(flatten)]
     revision: ContextRevisionOptions,
+
+    /// Add a source-grounded teaching sequence to the selected context evidence.
+    #[arg(long, visible_alias = "teaching", action = ArgAction::SetTrue)]
+    teach: bool,
 
     #[arg(
         value_name = "PATH",
@@ -1283,6 +1289,7 @@ mod tests {
                 "--head",
                 "HEAD",
                 "--dirty-worktree",
+                "--teach",
                 "--budget",
                 "600",
             ])
@@ -1302,6 +1309,7 @@ mod tests {
         assert_eq!(context.revision_context.base.as_deref(), Some("main~1"));
         assert_eq!(context.revision_context.head.as_deref(), Some("HEAD"));
         assert!(context.revision_context.dirty_worktree);
+        assert!(context.teaching);
     }
 
     #[test]

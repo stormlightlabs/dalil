@@ -121,16 +121,17 @@ a concise sequence grounded in repository evidence.
 
 **Acceptance criteria:**
 
-- [ ] Build the scaffold only from returned files, symbols, relationships,
+- [x] Build the scaffold only from returned files, symbols, relationships,
       manifests, and history evidence.
-- [ ] Cover where execution or behavior starts, the main control flow, state or
+- [x] Cover where execution or behavior starts, the main control flow, state or
       data boundaries, relevant tests, and the next useful read.
-- [ ] Distinguish observed evidence from inferred ordering.
-- [ ] Omit unsupported sections instead of inventing a complete narrative.
-- [ ] Keep the scaffold within the request's total token budget.
+- [x] Distinguish observed evidence from inferred ordering.
+- [x] Omit unsupported sections instead of inventing a complete narrative.
+- [x] Keep the scaffold within the request's total token budget.
 
-**Verification:** Add fixtures for a clear entry flow, multiple plausible entry
-points, and insufficient evidence; review the output against the source files.
+**Verification:** Added fixtures for a clear entry flow, multiple plausible
+entry points, and insufficient evidence. The CLI fixture verifies that every
+teaching observation points to evidence already selected in the JSON bundle.
 
 ## Milestone: Change-aware review context
 

@@ -54,7 +54,9 @@ than three strong source files fit the token budget.
 Context responses put their task-shaped result in `context` and omit the full
 `map` and `history` objects. The bundle retains its normalized request,
 orientation, selected files and symbols, relationships, tests, history, risks,
-uncertainty, provenance, omissions, next reads, and budget metadata.
+uncertainty, provenance, omissions, next reads, and budget metadata. With
+`dalil context --teach`, `context.teaching` adds source-bound observations and
+an `inferred` or `ambiguous` reading-order label for each step.
 
 JSON reports use `schema_version: 1`. The schema is available at
 [`schema/v1/dalil.json`](https://github.com/stormlightlabs/dalil/blob/main/schema/v1/dalil.json),

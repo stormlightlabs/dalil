@@ -46,7 +46,7 @@ dalil history
 dalil history contributors src --json
 dalil explain src/map.rs --json
 dalil explain Parser --focus Parser --json
-dalil context --task 'fix parser cache invalidation' --changed-path src/map/cache.rs --json
+dalil context --task 'fix parser cache invalidation' --changed-path src/map/cache.rs --teach --json
 dalil capabilities --json
 dalil doctor . --json
 ```
@@ -211,7 +211,8 @@ guidance.
 analysis. Its JSON result contains the normalized request, orientation,
 recommended files and symbols, lexical relationships, relevant tests, history,
 risks, uncertainty, provenance, omissions, and next reads. It does not embed
-the raw map or history reports.
+the raw map or history reports. Add `--teach` to request a short teaching
+scaffold for an unfamiliar subsystem.
 
 ```sh
 dalil context --task 'fix parser cache invalidation'
@@ -226,9 +227,16 @@ request. Dalil does not yet resolve those revisions into changed paths or
 symbols; use explicit changed-path and changed-symbol inputs until change-aware
 context is available.
 
+`--teach` uses only files, symbols, lexical relationships, tests, and next
+reads already selected for the bundle. Under a tight budget, it prioritizes a
+runtime recommendation before generic orientation files. Each teaching step
+records direct observations and labels its reading order as `inferred` or
+`ambiguous`. Dalil omits a step when the selected evidence does not support it.
+
 `--budget` applies to the bundle's selected evidence rather than fixed section
 quotas. The result's `context.budget` describes the estimated token use and any
-projection.
+projection. If the scaffold cannot fit with the selected source evidence, it is
+omitted and the budget is marked truncated.
 
 ### `dalil history [OPERATION] [OPTIONS] [PATH]`
 

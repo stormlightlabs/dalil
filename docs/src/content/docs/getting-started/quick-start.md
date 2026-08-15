@@ -23,7 +23,7 @@ Give Dalil a concise task description when you know what you need to change:
 ```sh
 dalil --task 'fix parser cache invalidation' --changed-path src/map/cache.rs
 dalil map --task 'find the parse source entry point' --symbol parse_source --json
-dalil context --task 'fix parser cache invalidation' --changed-path src/map/cache.rs --json
+dalil context --task 'fix parser cache invalidation' --changed-path src/map/cache.rs --teach --json
 ```
 
 `--task` derives local search terms and ranks matching files with related code.
@@ -40,8 +40,9 @@ dalil explain Parser --focus Parser --json
 
 `--budget` limits ranked map selection and compact Markdown output. For
 `dalil context`, it applies to the selected evidence across the whole context
-bundle. Exact focus paths can include a classified `bin/` entry within the
-normal safety limits.
+bundle. Add `--teach` when you want a source-grounded reading sequence for an
+unfamiliar subsystem. Exact focus paths can include a classified `bin/` entry
+within the normal safety limits.
 
 ## Choose an output format
 

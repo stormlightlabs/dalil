@@ -713,6 +713,9 @@ pub struct ContextRequest {
     pub budget: usize,
     #[serde(default)]
     pub profile: AnalysisProfile,
+    /// Request a concise teaching sequence grounded in this bundle's selected evidence.
+    #[serde(default)]
+    pub teaching: bool,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -750,6 +753,9 @@ pub struct ContextBundle {
     pub omissions: Vec<ContextOmission>,
     #[serde(default)]
     pub next_reads: Vec<ReadingRecommendation>,
+    /// An optional source-grounded reading sequence requested with `--teach`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub teaching: Option<TeachingScaffold>,
     pub budget: ContextBudget,
 }
 
@@ -826,6 +832,98 @@ pub struct ContextBudget {
     pub token_budget: usize,
     pub estimated_tokens: usize,
     pub truncated: bool,
+}
+
+/// A concise explanation of how to inspect an unfamiliar subsystem. Every
+/// observation references evidence already selected in the context bundle.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TeachingScaffold {
+    #[serde(default)]
+    pub steps: Vec<TeachingStep>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TeachingStep {
+    pub topic: TeachingTopic,
+    pub explanation: String,
+    /// Direct repository facts already returned elsewhere in this bundle.
+    #[serde(default)]
+    pub observed: Vec<TeachingEvidence>,
+    /// Whether the order described by this step was directly established or
+    /// inferred from the observed evidence.
+    pub ordering: TeachingOrdering,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TeachingTopic {
+    BehaviorStart,
+    ControlFlow,
+    StateOrDataBoundary,
+    RelevantTests,
+    NextRead,
+}
+
+impl TeachingTopic {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::BehaviorStart => "behavior_start",
+            Self::ControlFlow => "control_flow",
+            Self::StateOrDataBoundary => "state_or_data_boundary",
+            Self::RelevantTests => "relevant_tests",
+            Self::NextRead => "next_read",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TeachingOrdering {
+    Inferred,
+    Ambiguous,
+}
+
+impl TeachingOrdering {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Inferred => "inferred",
+            Self::Ambiguous => "ambiguous",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TeachingEvidence {
+    pub kind: TeachingEvidenceKind,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TeachingEvidenceKind {
+    File,
+    Symbol,
+    Relationship,
+    Manifest,
+    Test,
+    History,
+    NextRead,
+}
+
+impl TeachingEvidenceKind {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::File => "file",
+            Self::Symbol => "symbol",
+            Self::Relationship => "relationship",
+            Self::Manifest => "manifest",
+            Self::Test => "test",
+            Self::History => "history",
+            Self::NextRead => "next_read",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

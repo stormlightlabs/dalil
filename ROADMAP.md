@@ -207,12 +207,16 @@ ContextBundle
 ├── repository instructions
 ├── relevant recent history
 ├── ambiguities and limitations
-└── suggested next reads
+├── suggested next reads
+└── optional source-grounded teaching sequence
 ```
 
-Every recommendation retains typed evidence and confidence. Markdown and JSON
-render the same selected bundle, and the configured budget applies to the
-whole result. Compact Markdown may be projected further for terminal output.
+When requested, the teaching sequence cites only evidence already returned in
+the bundle. It labels direct observations separately from inferred or ambiguous
+reading order, and omits unsupported steps. Every recommendation retains typed
+evidence and confidence. Markdown and JSON render the same selected bundle, and
+the configured budget applies to the whole result. Compact Markdown may be
+projected further for terminal output.
 
 ### Change and Impact Context
 

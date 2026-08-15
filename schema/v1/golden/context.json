@@ -35,7 +35,8 @@
       "changes": [{ "kind": "path", "value": "src/controller.rs" }],
       "revision_context": { "dirty_worktree": true },
       "budget": 1000,
-      "profile": "compact"
+      "profile": "compact",
+      "teaching": false
     },
     "orientation": {
       "repository_root": "/fixture",

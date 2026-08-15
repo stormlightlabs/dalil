@@ -2397,6 +2397,107 @@ fn context_compiles_one_budgeted_bundle_in_json_and_markdown() {
 }
 
 #[test]
+fn context_teaching_scaffold_is_opt_in_and_cites_selected_evidence() {
+    let fixture = MapFixtureRepository::new();
+    write_file(
+        fixture.root.join("src/main.rs"),
+        b"pub struct RequestState;\nfn main() { let _state = RequestState; }\n",
+    );
+    let output = fixture.run(&[
+        "context",
+        "--task",
+        "inspect the parser entry flow",
+        "--teach",
+        "--budget",
+        "8000",
+        "--no-cache",
+        "--json",
+    ]);
+    assert!(
+        output.status.success(),
+        "context teaching failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: Value = serde_json::from_str(&stdout(&output)).expect("valid teaching context JSON");
+    let context = &json["context"];
+    assert_eq!(context["request"]["teaching"], true);
+    assert!(
+        context["budget"]["estimated_tokens"]
+            .as_u64()
+            .is_some_and(|tokens| tokens <= 8_000)
+    );
+    let steps = context["teaching"]["steps"].as_array().expect("teaching steps");
+    assert!(steps.iter().any(|step| step["topic"] == "behavior_start"));
+    assert!(steps.iter().all(|step| step["observed"].is_array()));
+    assert!(steps.iter().any(|step| step["ordering"] == "inferred"));
+    let selected_paths = context["files"]
+        .as_array()
+        .expect("selected files")
+        .iter()
+        .filter_map(|file| file["recommendation"]["path"].as_str())
+        .collect::<BTreeSet<_>>();
+    assert!(
+        steps
+            .iter()
+            .flat_map(|step| step["observed"].as_array().unwrap())
+            .all(|evidence| {
+                match evidence["kind"].as_str() {
+                    Some("file") | Some("symbol") => evidence["path"]
+                        .as_str()
+                        .is_some_and(|path| selected_paths.contains(path)),
+                    Some("relationship") => context["relationships"].as_array().is_some_and(|relationships| {
+                        relationships
+                            .iter()
+                            .any(|relationship| relationship["source"] == evidence["path"])
+                    }),
+                    Some("test") => context["relevant_tests"]
+                        .as_array()
+                        .is_some_and(|tests| tests.iter().any(|test| test["path"] == evidence["path"])),
+                    Some("next_read") => context["next_reads"]
+                        .as_array()
+                        .is_some_and(|reads| reads.iter().any(|read| read["path"] == evidence["path"])),
+                    _ => false,
+                }
+            })
+    );
+
+    let compact = fixture.run(&[
+        "context",
+        "--task",
+        "inspect the parser entry flow",
+        "--teach",
+        "--no-cache",
+        "--json",
+    ]);
+    assert!(compact.status.success());
+    let compact: Value = serde_json::from_str(&stdout(&compact)).expect("valid compact teaching context JSON");
+    assert!(
+        compact["context"]["teaching"]["steps"]
+            .as_array()
+            .is_some_and(|steps| steps.iter().any(|step| step["topic"] == "behavior_start"))
+    );
+    assert!(
+        compact["context"]["budget"]["estimated_tokens"]
+            .as_u64()
+            .is_some_and(|tokens| tokens <= 1_000)
+    );
+
+    let markdown = fixture.run(&[
+        "context",
+        "--task",
+        "inspect the parser entry flow",
+        "--teach",
+        "--budget",
+        "8000",
+        "--no-cache",
+    ]);
+    assert!(markdown.status.success());
+    let markdown = stdout(&markdown);
+    assert!(markdown.contains("Teaching scaffold"));
+    assert!(markdown.contains("Observed file:"));
+}
+
+#[test]
 fn map_cache_modes_hit_invalidate_refresh_and_disable_without_project_writes() {
     let fixture = MapFixtureRepository::new();
     let initial_cache_entries = fs::read_dir(&fixture.cache).expect("read empty cache root").count();

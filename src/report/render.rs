@@ -996,6 +996,34 @@ impl Render {
             }
         }
 
+        if let Some(teaching) = &context.teaching {
+            Render::section_heading(output, "Teaching scaffold");
+            for step in &teaching.steps {
+                writeln!(
+                    output,
+                    "- {} ({} ordering) — {}",
+                    step.topic.label(),
+                    step.ordering.label(),
+                    utils::sanitize_text(&step.explanation),
+                )
+                .expect("writing to a string cannot fail");
+                for evidence in &step.observed {
+                    let symbol = evidence
+                        .symbol
+                        .as_deref()
+                        .map(|symbol| format!(" `{}`", utils::escape_inline_code(symbol)))
+                        .unwrap_or_default();
+                    writeln!(
+                        output,
+                        "  Observed {}: `{}`{}",
+                        evidence.kind.label(),
+                        utils::escape_inline_code(&evidence.path),
+                        symbol,
+                    )
+                    .expect("writing to a string cannot fail");
+                }
+            }
+        }
         if !context.relationships.is_empty() {
             Render::section_heading(output, "Relationships");
             for relationship in &context.relationships {
