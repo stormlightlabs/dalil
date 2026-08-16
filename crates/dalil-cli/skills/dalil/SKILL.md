@@ -80,9 +80,12 @@ dalil export
 
 It writes `.dalil/map.json` and `.dalil/map.md`. The JSON map omits task ranking
 and reading-order projections, while the Markdown file is a smaller view of the
-same snapshot. Check their shared snapshot identifier before using a pair after
-a refresh or merge. Do not assume `.dalil/` is ignored or committed; the
-repository owner chooses that policy.
+same snapshot. Add `--task 'describe the work'` to append the exact task input
+and its task-ranked orientation under `.dalil/tasks/`. Those records may contain
+sensitive input and are ordinary repository files. Check the map snapshot ID,
+revision, and worktree fingerprint before reusing a record after a refresh or
+merge. Do not assume `.dalil/` is ignored or committed; the repository owner
+chooses that policy.
 
 ## Read the limits
 

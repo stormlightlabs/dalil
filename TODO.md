@@ -106,22 +106,22 @@ earlier task records.
 
 **Acceptance criteria:**
 
-- [ ] Generate the orientation through the shared typed operation with the
+- [x] Generate the orientation through the shared typed operation with the
       supplied task as a ranking seed.
-- [ ] Record a stable task ID, UTC creation time, Dalil version, map snapshot
+- [x] Record a stable task ID, UTC creation time, Dalil version, map snapshot
       ID, repository revision, worktree fingerprint, original task, rendered
       orientation, quality, and limitations.
-- [ ] Preserve the task text exactly, including blank lines, Unicode, Markdown
+- [x] Preserve the task text exactly, including blank lines, Unicode, Markdown
       headings, delimiters, and code fences, while keeping the task file valid
       Markdown.
-- [ ] Use a filesystem-safe bounded slug and content-derived suffix so empty,
+- [x] Use a filesystem-safe bounded slug and content-derived suffix so empty,
       long, non-ASCII, duplicate, and same-second tasks cannot collide.
-- [ ] Append a new file for each explicit task export. Never overwrite or
+- [x] Append a new file for each explicit task export. Never overwrite or
       rewrite an earlier task record during another task or map refresh.
-- [ ] Publish the task record only after the matching map snapshot and
+- [x] Publish the task record only after the matching map snapshot and
       orientation are complete. A failed export must leave no partial record.
-- [ ] Do not create a task file when task text was not explicitly supplied.
-- [ ] Warn in command help and documentation that task records are repository
+- [x] Do not create a task file when task text was not explicitly supplied.
+- [x] Warn in command help and documentation that task records are repository
       files and may contain sensitive input.
 
 **Verification:**

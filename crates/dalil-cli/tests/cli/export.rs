@@ -17,6 +17,10 @@ fn export_writes_a_shared_portable_snapshot_and_preserves_unknown_bundle_files()
     let result: Value = serde_json::from_str(&stdout(&first)).expect("valid export result");
     let json_path = fixture.root.join(".dalil/map.json");
     let markdown_path = fixture.root.join(".dalil/map.md");
+    assert!(
+        !fixture.root.join(".dalil/tasks").exists(),
+        "exports without an explicit task must not create task records"
+    );
     let json = fs::read(&json_path).expect("read exported JSON");
     let map: Value = serde_json::from_slice(&json).expect("valid map JSON");
     let markdown = fs::read_to_string(&markdown_path).expect("read exported Markdown");
@@ -218,6 +222,135 @@ fn review_export_has_deterministic_overflow_notices_and_size_limits() {
     assert_eq!(
         fs::read_to_string(&review_path).expect("read repeated review snapshot"),
         review
+    );
+}
+
+#[test]
+fn task_export_preserves_verbatim_input_and_appends_linked_orientations() {
+    let fixture = MapFixtureRepository::new();
+    write_file(fixture.root.join("src/needle.rs"), b"pub fn needle() {}\n");
+    let task = "# Repair the needle\n\nCheck Unicode: \u{1f6a2}\n\n````rust\nneedle();\n````";
+
+    let first = fixture.run(&["export", "--task", task, "--no-cache", "--json"]);
+    assert!(
+        first.status.success(),
+        "task export failed: {}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let first_result: Value = serde_json::from_str(&stdout(&first)).expect("valid task export result");
+    let first_filename = first_result["task"]["filename"].as_str().expect("task filename");
+    assert!(first_filename.ends_with(".md"));
+    assert!(first_filename.contains("repair-the-needle"));
+    assert_eq!(first_result["files"][2], format!("tasks/{first_filename}"));
+
+    let record_path = fixture.root.join(".dalil/tasks").join(first_filename);
+    let record = fs::read_to_string(&record_path).expect("read task record");
+    let map: Value = serde_json::from_slice(&fs::read(fixture.root.join(".dalil/map.json")).expect("read map"))
+        .expect("valid map JSON");
+    assert!(record.contains(task), "task text must round-trip exactly");
+    assert!(
+        record.contains("`````\n"),
+        "outer fence must exceed the task's four-backtick fence"
+    );
+    assert!(record.contains(&format!(
+        "- Map snapshot: `{}`",
+        map["snapshot_id"].as_str().expect("snapshot ID")
+    )));
+    assert!(record.contains(&format!(
+        "- Revision: `{}`",
+        map["revision"]["oid"].as_str().expect("revision ID")
+    )));
+    assert!(record.contains(&format!(
+        "- Worktree fingerprint: `{}`",
+        map["worktree_fingerprint"].as_str().expect("worktree fingerprint")
+    )));
+    assert!(
+        record.contains("src/needle.rs"),
+        "orientation must use the task as a ranking seed"
+    );
+    assert!(record.contains("## Quality"));
+    assert!(record.contains("## Limitations"));
+
+    let repeated = fixture.run(&["export", "--task", task, "--no-cache", "--json"]);
+    assert!(
+        repeated.status.success(),
+        "repeated task export failed: {}",
+        String::from_utf8_lossy(&repeated.stderr)
+    );
+    let repeated_result: Value = serde_json::from_str(&stdout(&repeated)).expect("valid repeated task result");
+    let repeated_filename = repeated_result["task"]["filename"]
+        .as_str()
+        .expect("repeated task filename");
+    assert_ne!(
+        first_filename, repeated_filename,
+        "repeated tasks must append, never overwrite"
+    );
+    assert_eq!(first_result["task"]["id"], repeated_result["task"]["id"]);
+    assert_eq!(
+        fs::read_to_string(&record_path).expect("read preserved task record"),
+        record
+    );
+
+    let empty = fixture.run(&["export", "--task", "", "--no-cache", "--json"]);
+    assert!(
+        empty.status.success(),
+        "empty task export failed: {}",
+        String::from_utf8_lossy(&empty.stderr)
+    );
+    let empty_result: Value = serde_json::from_str(&stdout(&empty)).expect("valid empty task result");
+    assert!(
+        empty_result["task"]["filename"]
+            .as_str()
+            .expect("empty task filename")
+            .contains("-task-"),
+        "an empty normalized slug must use the safe fallback"
+    );
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(fixture.root.join(".dalil/tasks"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert_eq!(fs::metadata(record_path).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+}
+
+#[test]
+fn task_export_failure_leaves_no_partial_task_record() {
+    let fixture = MapFixtureRepository::new();
+    fs::create_dir(fixture.root.join(".dalil")).expect("create bundle directory");
+    write_file(fixture.root.join(".dalil/tasks"), b"not a task directory\n");
+
+    let output = fixture.run(&["export", "--task", "write a task record", "--no-cache"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("tasks"));
+    assert_eq!(
+        fs::read(fixture.root.join(".dalil/tasks")).expect("preserve collision"),
+        b"not a task directory\n"
+    );
+    assert!(
+        fixture.root.join(".dalil/map.json").exists(),
+        "the completed map snapshot remains usable"
+    );
+    assert!(
+        fixture.root.join(".dalil/map.md").exists(),
+        "the completed map projection remains usable"
+    );
+    assert!(
+        fs::read_dir(fixture.root.join(".dalil"))
+            .expect("read bundle directory")
+            .all(|entry| !entry
+                .expect("bundle entry")
+                .file_name()
+                .to_string_lossy()
+                .contains(".tmp-")),
+        "failed publication must clean temporary files"
     );
 }
 

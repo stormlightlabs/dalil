@@ -514,6 +514,11 @@ impl Cli {
         }
         if let Some(SubcommandName::Export(export)) = &self.command {
             export.options.validate()?;
+            if export.review && export.options.task.is_some() {
+                return Err(ApplicationError::usage(
+                    "`export --task` cannot be combined with `--review`; task records are written with the map snapshot",
+                ));
+            }
         }
         if let Some(SubcommandName::Search(search)) = &self.command {
             search.options.validate()?;
@@ -596,6 +601,7 @@ struct MapCommand {
 #[derive(Debug, clap::Args)]
 #[command(after_help = "Examples:
     dalil export
+    dalil export --task 'fix parser cache invalidation'
     dalil export --review
     dalil export --review --check
     dalil export src
@@ -603,7 +609,12 @@ struct MapCommand {
 `export` is the only command that writes to the repository. By default it
 replaces `.dalil/map.json` and `.dalil/map.md`. `--review` replaces only
 `.dalil/review.md`; `--check` never writes and fails when that file is missing
-or stale. Other `.dalil/` files are left untouched.
+or stale. `--task` appends one `.dalil/tasks/` record with the supplied task
+text and its task-personalized orientation, and cannot be combined with
+`--review`. Other `.dalil/` files are left untouched.
+
+Task records are repository files that may contain sensitive input; do not
+commit a `.dalil/tasks/` directory that must remain private.
 
 Support: https://github.com/stormlightlabs/dalil/issues
 ")]
@@ -1366,6 +1377,20 @@ fn invoke<W: Write, E: Write>(
                 let output = render_review_export_result(&published, output_format)?;
                 deliver_output(output_format, open, output, stdout, stderr, "review export result")?;
             }
+        } else if let Some(task) = command.options.task.as_deref() {
+            if stderr_is_terminal {
+                let _ = writeln!(stderr, "dalil: generating task orientation…");
+            }
+            let mut orientation_request = CommandRequest::new(CommandDescriptor::orient(command.path.clone()));
+            orientation_request.map = command.options.settings();
+            orientation_request.map.task_seeds.task = Some(task.to_owned());
+            orientation_request.profile = AnalysisProfile::Evidence;
+            let orientation = dalil_core::orient(orientation_request).map_err(ApplicationError::Core)?;
+            let published = bundle::publish(&map).map_err(|error| ApplicationError::Rendering(error.to_string()))?;
+            let task_record = bundle::publish_task(&map, task, &orientation)
+                .map_err(|error| ApplicationError::Rendering(error.to_string()))?;
+            let output = render_task_export_result(&published, &task_record, output_format)?;
+            deliver_output(output_format, open, output, stdout, stderr, "task export result")?;
         } else {
             let published = bundle::publish(&map).map_err(|error| ApplicationError::Rendering(error.to_string()))?;
             let output = render_export_result(&published, output_format)?;
@@ -1514,6 +1539,31 @@ fn render_review_export_result(published: &bundle::PublishedReview, format: Outp
             })
         )),
         OutputFormat::Markdown => Ok("# Dalil export\n\nWrote `.dalil/review.md`.\n".to_owned()),
+        OutputFormat::Html => unreachable!("export HTML output is rejected before rendering"),
+    }
+}
+
+fn render_task_export_result(
+    published: &bundle::PublishedBundle, task: &bundle::PublishedTask, format: OutputFormat,
+) -> anyhow::Result<String> {
+    match format {
+        OutputFormat::Json => Ok(format!(
+            "{}\n",
+            serde_json::json!({
+                "snapshot_id": published.snapshot_id,
+                "directory": published.directory,
+                "files": ["map.json", "map.md", format!("tasks/{}", task.filename)],
+                "task": {
+                    "id": task.task_id,
+                    "created_at": task.created_at,
+                    "filename": task.filename,
+                },
+            })
+        )),
+        OutputFormat::Markdown => Ok(format!(
+            "# Dalil export\n\nWrote `.dalil/map.json`, `.dalil/map.md`, and `.dalil/tasks/{}`.\nSnapshot: `{}`\nTask ID: `{}`\n",
+            task.filename, published.snapshot_id, task.task_id
+        )),
         OutputFormat::Html => unreachable!("export HTML output is rejected before rendering"),
     }
 }

@@ -51,6 +51,27 @@ stale after a later checkout, merge, or local edit even when both map files
 match. Compare the revision and worktree fingerprint with the worktree before
 relying on an older bundle.
 
+## Record a task orientation
+
+Pass task text when the export should preserve the work request beside the
+matching repository snapshot:
+
+```sh
+dalil export --task 'Repair parser cache invalidation'
+```
+
+Dalil refreshes `map.json` and `map.md`, then appends one record under
+`.dalil/tasks/`. The record includes the exact task input, a stable task ID and
+UTC creation time, the Dalil version, snapshot ID, revision, worktree
+fingerprint, task-ranked orientation, quality, and limitations. Repeating a
+task creates another record; refreshing a map without `--task` leaves all task
+records untouched.
+
+Task records can contain issue text, code snippets, credentials pasted by
+mistake, or other sensitive material. They are ordinary repository files, so
+review their contents and your `.gitignore` policy before sharing or committing
+them.
+
 ## Review snapshot for Git
 
 Use the review snapshot when a repository wants a small generated file in Git:

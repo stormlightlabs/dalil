@@ -5,11 +5,19 @@ use std::{
     io::{self, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
-use dalil_core::{EvidenceMap, LandmarkKind, OmissionReason, SymbolKind, SymbolRole, SymbolVisibility};
+use dalil_core::{
+    EvidenceMap, LandmarkKind, OmissionReason, OrientationReport, SymbolKind, SymbolRole, SymbolVisibility,
+};
+use sha2::{Digest, Sha256};
+
+use crate::render::Render;
 
 static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
+const MAX_TASK_SLUG_CHARS: usize = 40;
+const MAX_TASK_COLLISION_ATTEMPTS: u32 = 64;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum BundleError {
@@ -21,6 +29,8 @@ pub(crate) enum BundleError {
     DestinationCollision,
     #[error("`.dalil/{0}` exists but is not a regular file")]
     FileCollision(&'static str),
+    #[error("could not reserve a unique task record filename after repeated collisions")]
+    TaskFilename,
     #[error("could not publish the repository bundle: {0}")]
     Io(#[from] io::Error),
     #[error("could not serialize the repository evidence map: {0}")]
@@ -34,6 +44,12 @@ pub(crate) struct PublishedBundle {
 
 pub(crate) struct PublishedReview {
     pub(crate) directory: PathBuf,
+}
+
+pub(crate) struct PublishedTask {
+    pub(crate) filename: String,
+    pub(crate) task_id: String,
+    pub(crate) created_at: String,
 }
 
 pub(crate) fn publish(map: &EvidenceMap) -> Result<PublishedBundle, BundleError> {
@@ -69,6 +85,293 @@ pub(crate) fn review_is_current(map: &EvidenceMap) -> Result<bool, BundleError> 
         Err(error) => return Err(error.into()),
     }
     Ok(fs::read(path)? == render_review(map).as_bytes())
+}
+
+/// Append one task record under `.dalil/tasks/` for an explicit task export.
+/// The map snapshot and its orientation must already be complete before this
+/// function is called. The record is created with exclusive file creation so an
+/// earlier record is never overwritten.
+pub(crate) fn publish_task(
+    map: &EvidenceMap, task: &str, orientation: &OrientationReport,
+) -> Result<PublishedTask, BundleError> {
+    let root = PathBuf::from(&map.repository.canonical_root);
+    let bundle = private_bundle_directory(&root)?;
+    let directory = task_records_directory(&bundle)?;
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or(0);
+    let task_id = task_id(task);
+    let record = render_task_record(map, task, orientation, &task_id, &utc_rfc3339(seconds));
+    let base = format!("{}-{}-{}", utc_compact_timestamp(seconds), task_slug(task), task_id);
+    let mut name = format!("{base}.md");
+    let mut attempt = 0u32;
+    loop {
+        match create_new_private_platform(&directory, &name, record.as_bytes()) {
+            Ok(()) => break,
+            Err(BundleError::Io(error)) if error.kind() == io::ErrorKind::AlreadyExists => {
+                attempt += 1;
+                if attempt >= MAX_TASK_COLLISION_ATTEMPTS {
+                    return Err(BundleError::TaskFilename);
+                }
+                name = format!("{base}-{}.md", attempt + 1);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(PublishedTask { filename: name, task_id, created_at: utc_rfc3339(seconds) })
+}
+
+fn task_records_directory(bundle: &Path) -> Result<PathBuf, BundleError> {
+    let directory = bundle.join("tasks");
+    match fs::symlink_metadata(&directory) {
+        Ok(metadata) if is_reparse_or_symlink(&metadata) => return Err(BundleError::UnsafePath(directory)),
+        Ok(metadata) if !metadata.is_dir() => return Err(BundleError::FileCollision("tasks")),
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => fs::create_dir(&directory)?,
+        Err(error) => return Err(error.into()),
+    }
+    Ok(directory)
+}
+
+/// Derive a stable, content-derived task identifier from the exact task text.
+fn task_id(task: &str) -> String {
+    let digest = Sha256::digest(task.as_bytes());
+    let mut id = String::with_capacity(10);
+    for byte in digest.iter().take(5) {
+        write!(id, "{byte:02x}").expect("writing to a string cannot fail");
+    }
+    id
+}
+
+/// Project arbitrary task text into a bounded, filesystem-safe filename slug.
+fn task_slug(task: &str) -> String {
+    let mut slug = String::new();
+    for character in task.chars() {
+        if character.is_ascii_alphanumeric() {
+            slug.push(character.to_ascii_lowercase());
+        } else if !slug.ends_with('-') {
+            slug.push('-');
+        }
+    }
+    slug = slug.trim_matches('-').to_owned();
+    if slug.len() > MAX_TASK_SLUG_CHARS {
+        slug.truncate(MAX_TASK_SLUG_CHARS);
+        while slug.ends_with('-') {
+            slug.pop();
+        }
+    }
+    if slug.is_empty() {
+        slug.push_str("task");
+    }
+    slug
+}
+
+/// Select a fenced code block marker longer than any backtick run in the task,
+/// so the original task text is preserved exactly inside one valid fence.
+fn task_fence(task: &str) -> String {
+    let mut longest_run = 0usize;
+    let mut current_run = 0usize;
+    for character in task.chars() {
+        if character == '`' {
+            current_run += 1;
+            longest_run = longest_run.max(current_run);
+        } else {
+            current_run = 0;
+        }
+    }
+    "`".repeat((longest_run + 1).max(3))
+}
+
+fn render_task_record(
+    map: &EvidenceMap, task: &str, orientation: &OrientationReport, task_id: &str, created_at: &str,
+) -> String {
+    let fence = task_fence(task);
+    let mut output = String::new();
+    writeln!(output, "# Dalil task record").expect("writing to a string cannot fail");
+    writeln!(output).expect("writing to a string cannot fail");
+    writeln!(
+        output,
+        "Generated by `dalil export --task`. Task records are repository files and may contain sensitive task input."
+    )
+    .expect("writing to a string cannot fail");
+    writeln!(output).expect("writing to a string cannot fail");
+    writeln!(output, "- Task ID: `{task_id}`").expect("writing to a string cannot fail");
+    writeln!(output, "- Created (UTC): `{created_at}`").expect("writing to a string cannot fail");
+    writeln!(output, "- Dalil version: {}", map.producer_version).expect("writing to a string cannot fail");
+    writeln!(output, "- Map snapshot: `{}`", map.snapshot_id).expect("writing to a string cannot fail");
+    writeln!(
+        output,
+        "- Repository: `{}`",
+        crate::utils::escape_inline_code(&map.repository.canonical_root)
+    )
+    .expect("writing to a string cannot fail");
+    writeln!(output, "- Scope: `{}`", crate::utils::escape_inline_code(&map.scope))
+        .expect("writing to a string cannot fail");
+    writeln!(
+        output,
+        "- Revision: `{}`",
+        map.revision.oid.as_deref().unwrap_or("unborn or unavailable")
+    )
+    .expect("writing to a string cannot fail");
+    writeln!(output, "- Worktree fingerprint: `{}`", map.worktree_fingerprint)
+        .expect("writing to a string cannot fail");
+
+    section(&mut output, "Task");
+    writeln!(output, "{fence}").expect("writing to a string cannot fail");
+    output.push_str(task);
+    if !task.ends_with('\n') {
+        output.push('\n');
+    }
+    writeln!(output, "{fence}").expect("writing to a string cannot fail");
+
+    section(&mut output, "Orientation");
+    Render::orientation_markdown(&mut output, orientation);
+
+    section(&mut output, "Quality");
+    writeln!(
+        output,
+        "- stale={}, truncated={}, resource_limited={}, incomplete={}, unsafe_paths={}, unsupported={}, partial={}",
+        map.quality.stale,
+        map.quality.truncated,
+        map.quality.resource_limited,
+        map.quality.incomplete,
+        map.quality.unsafe_paths,
+        map.quality.unsupported,
+        map.quality.partial
+    )
+    .expect("writing to a string cannot fail");
+    if map.quality.strict_issues.is_empty() {
+        writeln!(output, "- No strict issues were recorded.").expect("writing to a string cannot fail");
+    } else {
+        let issues = map
+            .quality
+            .strict_issues
+            .iter()
+            .map(|issue| issue.label())
+            .collect::<Vec<_>>()
+            .join(", ");
+        writeln!(output, "- Strict issues: {issues}").expect("writing to a string cannot fail");
+    }
+
+    section(&mut output, "Limitations");
+    if map.limitations.is_empty() {
+        writeln!(output, "No additional limitations were recorded.").expect("writing to a string cannot fail");
+    } else {
+        for limitation in &map.limitations {
+            writeln!(output, "- {limitation}").expect("writing to a string cannot fail");
+        }
+    }
+
+    writeln!(output).expect("writing to a string cannot fail");
+    writeln!(
+        output,
+        "This record matches the `.dalil/map.json` snapshot above; compare its revision and worktree fingerprint before reuse."
+    )
+    .expect("writing to a string cannot fail");
+    output
+}
+
+fn utc_compact_timestamp(seconds: i64) -> String {
+    let days = seconds.div_euclid(86_400);
+    let seconds_of_day = seconds.rem_euclid(86_400);
+    let (year, month, day) = civil_date_from_days(days);
+    let hour = seconds_of_day / 3_600;
+    let minute = seconds_of_day.rem_euclid(3_600) / 60;
+    let second = seconds_of_day.rem_euclid(60);
+    format!("{year:04}{month:02}{day:02}-{hour:02}{minute:02}{second:02}")
+}
+
+fn utc_rfc3339(seconds: i64) -> String {
+    let days = seconds.div_euclid(86_400);
+    let seconds_of_day = seconds.rem_euclid(86_400);
+    let (year, month, day) = civil_date_from_days(days);
+    let hour = seconds_of_day / 3_600;
+    let minute = seconds_of_day.rem_euclid(3_600) / 60;
+    let second = seconds_of_day.rem_euclid(60);
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
+}
+
+/// Gregorian calendar conversion based on the civil-from-days algorithm.
+fn civil_date_from_days(days: i64) -> (i64, i64, i64) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let day_of_era = z - era * 146_097;
+    let year_of_era = (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_part = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_part + 2) / 5 + 1;
+    let month = month_part + if month_part < 10 { 3 } else { -9 };
+    let year = year + i64::from(month <= 2);
+    (year, month, day)
+}
+
+fn create_new_private_platform(directory: &Path, name: &str, bytes: &[u8]) -> Result<(), BundleError> {
+    #[cfg(unix)]
+    {
+        create_new_private_unix(directory, name, bytes).map_err(BundleError::Io)
+    }
+    #[cfg(not(unix))]
+    {
+        let destination = directory.join(name);
+        let mut file = OpenOptions::new().write(true).create_new(true).open(&destination)?;
+        let result = (|| -> io::Result<()> {
+            file.write_all(bytes)?;
+            file.sync_all()
+        })();
+        if result.is_err() {
+            drop(file);
+            let _ = fs::remove_file(&destination);
+        }
+        result.map_err(BundleError::Io)
+    }
+}
+
+#[cfg(unix)]
+fn create_new_private_unix(directory: &Path, name: &str, bytes: &[u8]) -> io::Result<()> {
+    use std::ffi::CString;
+    use std::os::{
+        fd::{AsRawFd, FromRawFd},
+        unix::fs::OpenOptionsExt,
+    };
+
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(directory)?;
+    if unsafe { libc::fchmod(directory.as_raw_fd(), 0o700) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let name_c =
+        CString::new(name.as_bytes()).map_err(|_| io::Error::other("task record filename contains a NUL byte"))?;
+    let fd = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            name_c.as_ptr(),
+            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            0o600,
+        )
+    };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut file = unsafe { fs::File::from_raw_fd(fd) };
+    let result = (|| -> io::Result<()> {
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        if unsafe { libc::fsync(directory.as_raw_fd()) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        unsafe {
+            libc::unlinkat(directory.as_raw_fd(), name_c.as_ptr(), 0);
+        }
+    }
+    result
 }
 
 fn private_bundle_directory(root: &Path) -> Result<PathBuf, BundleError> {
