@@ -198,6 +198,8 @@ enum ApplicationError {
     Strict { issues: Vec<StrictIssue> },
     #[error("doctor found one or more failing checks")]
     DoctorFailed,
+    #[error("the review snapshot is missing or stale; refresh it with `dalil export --review`")]
+    ReviewSnapshotStale,
     #[error("could not open HTML report `{path}`")]
     OpenReport {
         path: PathBuf,
@@ -213,7 +215,7 @@ impl From<ApplicationError> for ExitCategory {
             ApplicationError::Report(error) => report_exit_category(&error),
             ApplicationError::Core(error) => core_exit_category(&error),
             ApplicationError::Rendering(_) | ApplicationError::OpenReport { .. } => ExitCategory::Internal,
-            ApplicationError::Strict { .. } => ExitCategory::Analysis,
+            ApplicationError::Strict { .. } | ApplicationError::ReviewSnapshotStale => ExitCategory::Analysis,
             ApplicationError::DoctorFailed => ExitCategory::Repository,
         }
     }
@@ -226,7 +228,7 @@ impl From<&ApplicationError> for ExitCategory {
             ApplicationError::Report(error) => report_exit_category(error),
             ApplicationError::Core(error) => core_exit_category(error),
             ApplicationError::Rendering(_) | ApplicationError::OpenReport { .. } => ExitCategory::Internal,
-            ApplicationError::Strict { .. } => ExitCategory::Analysis,
+            ApplicationError::Strict { .. } | ApplicationError::ReviewSnapshotStale => ExitCategory::Analysis,
             ApplicationError::DoctorFailed => ExitCategory::Repository,
         }
     }
@@ -369,7 +371,7 @@ impl From<Cli> for CommandRequest {
                 )
             }
             Some(SubcommandName::Export(export)) => {
-                let ExportCommand { options, path } = export;
+                let ExportCommand { options, path, .. } = export;
                 (
                     CommandDescriptor::map(path),
                     HistorySettings::default(),
@@ -594,17 +596,30 @@ struct MapCommand {
 #[derive(Debug, clap::Args)]
 #[command(after_help = "Examples:
     dalil export
+    dalil export --review
+    dalil export --review --check
     dalil export src
 
-`export` is the only command that writes to the repository. It replaces only
-`.dalil/map.json` and `.dalil/map.md`; existing task records and other files in
-`.dalil/` are left untouched.
+`export` is the only command that writes to the repository. By default it
+replaces `.dalil/map.json` and `.dalil/map.md`. `--review` replaces only
+`.dalil/review.md`; `--check` never writes and fails when that file is missing
+or stale. Other `.dalil/` files are left untouched.
 
 Support: https://github.com/stormlightlabs/dalil/issues
 ")]
 struct ExportCommand {
     #[command(flatten)]
     options: MapOptions,
+
+    #[arg(long, help = "Write the compact repository review snapshot to `.dalil/review.md`.")]
+    review: bool,
+
+    #[arg(
+        long,
+        requires = "review",
+        help = "Check that `.dalil/review.md` is current without writing it."
+    )]
+    check: bool,
 
     #[arg(
         value_name = "PATH",
@@ -1338,9 +1353,24 @@ fn invoke<W: Write, E: Write>(
         request.map = command.options.settings();
         request.profile = AnalysisProfile::Evidence;
         let map = dalil_core::export(request).map_err(ApplicationError::Core)?;
-        let published = bundle::publish(&map).map_err(|error| ApplicationError::Rendering(error.to_string()))?;
-        let output = render_export_result(&published, output_format)?;
-        deliver_output(output_format, open, output, stdout, stderr, "export result")?;
+        if command.review {
+            if command.check {
+                if !bundle::review_is_current(&map).map_err(|error| ApplicationError::Rendering(error.to_string()))? {
+                    return Err(ApplicationError::ReviewSnapshotStale.into());
+                }
+                let output = render_review_check_result(output_format)?;
+                deliver_output(output_format, open, output, stdout, stderr, "review check result")?;
+            } else {
+                let published =
+                    bundle::publish_review(&map).map_err(|error| ApplicationError::Rendering(error.to_string()))?;
+                let output = render_review_export_result(&published, output_format)?;
+                deliver_output(output_format, open, output, stdout, stderr, "review export result")?;
+            }
+        } else {
+            let published = bundle::publish(&map).map_err(|error| ApplicationError::Rendering(error.to_string()))?;
+            let output = render_export_result(&published, output_format)?;
+            deliver_output(output_format, open, output, stdout, stderr, "export result")?;
+        }
         return Ok(());
     }
     if stderr_is_terminal {
@@ -1469,6 +1499,29 @@ fn render_export_result(published: &bundle::PublishedBundle, format: OutputForma
             "# Dalil export\n\nWrote `.dalil/map.json` and `.dalil/map.md`.\nSnapshot: `{}`\n",
             published.snapshot_id
         )),
+        OutputFormat::Html => unreachable!("export HTML output is rejected before rendering"),
+    }
+}
+
+fn render_review_export_result(published: &bundle::PublishedReview, format: OutputFormat) -> anyhow::Result<String> {
+    match format {
+        OutputFormat::Json => Ok(format!(
+            "{}\n",
+            serde_json::json!({
+                "directory": published.directory,
+                "files": ["review.md"],
+                "status": "written",
+            })
+        )),
+        OutputFormat::Markdown => Ok("# Dalil export\n\nWrote `.dalil/review.md`.\n".to_owned()),
+        OutputFormat::Html => unreachable!("export HTML output is rejected before rendering"),
+    }
+}
+
+fn render_review_check_result(format: OutputFormat) -> anyhow::Result<String> {
+    match format {
+        OutputFormat::Json => Ok("{\"files\":[\"review.md\"],\"status\":\"current\"}\n".to_owned()),
+        OutputFormat::Markdown => Ok("# Dalil export\n\n`.dalil/review.md` is current.\n".to_owned()),
         OutputFormat::Html => unreachable!("export HTML output is rejected before rendering"),
     }
 }

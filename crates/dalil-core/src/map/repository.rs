@@ -271,18 +271,35 @@ pub fn collect_modified_paths(
     Ok(modified)
 }
 
-pub fn walk_files(
-    root: &Path, repository_root: &Path, standard_filters: bool, max_entries: usize, recursive: bool,
-    prune_classified_directories: bool, focus_paths: &[String],
-) -> (BTreeMap<String, bool>, Vec<WalkIssue>, Vec<SourceClassificationSample>) {
+pub struct FileWalk {
+    pub files: BTreeMap<String, bool>,
+    pub errors: Vec<WalkIssue>,
+    pub classified_directories: Vec<SourceClassificationSample>,
+    pub visible_directories: BTreeSet<String>,
+}
+
+pub struct WalkOptions<'a> {
+    pub standard_filters: bool,
+    pub max_entries: usize,
+    pub recursive: bool,
+    pub prune_classified_directories: bool,
+    pub focus_paths: &'a [String],
+    pub visible_directories: Option<&'a BTreeSet<String>>,
+}
+
+pub fn walk_files(root: &Path, repository_root: &Path, options: WalkOptions<'_>) -> FileWalk {
     let mut builder = WalkBuilder::new(root);
     builder
-        .standard_filters(standard_filters)
+        .standard_filters(options.standard_filters)
         .hidden(false)
         .follow_links(false)
         .sort_by_file_path(|left, right| left.cmp(right));
+    let max_entries = options.max_entries;
     let filter_repository_root = repository_root.to_owned();
-    let filter_focus_paths = focus_paths.to_owned();
+    let filter_focus_paths = options.focus_paths.to_owned();
+    let filter_visible_directories = options.visible_directories.cloned();
+    let recursive = options.recursive;
+    let prune_classified_directories = options.prune_classified_directories;
     let classified_directories = Arc::new(Mutex::new(Vec::new()));
     let filter_classified_directories = Arc::clone(&classified_directories);
     builder.filter_entry(move |entry| {
@@ -294,15 +311,32 @@ pub fn walk_files(
             .strip_prefix(&filter_repository_root)
             .ok()
             .map(|path| path.to_string_lossy().replace('\\', "/"));
-        let preserve_classified_directory = filter_focus_paths.iter().any(|focus_path| {
+        let preserve_focused_directory = filter_focus_paths.iter().any(|focus_path| {
             let focus_path = focus_path.trim().replace('\\', "/");
             let focus_path = focus_path.trim_start_matches("./");
             relative.as_deref().is_some_and(|relative| {
                 !focus_path.is_empty() && (focus_path == relative || focus_path.starts_with(&format!("{relative}/")))
             })
         });
+        if filter_visible_directories.as_ref().is_some_and(|directories| {
+            !preserve_focused_directory && !relative.as_ref().is_some_and(|path| directories.contains(path))
+        }) {
+            if prune_classified_directories && let Some(relative) = relative.as_deref() {
+                let classifications = classified_path(relative);
+                if !classifications.is_empty()
+                    && let Ok(mut records) = filter_classified_directories.lock()
+                {
+                    records.push(SourceClassificationSample {
+                        path: relative.to_owned(),
+                        classifications,
+                        overridden: false,
+                    });
+                }
+            }
+            return false;
+        }
         if prune_classified_directories
-            && !preserve_classified_directory
+            && !preserve_focused_directory
             && let Some(relative) = relative
         {
             let classifications = classified_path(&relative);
@@ -318,6 +352,7 @@ pub fn walk_files(
     let mut files = BTreeMap::new();
     let mut errors = Vec::new();
     let mut native_paths = BTreeMap::<String, PathBuf>::new();
+    let mut directories = BTreeSet::new();
     for item in builder.build() {
         if files.len() >= max_entries {
             errors.push(WalkIssue::Traversal(format!(
@@ -337,6 +372,20 @@ pub fn walk_files(
         let Some(file_type) = entry.file_type() else {
             continue;
         };
+        if file_type.is_dir() {
+            if entry.depth() > 0 {
+                let Some(path) = entry.path().strip_prefix(repository_root).ok() else {
+                    continue;
+                };
+                match security::validate_os_relative_path(path) {
+                    Ok(path) => {
+                        directories.insert(path);
+                    }
+                    Err(error) => errors.push(WalkIssue::Safety(format!("walked path rejected: {error}"))),
+                }
+            }
+            continue;
+        }
         if !(file_type.is_file() || entry.path_is_symlink()) {
             continue;
         }
@@ -365,7 +414,7 @@ pub fn walk_files(
         .unwrap_or_default();
     classified_directories.sort_by(|left, right| left.path.cmp(&right.path));
     classified_directories.dedup_by(|right, left| right.path == left.path);
-    (files, errors, classified_directories)
+    FileWalk { files, errors, classified_directories, visible_directories: directories }
 }
 
 pub fn pruned_directory(path: &Path, repository_root: &Path, recursive: bool) -> bool {

@@ -99,16 +99,19 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
         candidates.insert(path, Candidate { state, symlink: false });
     }
 
-    let (visible_paths, visible_errors, visible_classified_directories) = walk_files(
+    let visible = walk_files(
         &scope.selected_path,
         repository_root,
-        true,
-        limits.max_files,
-        settings.recursive,
-        true,
-        &settings.focus_paths,
+        WalkOptions {
+            standard_filters: true,
+            max_entries: limits.max_files,
+            recursive: settings.recursive,
+            prune_classified_directories: true,
+            focus_paths: &settings.focus_paths,
+            visible_directories: None,
+        },
     );
-    for (path, symlink) in &visible_paths {
+    for (path, symlink) in &visible.files {
         if is_git_internal(path) || !in_scope(path, &scope.relative_path) {
             continue;
         }
@@ -118,16 +121,19 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
             .or_insert(Candidate { state: WorktreeState::Untracked, symlink: *symlink });
     }
 
-    let (all_paths, all_errors, all_classified_directories) = walk_files(
+    let all = walk_files(
         &scope.selected_path,
         repository_root,
-        false,
-        limits.max_files,
-        settings.recursive,
-        true,
-        &settings.focus_paths,
+        WalkOptions {
+            standard_filters: false,
+            max_entries: limits.max_files,
+            recursive: settings.recursive,
+            prune_classified_directories: true,
+            focus_paths: &settings.focus_paths,
+            visible_directories: Some(&visible.visible_directories),
+        },
     );
-    let visible_path_set: BTreeSet<_> = visible_paths.keys().cloned().collect();
+    let visible_path_set: BTreeSet<_> = visible.files.keys().cloned().collect();
     let mut omissions = Vec::new();
     if tracked_tree_truncated || tracked_index_truncated {
         omissions.push(omission(
@@ -139,16 +145,17 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
             ),
         ));
     }
-    for error in visible_errors.into_iter().chain(all_errors) {
+    for error in visible.errors.into_iter().chain(all.errors) {
         let (reason, detail) = match error {
             WalkIssue::Traversal(detail) => (OmissionReason::TraversalError, detail),
             WalkIssue::Safety(detail) => (OmissionReason::UnsafePath, detail),
         };
         omissions.push(omission(scope.relative_path.clone(), reason, detail));
     }
-    for directory in visible_classified_directories
+    for directory in visible
+        .classified_directories
         .into_iter()
-        .chain(all_classified_directories)
+        .chain(all.classified_directories)
     {
         record_classification(
             &mut classification_records,
@@ -160,7 +167,7 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
             omissions.push(classified_omission(directory.path, directory.classifications, false));
         }
     }
-    for (path, symlink) in all_paths {
+    for (path, symlink) in all.files {
         if is_git_internal(&path)
             || !in_scope(&path, &scope.relative_path)
             || candidates.contains_key(&path)
@@ -182,7 +189,7 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
         let detail = if symlink {
             "The ignored untracked symlink was inventoried without following its target."
         } else {
-            "The untracked Rust file was omitted by the ignore crate traversal policy."
+            "The ignored untracked file was omitted by the ignore traversal policy."
         };
         omissions.push(omission(path, OmissionReason::IgnoredUntracked, detail));
     }

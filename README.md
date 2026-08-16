@@ -65,18 +65,20 @@ clean report file.
 
 ## Repository evidence bundles
 
-`dalil export` writes a persistent snapshot under `.dalil/`:
+`dalil export` writes a persistent evidence map under `.dalil/`. Use
+`dalil export --review` for a compact snapshot intended for Git review:
 
 ```text
 .dalil/
 ├── map.json
-└── map.md
+├── map.md
+└── review.md
 ```
 
-`map.json` is the complete portable evidence map. `map.md` is a shorter view of
-the same snapshot. Treat both as generated working data by default: ignore them
-locally or upload them as CI artifacts unless the repository has a specific
-reason to version the full map.
+`map.json` is the complete portable evidence map, and `map.md` is its shorter
+human-readable view. `review.md` contains only public surface and architectural
+facts, so its diff is suitable for review. Run `dalil export --review --check`
+in CI to fail when the committed review snapshot is missing or stale.
 
 See [repository evidence bundles](docs/src/content/docs/guides/repository-evidence-bundles.md)
 for refresh, freshness, sharing, and Git guidance.

@@ -51,20 +51,50 @@ stale after a later checkout, merge, or local edit even when both map files
 match. Compare the revision and worktree fingerprint with the worktree before
 relying on an older bundle.
 
-## Keep or share it
+## Review snapshot for Git
 
-Treat the complete bundle as generated working data by default:
+Use the review snapshot when a repository wants a small generated file in Git:
 
-- Add `.dalil/` to `.gitignore` when the bundle is local context.
-- Upload it as a CI artifact when another job or tool needs the full snapshot.
-- Commit it only when the repository has a specific need for a versioned full
-  map and accepts large diffs and merge conflicts.
+```sh
+dalil export --review
+dalil export --review --check
+```
 
-Dalil's output is deterministic when its repository facts are unchanged, but
-determinism does not make a large artifact easy to review. A committed map also
-becomes stale after source changes. Dalil does not edit `.gitignore` or choose
-the repository's storage policy. Prefer the complete bundle as local or
-uploaded evidence rather than a required source-controlled file.
+`--review` writes only `.dalil/review.md`. It does not create or refresh
+`map.json` or `map.md`. The snapshot has one fact per line for project roots,
+public and exported symbols, library exports, cross-project dependencies,
+runtime entry points, test roots, and grouped analysis or omission totals. It
+excludes source locations, private symbols, timestamps, revisions, worktree
+state, and individual references.
+
+The file has a generated-file notice. Regenerate it after semantic changes;
+do not resolve a merge conflict by editing it. Regenerate from the merged
+worktree instead. `--check` writes nothing and exits with status 5 when
+`review.md` is missing or stale. It is suitable for CI:
+
+```sh
+dalil export --review --check
+```
+
+The snapshot is capped at 2,000 lines and 200 KiB. Dalil records deterministic
+omission counts when either limit applies.
+
+To commit only the review snapshot, replace a broad `.dalil/` ignore rule with
+these rules in `.gitignore`:
+
+```gitignore
+.dalil/*
+!.dalil/review.md
+```
+
+## Keep or share the complete map
+
+Treat `map.json` and `map.md` as generated working data by default. Add
+`.dalil/` to `.gitignore` when the bundle is local context, or upload the files
+as CI artifacts when another job needs the full snapshot. Commit the complete
+map only when the repository accepts its larger diffs and merge conflicts.
+
+Dalil does not edit `.gitignore` or choose the repository's storage policy.
 
 ## Write boundary
 

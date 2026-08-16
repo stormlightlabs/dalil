@@ -252,6 +252,49 @@ fn hidden_untracked_sources_are_included_but_hidden_ignored_sources_are_recorded
 }
 
 #[test]
+fn ignored_directories_are_not_traversed_to_inventory_child_files() {
+    let fixture = MapFixtureRepository::new();
+    write_file(fixture.root.join(".gitignore"), b"src/ignored.rs\n.sandbox/\n");
+    let ignored_path = ".sandbox/2026/07/14/2026_07_14_status_ticket_3_rust_map.md";
+    fs::create_dir_all(fixture.root.join(".sandbox/2026/07/14")).expect("create ignored sandbox directory");
+    write_file(
+        fixture.root.join(ignored_path),
+        b"# Status\n\nThis is Markdown, not Rust.\n",
+    );
+
+    let output = fixture.run(&["map", "--no-cache", "--json"]);
+    let value: Value = serde_json::from_str(&stdout(&output)).expect("valid map JSON");
+
+    assert!(
+        output.status.success(),
+        "map failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        value["map"]["omissions"]
+            .as_array()
+            .expect("map omissions")
+            .iter()
+            .all(|omission| omission["path"] != ignored_path),
+        "ignored directory child was inventoried: {}",
+        value["map"]["omissions"]
+    );
+    assert!(
+        value["map"]["omissions"]
+            .as_array()
+            .expect("map omissions")
+            .iter()
+            .any(|omission| {
+                omission["path"] == "src/ignored.rs"
+                    && omission["reason"] == "ignored_untracked"
+                    && omission["detail"] == "The ignored untracked file was omitted by the ignore traversal policy."
+            }),
+        "ignored files in visible directories remain reported: {}",
+        value["map"]["omissions"]
+    );
+}
+
+#[test]
 fn map_scope_exclusions_and_markdown_limitations_are_preserved() {
     let fixture = MapFixtureRepository::new();
     let json_output = fixture.run(&["map", "src", "--exclude", "src/two.rs", "--json"]);

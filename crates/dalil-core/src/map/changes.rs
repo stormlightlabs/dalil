@@ -364,16 +364,19 @@ fn resolve_dirty_worktree(
             )),
         }
     }
-    let (visible, issues, _) = walk_files(
+    let visible = walk_files(
         &scope.selected_path,
         &scope.repository_root,
-        false,
-        MAX_CHANGED_PATHS,
-        false,
-        true,
-        &[],
+        WalkOptions {
+            standard_filters: false,
+            max_entries: MAX_CHANGED_PATHS,
+            recursive: false,
+            prune_classified_directories: true,
+            focus_paths: &[],
+            visible_directories: None,
+        },
     );
-    for issue in issues {
+    for issue in visible.errors {
         let detail = match issue {
             WalkIssue::Traversal(detail) | WalkIssue::Safety(detail) => detail,
         };
@@ -407,7 +410,7 @@ fn resolve_dirty_worktree(
             )),
         }
     }
-    for (path, symlink) in visible {
+    for (path, symlink) in visible.files {
         if indexed.contains_key(&path) || path == ".git" || path.starts_with(".git/") {
             continue;
         }

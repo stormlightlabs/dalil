@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     fmt::Write as _,
     fs::{self, OpenOptions},
     io::{self, Write},
@@ -6,7 +7,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use dalil_core::EvidenceMap;
+use dalil_core::{EvidenceMap, LandmarkKind, OmissionReason, SymbolKind, SymbolRole, SymbolVisibility};
 
 static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -18,6 +19,8 @@ pub(crate) enum BundleError {
     UnsafePath(PathBuf),
     #[error("`.dalil` exists but is not a directory")]
     DestinationCollision,
+    #[error("`.dalil/{0}` exists but is not a regular file")]
+    FileCollision(&'static str),
     #[error("could not publish the repository bundle: {0}")]
     Io(#[from] io::Error),
     #[error("could not serialize the repository evidence map: {0}")]
@@ -27,6 +30,10 @@ pub(crate) enum BundleError {
 pub(crate) struct PublishedBundle {
     pub(crate) directory: PathBuf,
     pub(crate) snapshot_id: String,
+}
+
+pub(crate) struct PublishedReview {
+    pub(crate) directory: PathBuf,
 }
 
 pub(crate) fn publish(map: &EvidenceMap) -> Result<PublishedBundle, BundleError> {
@@ -40,11 +47,32 @@ pub(crate) fn publish(map: &EvidenceMap) -> Result<PublishedBundle, BundleError>
     Ok(PublishedBundle { directory, snapshot_id: map.snapshot_id.clone() })
 }
 
-fn private_bundle_directory(root: &Path) -> Result<PathBuf, BundleError> {
-    let metadata = fs::symlink_metadata(root)?;
-    if !metadata.is_dir() || is_reparse_or_symlink(&metadata) {
-        return Err(BundleError::RepositoryRoot);
+pub(crate) fn publish_review(map: &EvidenceMap) -> Result<PublishedReview, BundleError> {
+    let root = PathBuf::from(&map.repository.canonical_root);
+    let directory = private_bundle_directory(&root)?;
+    let review = render_review(map);
+    atomic_write(&directory, "review.md", review.as_bytes())?;
+    Ok(PublishedReview { directory })
+}
+
+pub(crate) fn review_is_current(map: &EvidenceMap) -> Result<bool, BundleError> {
+    let root = PathBuf::from(&map.repository.canonical_root);
+    let Some(directory) = existing_bundle_directory(&root)? else {
+        return Ok(false);
+    };
+    let path = directory.join("review.md");
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) if is_reparse_or_symlink(&metadata) => return Err(BundleError::UnsafePath(path)),
+        Ok(metadata) if !metadata.is_file() => return Err(BundleError::FileCollision("review.md")),
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
     }
+    Ok(fs::read(path)? == render_review(map).as_bytes())
+}
+
+fn private_bundle_directory(root: &Path) -> Result<PathBuf, BundleError> {
+    validate_repository_root(root)?;
     let directory = root.join(".dalil");
     match fs::symlink_metadata(&directory) {
         Ok(metadata) if is_reparse_or_symlink(&metadata) => return Err(BundleError::UnsafePath(directory)),
@@ -53,28 +81,63 @@ fn private_bundle_directory(root: &Path) -> Result<PathBuf, BundleError> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => fs::create_dir(&directory)?,
         Err(error) => return Err(error.into()),
     }
-    let metadata = fs::symlink_metadata(&directory)?;
-    if is_reparse_or_symlink(&metadata) {
-        return Err(BundleError::UnsafePath(directory));
-    }
-    if !metadata.is_dir() {
-        return Err(BundleError::DestinationCollision);
-    }
+    validate_bundle_directory(&directory)?;
     set_private_directory(&directory)?;
     Ok(directory)
 }
 
+fn existing_bundle_directory(root: &Path) -> Result<Option<PathBuf>, BundleError> {
+    validate_repository_root(root)?;
+    let directory = root.join(".dalil");
+    match fs::symlink_metadata(&directory) {
+        Ok(_) => {
+            validate_bundle_directory(&directory)?;
+            Ok(Some(directory))
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn validate_repository_root(root: &Path) -> Result<(), BundleError> {
+    let metadata = fs::symlink_metadata(root)?;
+    if !metadata.is_dir() || is_reparse_or_symlink(&metadata) {
+        return Err(BundleError::RepositoryRoot);
+    }
+    Ok(())
+}
+
+fn validate_bundle_directory(directory: &Path) -> Result<(), BundleError> {
+    let metadata = fs::symlink_metadata(directory)?;
+    if is_reparse_or_symlink(&metadata) {
+        return Err(BundleError::UnsafePath(directory.to_owned()));
+    }
+    if !metadata.is_dir() {
+        return Err(BundleError::DestinationCollision);
+    }
+    Ok(())
+}
+
+fn atomic_write(directory: &Path, name: &'static str, bytes: &[u8]) -> Result<(), BundleError> {
+    let destination = directory.join(name);
+    match fs::symlink_metadata(&destination) {
+        Ok(metadata) if is_reparse_or_symlink(&metadata) => return Err(BundleError::UnsafePath(destination)),
+        Ok(metadata) if !metadata.is_file() => return Err(BundleError::FileCollision(name)),
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    atomic_write_platform(directory, name, bytes)
+}
+
 #[cfg(unix)]
-fn atomic_write(directory: &Path, name: &str, bytes: &[u8]) -> Result<(), BundleError> {
+fn atomic_write_platform(directory: &Path, name: &str, bytes: &[u8]) -> Result<(), BundleError> {
     atomic_write_unix(directory, name, bytes).map_err(BundleError::Io)
 }
 
 #[cfg(not(unix))]
-fn atomic_write(directory: &Path, name: &str, bytes: &[u8]) -> Result<(), BundleError> {
+fn atomic_write_platform(directory: &Path, name: &str, bytes: &[u8]) -> Result<(), BundleError> {
     let destination = directory.join(name);
-    if fs::symlink_metadata(&destination).is_ok_and(|metadata| is_reparse_or_symlink(&metadata)) {
-        return Err(BundleError::UnsafePath(destination));
-    }
     let temporary = directory.join(format!(
         ".{name}.tmp-{}-{}",
         std::process::id(),
@@ -316,6 +379,240 @@ fn render_markdown(map: &EvidenceMap) -> String {
     }
     writeln!(output, "\n`map.json` contains the full portable snapshot. Its snapshot identifier must match this file before using the pair.").expect("writing to a string cannot fail");
     output
+}
+
+fn render_review(map: &EvidenceMap) -> String {
+    const MAX_LINES: usize = 2_000;
+    const MAX_BYTES: usize = 200 * 1024;
+    const MAX_OMISSION_LINE_BYTES: usize = 160;
+
+    let mut sections = vec![
+        ReviewSection::new("Project roots", project_root_facts(map)),
+        ReviewSection::new("Public symbols", public_symbol_facts(map)),
+        ReviewSection::new("Library exports", library_export_facts(map)),
+        ReviewSection::new("Cross-project dependencies", cross_project_dependency_facts(map)),
+        ReviewSection::new("Runtime entry points", runtime_entry_point_facts(map)),
+        ReviewSection::new("Test roots", test_root_facts(map)),
+        ReviewSection::new("Coverage and omissions", coverage_facts(map)),
+    ];
+    for section in &mut sections {
+        section.facts.sort();
+        section.facts.dedup();
+    }
+
+    let mut output = String::from(
+        "# Dalil repository review snapshot\n\n<!-- Generated by `dalil export --review`; do not edit. -->\n",
+    );
+    let mut lines = output.lines().count();
+    for section in &sections {
+        writeln!(output, "\n## {}", section.title).expect("writing to a string cannot fail");
+        writeln!(output, "- Facts: {}", section.facts.len()).expect("writing to a string cannot fail");
+        lines += 3;
+    }
+
+    let mut omitted = vec![0usize; sections.len()];
+    for (index, section) in sections.iter().enumerate() {
+        let marker = format!("\n## {}\n- Facts: {}\n", section.title, section.facts.len());
+        let position = output.find(&marker).expect("review section header was rendered") + marker.len();
+        let mut insertion = String::new();
+        for fact in &section.facts {
+            let line = format!("{fact}\n");
+            let reserved_lines = sections.len();
+            let reserved_bytes = sections.len() * MAX_OMISSION_LINE_BYTES;
+            if lines + 1 + reserved_lines > MAX_LINES
+                || output.len() + insertion.len() + line.len() + reserved_bytes > MAX_BYTES
+            {
+                omitted[index] += 1;
+                continue;
+            }
+            insertion.push_str(&line);
+            lines += 1;
+        }
+        output.insert_str(position, &insertion);
+    }
+
+    for (section, count) in sections.iter().zip(omitted) {
+        if count > 0 {
+            writeln!(
+                output,
+                "- Omitted {count} fact(s) from {} due to the review snapshot limit.",
+                section.title
+            )
+            .expect("writing to a string cannot fail");
+        }
+    }
+    output
+}
+
+struct ReviewSection {
+    title: &'static str,
+    facts: Vec<String>,
+}
+
+impl ReviewSection {
+    fn new(title: &'static str, facts: Vec<String>) -> Self {
+        Self { title, facts }
+    }
+}
+
+fn project_root_facts(map: &EvidenceMap) -> Vec<String> {
+    map.projects
+        .iter()
+        .map(|project| {
+            format!(
+                "- Project root `{}` ({})",
+                inline(&project.project.path),
+                project.project.kind.label()
+            )
+        })
+        .collect()
+}
+
+fn public_symbol_facts(map: &EvidenceMap) -> Vec<String> {
+    map.symbols
+        .iter()
+        .filter(|symbol| {
+            symbol.symbol.role == SymbolRole::Definition
+                && (symbol.symbol.visibility == SymbolVisibility::Public || symbol.symbol.kind == SymbolKind::Export)
+        })
+        .map(|symbol| {
+            let qualified_name = if symbol.symbol.scope.is_empty() {
+                symbol.symbol.name.clone()
+            } else {
+                format!("{}::{}", symbol.symbol.scope.join("::"), symbol.symbol.name)
+            };
+            let visibility = if symbol.symbol.kind == SymbolKind::Export { "exported" } else { "public" };
+            format!(
+                "- {visibility} {} `{}` in `{}`",
+                symbol.symbol.kind.label(),
+                inline(&qualified_name),
+                inline(&symbol.path)
+            )
+        })
+        .collect()
+}
+
+fn library_export_facts(map: &EvidenceMap) -> Vec<String> {
+    manifest_target_facts(map, "library export", |metadata| &metadata.library_exports)
+}
+
+fn runtime_entry_point_facts(map: &EvidenceMap) -> Vec<String> {
+    manifest_target_facts(map, "runtime entry point", |metadata| &metadata.runtime_entry_points)
+}
+
+fn manifest_target_facts(
+    map: &EvidenceMap, label: &str, targets: impl Fn(&dalil_core::ManifestMetadata) -> &[dalil_core::ManifestTarget],
+) -> Vec<String> {
+    let mut facts = Vec::new();
+    for project in &map.projects {
+        for metadata in &project.project.manifest_metadata {
+            for target in targets(metadata) {
+                let target_name = target
+                    .resolved_path
+                    .as_deref()
+                    .filter(|path| is_relative_path(path))
+                    .or_else(|| target.name.as_deref().filter(|name| is_relative_path(name)))
+                    .or_else(|| is_relative_path(&target.declared).then_some(target.declared.as_str()))
+                    .unwrap_or("unresolved target");
+                facts.push(format!(
+                    "- {label} `{}`: `{}`",
+                    inline(&project.project.path),
+                    inline(target_name)
+                ));
+            }
+        }
+    }
+    facts
+}
+
+fn cross_project_dependency_facts(map: &EvidenceMap) -> Vec<String> {
+    let roots = map
+        .projects
+        .iter()
+        .map(|project| project.project.path.as_str())
+        .collect::<Vec<_>>();
+    let mut dependencies = BTreeMap::<(String, String), usize>::new();
+    for relationship in &map.relationships {
+        if relationship.relationship.ambiguous {
+            continue;
+        }
+        let Some(source) = project_root_for_path(&relationship.relationship.source, &roots) else {
+            continue;
+        };
+        let Some(target) = project_root_for_path(&relationship.relationship.target, &roots) else {
+            continue;
+        };
+        if source != target {
+            *dependencies.entry((source.to_owned(), target.to_owned())).or_default() += 1;
+        }
+    }
+    dependencies
+        .into_iter()
+        .map(|((source, target), count)| {
+            format!(
+                "- Dependency `{}` -> `{}` ({count} resolved relationship(s))",
+                inline(&source),
+                inline(&target)
+            )
+        })
+        .collect()
+}
+
+fn project_root_for_path<'a>(path: &str, roots: &[&'a str]) -> Option<&'a str> {
+    roots
+        .iter()
+        .copied()
+        .filter(|root| *root == "." || path == *root || path.starts_with(&format!("{root}/")))
+        .max_by_key(|root| root.len())
+}
+
+fn test_root_facts(map: &EvidenceMap) -> Vec<String> {
+    map.tests
+        .iter()
+        .filter(|test| test.landmark.kind == LandmarkKind::TestRoot)
+        .map(|test| format!("- Test root `{}`", inline(&test.landmark.path)))
+        .collect()
+}
+
+fn coverage_facts(map: &EvidenceMap) -> Vec<String> {
+    let mut languages = BTreeMap::<&str, usize>::new();
+    let mut statuses = BTreeMap::<&str, usize>::new();
+    let mut omissions = BTreeMap::<&str, usize>::new();
+    for file in &map.files {
+        *languages.entry(file.file.language.label()).or_default() += 1;
+        *statuses.entry(file.file.status.label()).or_default() += 1;
+    }
+    for omission in &map.omissions {
+        if omission.reason != OmissionReason::IgnoredUntracked {
+            *omissions.entry(omission.reason.label()).or_default() += 1;
+        }
+    }
+
+    let mut facts = Vec::new();
+    facts.extend(
+        languages
+            .into_iter()
+            .map(|(language, count)| format!("- Analyzed {count} {language} source file(s)")),
+    );
+    facts.extend(
+        statuses
+            .into_iter()
+            .map(|(status, count)| format!("- {count} source file(s) with {status} analysis")),
+    );
+    facts.extend(
+        omissions
+            .into_iter()
+            .map(|(reason, count)| format!("- Omitted {count} file(s): {reason}")),
+    );
+    facts
+}
+
+fn inline(value: &str) -> String {
+    crate::utils::escape_inline_code(value)
+}
+
+fn is_relative_path(path: &str) -> bool {
+    !path.starts_with('/') && !path.starts_with('\\') && path.as_bytes().get(1).is_none_or(|byte| *byte != b':')
 }
 
 fn history_observation(observation: &dalil_core::HistoryObservation) -> String {
