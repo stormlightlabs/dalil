@@ -114,3 +114,7 @@ clients can run the separate [`dalil-mcp` adapter](docs/src/content/docs/integra
 - [Aider's repository map](https://aider.chat/docs/repomap.html)
 - [codebase orient skill](https://github.com/DrCatHicks/learning-opportunities/tree/main/orient)
 - [The Git Commands I Run Before Reading Any Code](https://piechowski.io/post/git-commands-before-reading-code/)
+- [Zoekt](https://github.com/sourcegraph/zoekt)
+- [stakgraph](https://github.com/stakwork/stakgraph)
+- [codebase memory mcp](https://deusdata.github.io/codebase-memory-mcp/)
+- [graphify](https://graphify.com/)
