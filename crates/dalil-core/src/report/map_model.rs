@@ -1082,7 +1082,361 @@ pub struct QueryProvenance {
 pub type RepositoryQueryRequest = QueryRequest;
 pub type RepositoryQueryResult = QueryResults;
 
+/// The relationship operation exposed by the repository graph query API.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RelationshipOperation {
+    /// Return definitions and references for one exact symbol name.
+    #[default]
+    Symbol,
+    Definitions,
+    References,
+    Imports,
+    Dependencies,
+    ReverseDependencies,
+    Tests,
+    Callers,
+    Callees,
+}
+
+impl RelationshipOperation {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Symbol => "symbol",
+            Self::Definitions => "definitions",
+            Self::References => "references",
+            Self::Imports => "imports",
+            Self::Dependencies => "dependencies",
+            Self::ReverseDependencies => "reverse_dependencies",
+            Self::Tests => "tests",
+            Self::Callers => "callers",
+            Self::Callees => "callees",
+        }
+    }
+}
+
+/// One paged request against the symbol and file relationship graph.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RelationshipRequest {
+    pub repository: String,
+    pub operation: RelationshipOperation,
+    pub target: String,
+    #[serde(default = "default_relationship_result_limit")]
+    pub result_limit: usize,
+    #[serde(default)]
+    pub offset: usize,
+    #[serde(default = "default_relationship_budget")]
+    pub budget: usize,
+    #[serde(default)]
+    pub profile: AnalysisProfile,
+    #[serde(default = "default_relationship_cache_mode")]
+    pub cache_mode: CacheMode,
+}
+
+impl RelationshipRequest {
+    pub fn new(repository: impl Into<String>, operation: RelationshipOperation, target: impl Into<String>) -> Self {
+        Self { repository: repository.into(), operation, target: target.into(), ..Self::default() }
+    }
+}
+
+impl Default for RelationshipRequest {
+    fn default() -> Self {
+        Self {
+            repository: ".".to_owned(),
+            operation: RelationshipOperation::Symbol,
+            target: String::new(),
+            result_limit: default_relationship_result_limit(),
+            offset: 0,
+            budget: default_relationship_budget(),
+            profile: AnalysisProfile::Compact,
+            cache_mode: default_relationship_cache_mode(),
+        }
+    }
+}
+
+const fn default_relationship_result_limit() -> usize {
+    20
+}
+
+const fn default_relationship_budget() -> usize {
+    1_000
+}
+
+const fn default_relationship_cache_mode() -> CacheMode {
+    CacheMode::Auto
+}
+
+/// The kind of node returned by a relationship query.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RelationshipNodeKind {
+    File,
+    Symbol,
+}
+
+impl RelationshipNodeKind {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::File => "file",
+            Self::Symbol => "symbol",
+        }
+    }
+}
+
+/// A stable repository node identifier and its retained source evidence.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RelationshipNode {
+    pub id: String,
+    pub kind: RelationshipNodeKind,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_root: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<SourceLanguage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<SourceSymbol>,
+    pub partial: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub limitations: Vec<String>,
+}
+
+/// The relationship represented by one graph edge.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RepositoryRelationshipKind {
+    Dependency,
+    Import,
+    Reference,
+    TypeReference,
+    Call,
+}
+
+impl RepositoryRelationshipKind {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Dependency => "dependency",
+            Self::Import => "import",
+            Self::Reference => "reference",
+            Self::TypeReference => "type_reference",
+            Self::Call => "call",
+        }
+    }
+}
+
+/// Evidence attached to a relationship or returned node.
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct RelationshipEvidence {
+    pub kind: RelationshipEvidenceKind,
+    pub detail: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RelationshipEvidenceKind {
+    SymbolSyntax,
+    LexicalEdge,
+    TestPath,
+    Ambiguity,
+    PartialSource,
+    SourceMap,
+}
+
+impl RelationshipEvidenceKind {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::SymbolSyntax => "symbol_syntax",
+            Self::LexicalEdge => "lexical_edge",
+            Self::TestPath => "test_path",
+            Self::Ambiguity => "ambiguity",
+            Self::PartialSource => "partial_source",
+            Self::SourceMap => "source_map",
+        }
+    }
+}
+
+/// One stable relationship identifier and its lexical resolution evidence.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RepositoryRelationship {
+    pub id: String,
+    pub source: String,
+    pub target: String,
+    pub source_path: String,
+    pub target_path: String,
+    pub kind: RepositoryRelationshipKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
+    #[serde(default)]
+    pub ambiguous: bool,
+    #[serde(default)]
+    pub candidates: Vec<String>,
+    #[serde(default)]
+    pub candidate_group: String,
+    #[serde(default)]
+    pub resolution_reason: LexicalResolutionReason,
+    pub confidence: ConfidenceTier,
+    pub evidence: Vec<RelationshipEvidence>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub limitations: Vec<String>,
+}
+
+/// The relationship role of a returned node relative to the requested target.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RelationshipMatchKind {
+    Symbol,
+    Definition,
+    Reference,
+    Import,
+    Dependency,
+    ReverseDependency,
+    Test,
+    Caller,
+    Callee,
+}
+
+impl RelationshipMatchKind {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Symbol => "symbol",
+            Self::Definition => "definition",
+            Self::Reference => "reference",
+            Self::Import => "import",
+            Self::Dependency => "dependency",
+            Self::ReverseDependency => "reverse_dependency",
+            Self::Test => "test",
+            Self::Caller => "caller",
+            Self::Callee => "callee",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RelationshipMatch {
+    pub id: String,
+    pub node: RelationshipNode,
+    pub relation: RelationshipMatchKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relationship_id: Option<String>,
+    pub reason: String,
+    pub evidence: Vec<RelationshipEvidence>,
+    pub confidence: ConfidenceTier,
+    pub ambiguous: bool,
+    pub partial: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub limitations: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RelationshipBounds {
+    pub token_budget: usize,
+    pub result_limit: usize,
+    pub offset: usize,
+    pub total: usize,
+    pub returned: usize,
+    pub omitted: usize,
+    pub total_relationships: usize,
+    pub returned_relationships: usize,
+    pub omitted_relationships: usize,
+    pub estimated_tokens: usize,
+    pub truncated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continuation: Option<RelationshipCursor>,
+}
+
+impl Default for RelationshipBounds {
+    fn default() -> Self {
+        Self {
+            token_budget: default_relationship_budget(),
+            result_limit: default_relationship_result_limit(),
+            offset: 0,
+            total: 0,
+            returned: 0,
+            omitted: 0,
+            total_relationships: 0,
+            returned_relationships: 0,
+            omitted_relationships: 0,
+            estimated_tokens: 0,
+            truncated: false,
+            continuation: None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RelationshipCursor {
+    pub offset: usize,
+    pub limit: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RelationshipOmission {
+    pub reason: RelationshipOmissionReason,
+    pub count: usize,
+    pub detail: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RelationshipOmissionReason {
+    ResultLimit,
+    TokenBudget,
+    SourceEvidence,
+    Ambiguous,
+}
+
+impl RelationshipOmissionReason {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::ResultLimit => "result_limit",
+            Self::TokenBudget => "token_budget",
+            Self::SourceEvidence => "source_evidence",
+            Self::Ambiguous => "ambiguous",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RelationshipProvenance {
+    pub repository: String,
+    pub scope_path: String,
+    pub profile: AnalysisProfile,
+    pub head: HeadSnapshot,
+    pub worktree: WorktreeSnapshot,
+    pub cache: CacheProvenance,
+    #[serde(default)]
+    pub query_packs: BTreeMap<String, String>,
+    pub source_files: CollectionSummary,
+    pub symbols: CollectionSummary,
+    pub relationships: CollectionSummary,
+    pub partial: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub limitations: Vec<String>,
+}
+
+/// One paged response from the symbol and relationship graph.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RelationshipResults {
+    pub request: RelationshipRequest,
+    #[serde(default)]
+    pub matches: Vec<RelationshipMatch>,
+    #[serde(default)]
+    pub relationships: Vec<RepositoryRelationship>,
+    pub bounds: RelationshipBounds,
+    #[serde(default)]
+    pub omissions: Vec<RelationshipOmission>,
+    pub provenance: RelationshipProvenance,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub limitations: Vec<String>,
+}
+
+impl RelationshipResults {
+    pub fn is_complete(&self) -> bool {
+        !self.bounds.truncated && self.bounds.continuation.is_none()
+    }
+}
+
 /// The typed input for one path, symbol, or concept lookup.
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SearchRequest {
     pub repository: String,

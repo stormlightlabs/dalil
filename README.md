@@ -34,6 +34,8 @@ dalil context --task 'fix parser cache invalidation' --changed-path src/map/cach
 dalil impact --revision-range 'HEAD~1..HEAD'
 dalil search parser
 dalil search invalidation --language rust --test exclude --json
+dalil relationships definitions MapReport --json
+dalil relationships callers parse
 dalil explain src/map.rs
 ```
 
@@ -52,6 +54,9 @@ The main workflows are:
   `--project`, `--symbol-kind`, `--test`, or `--changed-path` to narrow it;
   `--json` includes typed matches, totals, omissions, and continuation state.
   `dalil explain` shows the evidence behind one recommendation.
+- `dalil relationships` queries definitions, references, imports, dependencies,
+  reverse dependencies, related tests, callers, and callees. Results include
+  stable node and relationship IDs plus lexical confidence and limitations.
 - `dalil history` reports churn, contributor, bug-cluster, activity,
   and firefighting signals.
 

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     AnalysisProfile, CacheCommand, CacheControlReport, CommandDescriptor, CommandName, ContextBundle, ContextRequest,
     ExplainReport, HistorySettings, ImpactReport, MapReport, MapSettings, OrientationReport, QueryRequest,
-    QueryResults, Report, ReportError, SearchRequest, SearchResults,
+    QueryResults, RelationshipRequest, RelationshipResults, Report, ReportError, SearchRequest, SearchResults,
 };
 
 /// The report serialization selected by an adapter. Rendering is implemented outside the core.
@@ -224,6 +224,19 @@ pub fn query(request: QueryRequest) -> Result<QueryResults, CoreError> {
     Ok(crate::report::compile_query(request, &map, changes))
 }
 
+/// Run a paged symbol or relationship operation over the repository graph.
+pub fn relationships(request: RelationshipRequest) -> Result<RelationshipResults, CoreError> {
+    let settings = MapSettings {
+        profile: request.profile,
+        map_tokens: request.budget.max(1),
+        cache_mode: request.cache_mode,
+        ..MapSettings::default()
+    };
+    let map =
+        crate::map::analyze_with_history(Path::new(&request.repository), &settings, None).map_err(ReportError::Map)?;
+    Ok(crate::report::compile_relationships(request, &map))
+}
+
 /// Return installed analysis capabilities without opening a repository.
 pub fn capabilities() -> crate::CapabilitiesReport {
     crate::CapabilitiesReport::current()
@@ -264,6 +277,25 @@ mod tests {
         assert!(results.bounds.total > 0);
         assert!(!results.matches.is_empty());
         assert!(results.provenance.query_packs.contains_key("rust"));
+    }
+
+    #[test]
+    fn relationship_query_returns_stable_typed_nodes_and_edges() {
+        let mut request = RelationshipRequest::new(
+            env!("CARGO_MANIFEST_DIR"),
+            crate::RelationshipOperation::Definitions,
+            "MapReport",
+        );
+        request.cache_mode = crate::CacheMode::Disabled;
+        let results = relationships(request.clone()).expect("relationship query succeeds");
+        let repeated = relationships(request).expect("repeated relationship query succeeds");
+        assert_eq!(
+            serde_json::to_value(&results).expect("relationship serializes"),
+            serde_json::to_value(repeated).expect("repeated relationship serializes")
+        );
+        assert!(!results.matches.is_empty());
+        assert!(results.matches.iter().all(|item| item.node.id.starts_with("symbol:")));
+        assert!(results.provenance.symbols.total > 0);
     }
 
     #[test]

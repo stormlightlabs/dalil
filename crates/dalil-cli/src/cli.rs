@@ -7,22 +7,13 @@ use std::process::Command as ProcessCommand;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
-use clap::{
-    ArgAction, ColorChoice, Command, CommandFactory, Parser, Subcommand, ValueEnum, builder::Styles, error::ErrorKind,
-};
+use clap::{ArgAction, ColorChoice, Command, CommandFactory, Parser, Subcommand, ValueEnum};
+use clap::{builder::Styles, error::ErrorKind};
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 
-use crate::utils;
-use crate::{
-    bundle,
-    report::{
-        AnalysisProfile, CacheMode, CommandDescriptor, ContextRequest, ContextRevisionContext, DoctorReport,
-        HistoryOperation, HistorySettings, KeywordMatchMode, QueryFilters, QueryMatchMode, QueryTestFilter,
-        SearchQueryMode, SearchRequest, SourceLanguage, StrictIssue, SymbolKind, SymbolQuery, TaskChangeSeed,
-        TaskSeeds,
-    },
-};
+use crate::{bundle, report::*};
+use crate::{report, utils};
 use dalil_core::{CacheCommand, CacheControlReport, MapSettings};
 
 #[derive(Debug, Subcommand)]
@@ -39,6 +30,9 @@ enum SubcommandName {
     Impact(ImpactCommand),
     /// Find a few strong path, symbol, or concept anchors for the next source read.
     Search(SearchCommand),
+    /// Query definitions, references, imports, dependencies, callers, callees, and tests.
+    #[command(name = "relationships", visible_alias = "relations", alias = "symbol")]
+    Relationships(RelationshipsCommand),
     /// Explain the evidence behind a path or symbol recommendation.
     Explain(ExplainCommand),
     /// Produce Git-history findings, or select one focused history signal.
@@ -122,6 +116,35 @@ enum ProfileOption {
     Evidence,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum RelationshipOperationOption {
+    Symbol,
+    Definitions,
+    References,
+    Imports,
+    Dependencies,
+    ReverseDependencies,
+    Tests,
+    Callers,
+    Callees,
+}
+
+impl From<RelationshipOperationOption> for RelationshipOperation {
+    fn from(operation: RelationshipOperationOption) -> Self {
+        match operation {
+            RelationshipOperationOption::Symbol => Self::Symbol,
+            RelationshipOperationOption::Definitions => Self::Definitions,
+            RelationshipOperationOption::References => Self::References,
+            RelationshipOperationOption::Imports => Self::Imports,
+            RelationshipOperationOption::Dependencies => Self::Dependencies,
+            RelationshipOperationOption::ReverseDependencies => Self::ReverseDependencies,
+            RelationshipOperationOption::Tests => Self::Tests,
+            RelationshipOperationOption::Callers => Self::Callers,
+            RelationshipOperationOption::Callees => Self::Callees,
+        }
+    }
+}
+
 impl From<ProfileOption> for AnalysisProfile {
     fn from(profile: ProfileOption) -> Self {
         match profile {
@@ -190,7 +213,7 @@ enum ApplicationError {
     #[error("{0}")]
     Usage(String),
     #[error("{0}")]
-    Report(#[source] crate::report::ReportError),
+    Report(#[source] ReportError),
     #[error("{0}")]
     Core(#[source] dalil_core::CoreError),
     #[error("{0}")]
@@ -235,10 +258,10 @@ impl From<&ApplicationError> for ExitCategory {
     }
 }
 
-fn report_exit_category(error: &crate::report::ReportError) -> ExitCategory {
+fn report_exit_category(error: &ReportError) -> ExitCategory {
     match error {
-        crate::report::ReportError::History(error) => error.into(),
-        crate::report::ReportError::Map(error) => error.into(),
+        ReportError::History(error) => error.into(),
+        ReportError::Map(error) => error.into(),
     }
 }
 
@@ -270,7 +293,8 @@ struct CacheCommandCli {
 
 The default command and `orient` return the same concise orientation report.
 
-Primary workflows: `orient`, `map`, `context`, `impact`, `search`, and `explain`.
+Primary workflows: `orient`, `map`, `context`, `impact`, `search`,
+`relationships`, and `explain`.
 Use `history` for focused evidence inspection. Use `cache`, `capabilities`, and
 `doctor` for maintenance.
 
@@ -286,6 +310,7 @@ Examples:
     dalil map --json
     dalil search parser --json
     dalil search --symbol CacheStore --json
+    dalil relationships definitions CacheStore --json
     dalil history contributors .
     dalil explain src/parser.rs --json
     dalil context --task 'inspect parser cache' --json
@@ -449,6 +474,13 @@ impl From<Cli> for CommandRequest {
                     Some(request),
                 )
             }
+            Some(SubcommandName::Relationships(_)) => (
+                CommandDescriptor::map(cli.path),
+                HistorySettings::default(),
+                default_map_settings,
+                None,
+                None,
+            ),
             Some(SubcommandName::Explain(explain)) => (
                 CommandDescriptor::explain(explain.target, explain.path),
                 HistorySettings::default(),
@@ -538,6 +570,9 @@ impl Cli {
                     "`search` requires QUERY [PATH] or `--symbol NAME [PATH]`",
                 ));
             }
+        }
+        if let Some(SubcommandName::Relationships(relationships)) = &self.command {
+            relationships.validate()?;
         }
         if let Some(SubcommandName::Explain(explain)) = &self.command {
             explain.options.validate()?;
@@ -679,6 +714,77 @@ struct SearchCommand {
 }
 
 #[derive(Debug, clap::Args)]
+#[command(after_help = "Examples:
+    dalil relationships symbol CacheStore
+    dalil relationships definitions CacheStore --json
+    dalil relationships callers handle src --profile evidence
+    dalil relationships dependencies src/api.rs --limit 8
+
+The target is an exact symbol name for symbol, definitions, references,
+callers, and callees. Imports, dependencies, reverse-dependencies, and tests
+also accept a repository-relative file path. Results include stable node and
+relationship IDs, lexical evidence, confidence, omissions, and limits.
+
+Support: https://github.com/stormlightlabs/dalil/issues
+")]
+struct RelationshipsCommand {
+    #[arg(value_enum, value_name = "OPERATION")]
+    operation: RelationshipOperationOption,
+
+    #[arg(value_name = "TARGET")]
+    target: String,
+
+    #[arg(
+        value_name = "PATH",
+        default_value = ".",
+        help = "Repository or subdirectory to analyze (default: current directory)."
+    )]
+    path: PathBuf,
+
+    #[arg(long, value_name = "N", default_value_t = 20, value_parser = clap::value_parser!(usize))]
+    limit: usize,
+
+    #[arg(long, value_name = "N", default_value_t = 1_000, value_parser = clap::value_parser!(usize))]
+    budget: usize,
+
+    #[arg(long = "cache", value_name = "MODE", value_enum, default_value_t = CacheModeOption::Auto)]
+    cache_mode: CacheModeOption,
+
+    #[arg(long = "no-cache", action = ArgAction::SetTrue)]
+    no_cache: bool,
+}
+
+impl RelationshipsCommand {
+    fn validate(&self) -> Result<(), ApplicationError> {
+        if self.target.trim().is_empty() {
+            return Err(ApplicationError::usage(
+                "`relationships` requires a non-empty operation target",
+            ));
+        }
+        if self.limit == 0 || self.limit > 256 {
+            return Err(ApplicationError::usage("`--limit` must be between 1 and 256"));
+        }
+        if self.budget == 0 {
+            return Err(ApplicationError::usage("`--budget` must be greater than zero"));
+        }
+        Ok(())
+    }
+
+    fn request(&self, profile: AnalysisProfile) -> RelationshipRequest {
+        RelationshipRequest {
+            repository: self.path.to_string_lossy().into_owned(),
+            operation: self.operation.into(),
+            target: self.target.clone(),
+            result_limit: self.limit,
+            offset: 0,
+            budget: self.budget,
+            profile,
+            cache_mode: if self.no_cache { CacheMode::Disabled } else { self.cache_mode.into() },
+        }
+    }
+}
+
+#[derive(Debug, clap::Args)]
 struct SearchOptions {
     /// Exclude paths from analysis using a Git-style glob; repeat for multiple exclusions.
     #[arg(long = "exclude", value_name = "GLOB", action = ArgAction::Append)]
@@ -737,7 +843,7 @@ impl SearchOptions {
     fn query_filters(&self, query: &str, mode: SearchQueryMode) -> QueryFilters {
         QueryFilters {
             text: (mode == SearchQueryMode::Plain)
-                .then(|| crate::report::TextQuery { value: query.to_owned(), mode: QueryMatchMode::Substring }),
+                .then(|| report::TextQuery { value: query.to_owned(), mode: QueryMatchMode::Substring }),
             symbol: (mode == SearchQueryMode::Symbol).then(|| SymbolQuery {
                 name: query.to_owned(),
                 mode: QueryMatchMode::Exact,
@@ -746,7 +852,7 @@ impl SearchOptions {
             project: self
                 .projects
                 .first()
-                .map(|path| crate::report::ProjectQuery { path: path.clone(), mode: QueryMatchMode::Prefix }),
+                .map(|path| report::ProjectQuery { path: path.clone(), mode: QueryMatchMode::Prefix }),
             language: self.languages.first().copied(),
             symbol_kind: self.symbol_kind,
             path: None,
@@ -758,7 +864,7 @@ impl SearchOptions {
             changed_path: self
                 .changed_path
                 .as_ref()
-                .map(|path| crate::report::ChangedPathQuery { path: path.clone(), mode: QueryMatchMode::Substring }),
+                .map(|path| report::ChangedPathQuery { path: path.clone(), mode: QueryMatchMode::Substring }),
         }
     }
 
@@ -1409,14 +1515,14 @@ fn invoke<W: Write, E: Write>(
     cli.validate()?;
     if matches!(&cli.command, Some(SubcommandName::Capabilities)) {
         let report = dalil_core::capabilities();
-        let output = crate::report::render_capabilities(&report, output_format.into())
+        let output = report::render_capabilities(&report, output_format.into())
             .map_err(|error| ApplicationError::Rendering(error.to_string()))?;
         deliver_output(output_format, open, output, stdout, stderr, "capabilities report")?;
         return Ok(());
     }
     if let Some(SubcommandName::Doctor(command)) = &cli.command {
         let report = DoctorReport::run(command.path.clone());
-        let output = crate::report::render_doctor(&report, output_format.into())
+        let output = report::render_doctor(&report, output_format.into())
             .map_err(|error| ApplicationError::Rendering(error.to_string()))?;
         deliver_output(output_format, open, output, stdout, stderr, "doctor report")?;
         if !report.is_ok() {
@@ -1429,10 +1535,24 @@ fn invoke<W: Write, E: Write>(
             let _ = writeln!(stderr, "dalil: reading cache metadata…");
         }
         let report = dalil_core::cache(cache.operation.into())
-            .map_err(|error| ApplicationError::Report(crate::report::ReportError::Map(error)))?;
+            .map_err(|error| ApplicationError::Report(report::ReportError::Map(error)))?;
         let output = render_cache_control(&report, output_format)
             .map_err(|error| ApplicationError::Rendering(error.to_string()))?;
         deliver_output(output_format, open, output, stdout, stderr, "cache report")?;
+        return Ok(());
+    }
+    if let Some(SubcommandName::Relationships(command)) = &cli.command {
+        if output_format == OutputFormat::Html {
+            return Err(ApplicationError::usage("`relationships` supports Markdown or JSON output, not HTML").into());
+        }
+        if stderr_is_terminal {
+            let _ = writeln!(stderr, "dalil: analyzing repository relationships…");
+        }
+        let relationships =
+            dalil_core::relationships(command.request(cli.output.profile.into())).map_err(ApplicationError::Core)?;
+        let output = report::render_relationships(&relationships, output_format.into())
+            .map_err(|error| ApplicationError::Rendering(error.to_string()))?;
+        deliver_output(output_format, open, output, stdout, stderr, "relationship report")?;
         return Ok(());
     }
     if let Some(SubcommandName::Export(command)) = &cli.command {
@@ -1485,7 +1605,7 @@ fn invoke<W: Write, E: Write>(
     }
     let strict = cli.output.strict;
     let report = dalil_core::analyze(cli.into()).map_err(ApplicationError::Core)?;
-    let output = crate::report::render_report(&report, output_format.into())
+    let output = report::render_report(&report, output_format.into())
         .map_err(|error| ApplicationError::Rendering(error.to_string()))?;
     let strict_issues = report.quality.strict_issues.clone();
 
@@ -1764,7 +1884,7 @@ mod tests {
                 .expect("orient flags parse"),
         );
 
-        assert_eq!(root.command.name, crate::report::CommandName::Orient);
+        assert_eq!(root.command.name, report::CommandName::Orient);
         assert_eq!(root.command, orient.command);
         assert_eq!(root.history, orient.history);
         assert_eq!(root.output_format, orient.output_format);
@@ -1831,7 +1951,7 @@ mod tests {
             .expect("search flags parse"),
         );
 
-        assert_eq!(request.command.name, crate::report::CommandName::Search);
+        assert_eq!(request.command.name, report::CommandName::Search);
         assert_eq!(request.command.target.as_deref(), Some("CacheStore"));
         assert_eq!(request.command.path, PathBuf::from("src"));
         let search = request.search.expect("search request");

@@ -53,9 +53,12 @@ pub fn build_lexical_edges(files: &[SourceFile], max_candidates: usize, max_edge
             if !is_graph_reference(symbol) {
                 continue;
             }
-            let Some(all_candidates) = definitions.get(&(file.language, symbol.name.clone())) else {
+            let all_candidates = import_candidates(file, symbol, &definitions)
+                .or_else(|| definitions.get(&(file.language, symbol.name.clone())).cloned())
+                .unwrap_or_default();
+            if all_candidates.is_empty() {
                 continue;
-            };
+            }
             let same_file = all_candidates
                 .iter()
                 .filter(|(path, _)| path == &file.path)
@@ -73,7 +76,7 @@ pub fn build_lexical_edges(files: &[SourceFile], max_candidates: usize, max_edge
                 } else {
                     continue;
                 }
-            } else if let Some(module_candidates) = same_module_candidates(file, all_candidates, &modules) {
+            } else if let Some(module_candidates) = same_module_candidates(file, &all_candidates, &modules) {
                 (
                     module_candidates,
                     LexicalResolutionReason::SameModule,
@@ -784,13 +787,57 @@ fn is_graph_definition(symbol: &SourceSymbol) -> bool {
 }
 
 fn is_graph_reference(symbol: &SourceSymbol) -> bool {
-    symbol.role == SymbolRole::Reference
+    let import_definition = symbol.role == SymbolRole::Definition && symbol.evidence == SymbolEvidence::Import;
+    let explicit_reference = symbol.role == SymbolRole::Reference
         && !matches!(
             symbol.evidence,
             SymbolEvidence::BareReference | SymbolEvidence::MemberReference
         )
-        && symbol.kind != SymbolKind::Field
-        && !is_generic_name(&symbol.name)
+        && symbol.kind != SymbolKind::Field;
+    (import_definition || explicit_reference) && !is_generic_name(&symbol.name)
+}
+
+fn import_candidates(
+    file: &SourceFile, symbol: &SourceSymbol,
+    definitions: &BTreeMap<(SourceLanguage, String), Vec<(String, SymbolVisibility)>>,
+) -> Option<Vec<(String, SymbolVisibility)>> {
+    if symbol.role != SymbolRole::Definition || symbol.evidence != SymbolEvidence::Import {
+        return None;
+    }
+    let hints = import_module_hints(&symbol.context, file.language);
+    let names = import_symbol_names(&symbol.name, &symbol.context, &hints);
+    let mut candidates = definitions
+        .iter()
+        .filter(|((language, name), _)| *language == file.language && names.contains(name))
+        .flat_map(|(_, candidates)| candidates.iter().cloned())
+        .filter(|(path, _)| hints.is_empty() || module_path_matches(path, &hints))
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.label().cmp(right.1.label())));
+    candidates.dedup_by(|right, left| right.0 == left.0);
+    (!candidates.is_empty()).then_some(candidates)
+}
+
+fn import_symbol_names(symbol_name: &str, context: &str, hints: &[String]) -> BTreeSet<String> {
+    let mut names = BTreeSet::from([symbol_name.to_owned()]);
+    let tokens = context
+        .split(|character: char| !character.is_alphanumeric() && character != '_')
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+    for window in tokens.windows(2) {
+        if window[1] == "as" {
+            names.insert(window[0].to_owned());
+        }
+        if window[0] == "import" {
+            names.insert(window[1].to_owned());
+        }
+    }
+    names.extend(
+        hints
+            .iter()
+            .filter_map(|hint| hint.rsplit('/').next())
+            .map(str::to_owned),
+    );
+    names
 }
 
 fn import_module_hints(context: &str, language: SourceLanguage) -> Vec<String> {

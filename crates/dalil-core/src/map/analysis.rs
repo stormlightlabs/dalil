@@ -558,7 +558,7 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
         ]
     } else {
         vec![
-            "Rust definitions and references are extracted lexically; only explicit same-file call evidence is graphed, and imports, types, macros, and runtime behavior are not semantically resolved."
+            "Rust definitions and references are extracted lexically; only explicit call or import evidence contributes file relationships, and types, macros, and runtime behavior are not semantically resolved."
                 .to_owned(),
             "Reference names can have multiple lexical definition candidates; ambiguity is reported rather than treated as a semantic call edge."
                 .to_owned(),

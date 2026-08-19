@@ -26,5 +26,7 @@ mod map;
 mod orientation;
 #[path = "cli/output.rs"]
 mod output;
+#[path = "cli/relationships.rs"]
+mod relationships;
 #[path = "cli/workflow.rs"]
 mod workflow;

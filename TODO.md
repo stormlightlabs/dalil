@@ -74,22 +74,22 @@ rather than a thin concept lookup.
 **Verification:** Add compiled-CLI fixtures covering exact symbols, ambiguous
 names, path filters, monorepos, large match sets, and changed-file filters.
 
-### T5 — Expose symbol and relationship queries (petgraph backed)
+### T5 — Expose symbol and relationship queries (petgraph backed) — complete
 
 **What to build:** Users and agents can interrogate repository relationships
 directly.
 
 **Acceptance criteria:**
 
-- [ ] Add typed operations for symbol lookup, definitions, references, imports,
+- [x] Add typed operations for symbol lookup, definitions, references, imports,
       dependencies, reverse dependencies, and related tests.
-- [ ] Add callers and callees for relationships Dalil can support with explicit
+- [x] Add callers and callees for relationships Dalil can support with explicit
       evidence quality; do not present unresolved lexical matches as precise
       calls.
-- [ ] Provide bounded CLI surfaces for the operations that are useful to humans.
-- [ ] Preserve stable node and relationship identifiers in JSON responses.
-- [ ] Explain ambiguous or partial relationships with provenance and confidence.
-- [ ] Avoid adding new parser semantics in adapters or renderers.
+- [x] Provide paged CLI surfaces for the operations that are useful to humans.
+- [x] Preserve stable node and relationship identifiers in JSON responses.
+- [x] Explain ambiguous or partial relationships with provenance and confidence.
+- [x] Avoid adding new parser semantics in adapters or renderers.
 
 **Verification:** Use fixtures with duplicate names, aliases, cross-file
 references, unresolved calls, multiple projects, and tests.

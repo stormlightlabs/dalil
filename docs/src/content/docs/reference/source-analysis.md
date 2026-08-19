@@ -37,6 +37,29 @@ functions, methods, variables, assignments, table fields, calls, and literal
 tests, public declarations, calls, type uses, field access, and literal
 `@import` paths.
 
+## Relationship queries
+
+Use `dalil relationships` to inspect one symbol or file relationship at a time:
+
+```sh
+dalil relationships definitions CacheStore --json
+dalil relationships references CacheStore
+dalil relationships callers handle
+dalil relationships dependencies src/cache.rs
+dalil relationships tests src/cache.rs
+```
+
+The operation names are `symbol`, `definitions`, `references`, `imports`,
+`dependencies`, `reverse-dependencies`, `tests`, `callers`, and `callees`.
+Symbol operations use an exact name. File operations use a repository-relative
+path. `--limit` and `--budget` control the page size and output size; JSON
+reports totals, omissions, continuation, stable node IDs, relationship IDs,
+source evidence, confidence, and limitations.
+
+`callers` and `callees` include only references tagged as calls. Ambiguous
+lexical candidates stay marked as ambiguous and are not presented as resolved
+semantic calls.
+
 ## Evidence boundaries
 
 Relationships are lexical and structural evidence. They do not prove runtime

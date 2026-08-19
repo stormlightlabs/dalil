@@ -13,7 +13,7 @@ use dalil_core::{
 };
 use sha2::{Digest, Sha256};
 
-use crate::render::Render;
+use crate::{render::Render, utils};
 
 static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 const MAX_TASK_SLUG_CHARS: usize = 40;
@@ -203,11 +203,10 @@ fn render_task_record(
     writeln!(
         output,
         "- Repository: `{}`",
-        crate::utils::escape_inline_code(&map.repository.canonical_root)
+        utils::escape_inline_code(&map.repository.canonical_root)
     )
     .expect("writing to a string cannot fail");
-    writeln!(output, "- Scope: `{}`", crate::utils::escape_inline_code(&map.scope))
-        .expect("writing to a string cannot fail");
+    writeln!(output, "- Scope: `{}`", utils::escape_inline_code(&map.scope)).expect("writing to a string cannot fail");
     writeln!(
         output,
         "- Revision: `{}`",
@@ -911,7 +910,7 @@ fn coverage_facts(map: &EvidenceMap) -> Vec<String> {
 }
 
 fn inline(value: &str) -> String {
-    crate::utils::escape_inline_code(value)
+    utils::escape_inline_code(value)
 }
 
 fn is_relative_path(path: &str) -> bool {

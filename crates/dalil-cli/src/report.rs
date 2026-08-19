@@ -47,6 +47,107 @@ pub fn render_doctor(report: &DoctorReport, format: OutputFormat) -> anyhow::Res
     }
 }
 
+pub fn render_relationships(report: &RelationshipResults, format: OutputFormat) -> anyhow::Result<String> {
+    match format {
+        OutputFormat::Json => Ok(format!("{}\n", serde_json::to_string_pretty(report)?)),
+        OutputFormat::Html => anyhow::bail!("relationship queries support Markdown or JSON output, not HTML"),
+        OutputFormat::Markdown => {
+            let mut output = format!(
+                "# Dalil {}\n\nTarget: `{}`\nRepository: `{}`\n\n",
+                report.request.operation.label(),
+                utils::escape_inline_code(&report.request.target),
+                utils::escape_inline_code(&report.request.repository),
+            );
+            writeln!(
+                output,
+                "Results: {} returned of {} ({} omitted); {} relationship(s) returned.",
+                report.bounds.returned,
+                report.bounds.total,
+                report.bounds.omitted,
+                report.bounds.returned_relationships,
+            )?;
+            if let Some(cursor) = report.bounds.continuation {
+                writeln!(output, "Next page: offset {}, limit {}.", cursor.offset, cursor.limit)?;
+            }
+            writeln!(output, "\n## Matches\n")?;
+            if report.matches.is_empty() {
+                writeln!(output, "No matching repository evidence was found.")?;
+            } else {
+                for item in &report.matches {
+                    let location = item
+                        .node
+                        .symbol
+                        .as_ref()
+                        .map(|symbol| format!(" {}", format_location(&symbol.location)))
+                        .unwrap_or_default();
+                    writeln!(
+                        output,
+                        "- `{}` — {} `{}`{} (confidence: {}, {})",
+                        utils::escape_inline_code(&item.node.path),
+                        item.relation.label(),
+                        utils::escape_inline_code(
+                            item.node
+                                .symbol
+                                .as_ref()
+                                .map(|symbol| symbol.name.as_str())
+                                .unwrap_or(item.node.path.as_str()),
+                        ),
+                        location,
+                        item.confidence.label(),
+                        if item.ambiguous { "ambiguous" } else { "direct" },
+                    )?;
+                    writeln!(output, "  - node: `{}`", utils::escape_inline_code(&item.node.id))?;
+                    writeln!(output, "  - {}", utils::sanitize_text(&item.reason))?;
+                }
+            }
+            if !report.relationships.is_empty() {
+                writeln!(output, "\n## Relationships\n")?;
+                for relationship in &report.relationships {
+                    writeln!(
+                        output,
+                        "- {} `{}` → `{}` (confidence: {}, {})",
+                        relationship.kind.label(),
+                        utils::escape_inline_code(&relationship.source_path),
+                        utils::escape_inline_code(&relationship.target_path),
+                        relationship.confidence.label(),
+                        if relationship.ambiguous { "ambiguous" } else { "resolved lexically" },
+                    )?;
+                    writeln!(
+                        output,
+                        "  - relationship: `{}`",
+                        utils::escape_inline_code(&relationship.id)
+                    )?;
+                }
+            }
+            if !report.omissions.is_empty() {
+                writeln!(output, "\n## Omissions\n")?;
+                for omission in &report.omissions {
+                    writeln!(
+                        output,
+                        "- {}: {}",
+                        omission.reason.label(),
+                        utils::sanitize_text(&omission.detail)
+                    )?;
+                }
+            }
+            if !report.limitations.is_empty() {
+                writeln!(output, "\n## Limitations\n")?;
+                for limitation in &report.limitations {
+                    writeln!(output, "- {}", utils::sanitize_text(limitation))?;
+                }
+            }
+            Ok(output)
+        }
+    }
+}
+
+fn format_location(location: &SourceLocation) -> String {
+    format!(
+        "{}:{}-{}:{}",
+        location.start.line, location.start.column, location.end.line, location.end.column
+    )
+}
+
 /// Render a typed report without re-running analysis or transforming its evidence.
 pub fn render_report(report: &Report, format: OutputFormat) -> anyhow::Result<String> {
     let output = match format {
