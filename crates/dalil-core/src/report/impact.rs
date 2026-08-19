@@ -30,7 +30,7 @@ struct TargetInput<'a> {
     changed_symbols: Option<&'a BTreeSet<String>>,
 }
 
-/// Compile evidence around resolved changes into a bounded review result. The
+/// Compile evidence around resolved changes into a review result. The
 /// operation reports observed relationships and their limits, rather than
 /// claiming semantic reachability or breakage.
 pub fn compile(
@@ -268,6 +268,9 @@ fn source_evidence(map: &MapReport) -> Vec<ReadingSourceEvidence> {
             .iter()
             .map(|file| ReadingSourceEvidence {
                 path: file.path.clone(),
+                language: file.language,
+                worktree_state: file.worktree_state,
+                status: file.status,
                 symbols: file.symbols.clone(),
                 limitations: file.limitations.clone(),
             })

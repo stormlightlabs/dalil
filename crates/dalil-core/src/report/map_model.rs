@@ -734,6 +734,354 @@ pub struct SourceSymbol {
     pub evidence: SymbolEvidence,
 }
 
+/// A typed repository-wide query. Query adapters can compose the filters without
+/// parsing command-line strings or rendered reports.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct QueryRequest {
+    pub repository: String,
+    #[serde(default)]
+    pub filters: QueryFilters,
+    #[serde(default = "default_query_result_limit")]
+    pub result_limit: usize,
+    #[serde(default)]
+    pub offset: usize,
+    #[serde(default = "default_query_budget")]
+    pub budget: usize,
+    #[serde(default)]
+    pub profile: AnalysisProfile,
+    #[serde(default = "default_query_cache_mode")]
+    pub cache_mode: CacheMode,
+    #[serde(default)]
+    pub revision: QueryRevision,
+}
+
+impl QueryRequest {
+    pub fn new(repository: impl Into<String>) -> Self {
+        Self { repository: repository.into(), ..Self::default() }
+    }
+}
+
+impl Default for QueryRequest {
+    fn default() -> Self {
+        Self {
+            repository: ".".to_owned(),
+            filters: QueryFilters::default(),
+            result_limit: default_query_result_limit(),
+            offset: 0,
+            budget: default_query_budget(),
+            profile: AnalysisProfile::Compact,
+            cache_mode: CacheMode::Auto,
+            revision: QueryRevision::default(),
+        }
+    }
+}
+
+const fn default_query_result_limit() -> usize {
+    20
+}
+
+const fn default_query_budget() -> usize {
+    1_000
+}
+
+const fn default_query_cache_mode() -> CacheMode {
+    CacheMode::Auto
+}
+
+/// Filters are combined with logical AND. A missing filter leaves that
+/// dimension unconstrained.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct QueryFilters {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<TextQuery>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<PathQuery>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<SymbolQuery>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<ProjectQuery>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<SourceLanguage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol_kind: Option<SymbolKind>,
+    #[serde(default)]
+    pub test: QueryTestFilter,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changed_path: Option<ChangedPathQuery>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryMatchMode {
+    Exact,
+    Prefix,
+    #[default]
+    Substring,
+}
+
+impl QueryMatchMode {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Exact => "exact",
+            Self::Prefix => "prefix",
+            Self::Substring => "substring",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TextQuery {
+    pub value: String,
+    #[serde(default)]
+    pub mode: QueryMatchMode,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct PathQuery {
+    pub value: String,
+    #[serde(default)]
+    pub mode: QueryMatchMode,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SymbolQuery {
+    pub name: String,
+    #[serde(default)]
+    pub mode: QueryMatchMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<SymbolRole>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ProjectQuery {
+    pub path: String,
+    #[serde(default)]
+    pub mode: QueryMatchMode,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ChangedPathQuery {
+    pub path: String,
+    #[serde(default)]
+    pub mode: QueryMatchMode,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryTestFilter {
+    #[default]
+    Any,
+    Only,
+    Exclude,
+}
+
+impl QueryTestFilter {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Any => "any",
+            Self::Only => "only",
+            Self::Exclude => "exclude",
+        }
+    }
+}
+
+/// Revision and worktree inputs used by a changed-path query. Resolution is
+/// local and is reported in the result provenance, including uncertainty.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct QueryRevision {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range: Option<String>,
+    #[serde(default)]
+    pub dirty_worktree: bool,
+}
+
+impl QueryRevision {
+    pub fn is_requested(&self) -> bool {
+        self.base.is_some() || self.head.is_some() || self.range.is_some() || self.dirty_worktree
+    }
+}
+
+/// One bounded page of repository query evidence.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct QueryResults {
+    pub request: QueryRequest,
+    #[serde(default)]
+    pub matches: Vec<QueryMatch>,
+    pub bounds: QueryBounds,
+    #[serde(default)]
+    pub omissions: Vec<QueryOmission>,
+    pub provenance: QueryProvenance,
+    #[serde(default)]
+    pub limitations: Vec<String>,
+}
+
+impl QueryResults {
+    pub fn is_complete(&self) -> bool {
+        !self.bounds.truncated && self.bounds.continuation.is_none()
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct QueryBounds {
+    pub token_budget: usize,
+    pub result_limit: usize,
+    pub offset: usize,
+    pub total: usize,
+    pub returned: usize,
+    pub omitted: usize,
+    pub estimated_tokens: usize,
+    pub truncated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continuation: Option<QueryCursor>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct QueryCursor {
+    pub offset: usize,
+    pub limit: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct QueryMatch {
+    pub id: String,
+    pub target: QueryTarget,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_root: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<SourceLanguage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<SourceSymbol>,
+    pub reason: String,
+    pub evidence: Vec<QueryEvidence>,
+    pub confidence: ConfidenceTier,
+    pub ambiguous: bool,
+    pub partial: bool,
+    pub score: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub limitations: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryTarget {
+    File,
+    Symbol,
+}
+
+impl QueryTarget {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::File => "file",
+            Self::Symbol => "symbol",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct QueryEvidence {
+    pub kind: QueryEvidenceKind,
+    pub detail: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryEvidenceKind {
+    Text,
+    Path,
+    Symbol,
+    Project,
+    Language,
+    SymbolKind,
+    Test,
+    ChangedPath,
+    Revision,
+    SourceMap,
+    Worktree,
+    Omission,
+}
+
+impl QueryEvidenceKind {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Path => "path",
+            Self::Symbol => "symbol",
+            Self::Project => "project",
+            Self::Language => "language",
+            Self::SymbolKind => "symbol_kind",
+            Self::Test => "test",
+            Self::ChangedPath => "changed_path",
+            Self::Revision => "revision",
+            Self::SourceMap => "source_map",
+            Self::Worktree => "worktree",
+            Self::Omission => "omission",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct QueryOmission {
+    pub reason: QueryOmissionReason,
+    pub count: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paths: Vec<String>,
+    pub detail: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryOmissionReason {
+    Pagination,
+    ResultLimit,
+    TokenBudget,
+    SourceEvidence,
+    Revision,
+    Projection,
+}
+
+impl QueryOmissionReason {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Pagination => "pagination",
+            Self::ResultLimit => "result_limit",
+            Self::TokenBudget => "token_budget",
+            Self::SourceEvidence => "source_evidence",
+            Self::Revision => "revision",
+            Self::Projection => "projection",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct QueryProvenance {
+    pub repository: String,
+    pub scope_path: String,
+    pub profile: AnalysisProfile,
+    pub head: HeadSnapshot,
+    pub worktree: WorktreeSnapshot,
+    pub cache: CacheProvenance,
+    #[serde(default)]
+    pub query_packs: BTreeMap<String, String>,
+    pub source_files: CollectionSummary,
+    pub symbols: CollectionSummary,
+    pub relationships: CollectionSummary,
+    #[serde(default)]
+    pub change_resolution: ChangeResolution,
+    pub partial: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub limitations: Vec<String>,
+}
+
+/// Compatibility aliases for adapters that refer to the model by its generic
+/// repository-query name rather than the short `Query*` names.
+pub type RepositoryQueryRequest = QueryRequest;
+pub type RepositoryQueryResult = QueryResults;
+
 /// The typed input for one path, symbol, or concept lookup.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SearchRequest {

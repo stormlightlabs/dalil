@@ -144,7 +144,7 @@ fn task_id(task: &str) -> String {
     id
 }
 
-/// Project arbitrary task text into a bounded, filesystem-safe filename slug.
+/// Project arbitrary task text into a filesystem-safe filename slug.
 fn task_slug(task: &str) -> String {
     let mut slug = String::new();
     for character in task.chars() {

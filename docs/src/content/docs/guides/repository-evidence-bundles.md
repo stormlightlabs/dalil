@@ -24,7 +24,7 @@ The command writes two files under `.dalil/`:
 
 `map.json` is the complete portable evidence snapshot. It includes repository
 identity, revision and worktree fingerprint, projects, files, symbols,
-relationships, landmarks, tests, bounded history, quality, limitations,
+relationships, landmarks, tests, history, quality, limitations,
 provenance, and collection totals. Its schema is
 [`schema/export/v1/map.json`](https://github.com/stormlightlabs/dalil/blob/main/schema/export/v1/map.json).
 

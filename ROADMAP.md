@@ -1,7 +1,7 @@
 ---
 title: "Dalil roadmap"
 status: "in-progress"
-updated: "2026-08-18"
+updated: "2026-08-19"
 ---
 
 Dalil is a local repository intelligence engine for humans and coding agents.

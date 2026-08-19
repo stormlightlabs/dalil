@@ -1,0 +1,19 @@
+{
+  "repository": "/fixture",
+  "filters": {
+    "text": { "value": "build", "mode": "substring" },
+    "path": { "value": "packages", "mode": "prefix" },
+    "symbol": { "name": "Build", "mode": "exact", "role": "definition" },
+    "project": { "path": "packages/api", "mode": "exact" },
+    "language": "rust",
+    "symbol_kind": "function",
+    "test": "exclude",
+    "changed_path": { "path": "packages/api", "mode": "prefix" }
+  },
+  "result_limit": 7,
+  "offset": 0,
+  "budget": 600,
+  "profile": "evidence",
+  "cache_mode": "disabled",
+  "revision": { "range": "HEAD~1..HEAD", "dirty_worktree": false }
+}

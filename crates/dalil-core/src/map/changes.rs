@@ -100,7 +100,7 @@ pub fn resolve_changes(path: &Path, context: &ContextRevisionContext) -> Result<
     Ok(resolution)
 }
 
-/// Add changed-symbol evidence from the bounded source map. Deleted files have
+/// Add changed-symbol evidence from the source map. Deleted files have
 /// no current source to parse, so the resolver reports that limitation instead.
 pub fn enrich_change_symbols(resolution: &mut ChangeResolution, map: &MapReport) {
     if resolution.status == ChangeResolutionStatus::NotRequested {

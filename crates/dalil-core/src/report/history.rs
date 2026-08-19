@@ -32,7 +32,7 @@ pub struct HistoryReport {
 /// A concise, evidence-backed signal selected for the integrated briefing.
 ///
 /// The detailed history reports remain the source of truth. These variants
-/// carry only the bounded evidence needed to explain why an observation was
+/// carry only the evidence needed to explain why an observation was
 /// selected, so Markdown and JSON can present the same typed projection.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]

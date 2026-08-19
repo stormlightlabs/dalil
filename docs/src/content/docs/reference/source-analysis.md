@@ -1,6 +1,6 @@
 ---
 title: Source analysis
-description: See what Dalil extracts, where its evidence stops, and how analysis is bounded.
+description: See what Dalil extracts, where its evidence stops, and how analysis is constrained.
 section: Reference
 group: Reference
 order: 4

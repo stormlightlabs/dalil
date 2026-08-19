@@ -1,6 +1,6 @@
 ---
 title: MCP
-description: Give MCP clients bounded, read-only Dalil repository context.
+description: Give MCP clients read-only Dalil repository context.
 section: Integrations
 group: Integrations
 order: 8

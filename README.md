@@ -49,7 +49,7 @@ The main workflows are:
 - `dalil impact` prepares a review list for a revision range or dirty worktree.
 - `dalil search` finds path, symbol, or concept anchors. `dalil explain` shows
   the evidence behind one recommendation.
-- `dalil history` reports bounded churn, contributor, bug-cluster, activity,
+- `dalil history` reports churn, contributor, bug-cluster, activity,
   and firefighting signals.
 
 Pass `--json` for typed output or `--html` for a standalone browser report:

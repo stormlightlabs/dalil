@@ -1,6 +1,6 @@
 ---
 title: Context bundles
-description: Request one bounded set of repository evidence for a task.
+description: Request one set of repository evidence for a task.
 section: Guides
 group: Guides
 order: 5

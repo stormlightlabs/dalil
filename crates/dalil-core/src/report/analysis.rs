@@ -259,6 +259,9 @@ pub fn build_reading_plan(history: &HistoryReport, map: &MapReport) -> ReadingPl
                 .iter()
                 .map(|file| ReadingSourceEvidence {
                     path: file.path.clone(),
+                    language: file.language,
+                    worktree_state: file.worktree_state,
+                    status: file.status,
                     symbols: file.symbols.clone(),
                     limitations: file.limitations.clone(),
                 })
@@ -973,6 +976,9 @@ fn explain_sources(map: &MapReport) -> Vec<ReadingSourceEvidence> {
         .iter()
         .map(|file| ReadingSourceEvidence {
             path: file.path.clone(),
+            language: file.language,
+            worktree_state: file.worktree_state,
+            status: file.status,
             symbols: file.symbols.clone(),
             limitations: file.limitations.clone(),
         })

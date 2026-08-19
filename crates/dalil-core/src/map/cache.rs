@@ -380,7 +380,7 @@ pub struct IncrementalEdges {
 
 impl IndexState {
     /// Rebuild only the lexical component that could be affected by changed
-    /// source fingerprints. Any bounded graph that might have been cut off is
+    /// source fingerprints. Any graph that might have been cut off is
     /// rebuilt cold so the result remains equivalent to a fresh analysis.
     pub fn incremental_edges(
         &self, files: &[SourceFile], fingerprints: &BTreeMap<String, String>, max_candidates: usize, max_edges: usize,

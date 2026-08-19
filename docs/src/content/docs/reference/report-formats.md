@@ -104,8 +104,8 @@ masthead saves a different choice when browser storage is available.
 
 ## Profiles and formats
 
-The `compact` profile is the default. It selects a bounded set of evidence for
-quick orientation. The `evidence` profile returns larger bounded collections.
+The `compact` profile is the default. It selects a set of evidence for
+quick orientation. The `evidence` profile returns larger collections.
 Either profile can use any report format.
 
 ```sh

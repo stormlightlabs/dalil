@@ -4,10 +4,10 @@ use super::*;
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AnalysisProfile {
-    /// Emit a bounded navigation briefing suitable for the default command.
+    /// Emit a navigation briefing suitable for the default command.
     #[default]
     Compact,
-    /// Emit the largest bounded evidence collections allowed by the resource limits.
+    /// Emit the largest evidence collections allowed by the resource limits.
     Evidence,
 }
 
@@ -759,6 +759,9 @@ pub struct ReadingPlanEvidence {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReadingSourceEvidence {
     pub path: String,
+    pub language: SourceLanguage,
+    pub worktree_state: WorktreeState,
+    pub status: FileAnalysisStatus,
     pub symbols: Vec<SourceSymbol>,
     pub limitations: Vec<String>,
 }

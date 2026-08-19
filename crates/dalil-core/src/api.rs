@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -7,8 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AnalysisProfile, CacheCommand, CacheControlReport, CommandDescriptor, CommandName, ContextBundle, ContextRequest,
-    ExplainReport, HistorySettings, ImpactReport, MapReport, MapSettings, OrientationReport, Report, ReportError,
-    SearchRequest, SearchResults,
+    ExplainReport, HistorySettings, ImpactReport, MapReport, MapSettings, OrientationReport, QueryRequest,
+    QueryResults, Report, ReportError, SearchRequest, SearchResults,
 };
 
 /// The report serialization selected by an adapter. Rendering is implemented outside the core.
@@ -187,7 +188,7 @@ pub fn context(request: AnalysisRequest) -> Result<ContextBundle, CoreError> {
     specialized(request, CommandName::Context, "context", |report| report.context)
 }
 
-/// Compile bounded impact context for local changes.
+/// Compile impact context for local changes.
 pub fn impact(request: AnalysisRequest) -> Result<ImpactReport, CoreError> {
     specialized(request, CommandName::Impact, "impact", |report| report.impact)
 }
@@ -197,9 +198,30 @@ pub fn explain(request: AnalysisRequest) -> Result<ExplainReport, CoreError> {
     specialized(request, CommandName::Explain, "explain", |report| report.explain)
 }
 
-/// Find bounded path, symbol, or concept anchors.
+/// Find path, symbol, or concept anchors.
 pub fn search(request: AnalysisRequest) -> Result<SearchResults, CoreError> {
     specialized(request, CommandName::Search, "search", |report| report.search)
+}
+
+/// Run a typed repository query without requiring an adapter to reconstruct
+/// repository facts from a rendered report.
+pub fn query(request: QueryRequest) -> Result<QueryResults, CoreError> {
+    let revision = request.revision.clone();
+    let settings = MapSettings {
+        profile: request.profile,
+        map_tokens: request.budget.max(1),
+        cache_mode: request.cache_mode,
+        ..MapSettings::default()
+    };
+    let map =
+        crate::map::analyze_with_history(Path::new(&request.repository), &settings, None).map_err(ReportError::Map)?;
+    let changes = if revision.is_requested() {
+        let context: crate::ContextRevisionContext = (&revision).into();
+        crate::map::resolve_changes(Path::new(&request.repository), &context).map_err(ReportError::Map)?
+    } else {
+        crate::ChangeResolution::default()
+    };
+    Ok(crate::report::compile_query(request, &map, changes))
 }
 
 /// Return installed analysis capabilities without opening a repository.
@@ -228,6 +250,21 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+
+    #[test]
+    fn typed_query_runs_at_the_core_boundary() {
+        let mut request = QueryRequest::new(env!("CARGO_MANIFEST_DIR"));
+        request.cache_mode = crate::CacheMode::Disabled;
+        let results = query(request.clone()).expect("typed query succeeds");
+        let repeated = query(request).expect("repeated typed query succeeds");
+        assert_eq!(
+            serde_json::to_value(&results).expect("query serializes"),
+            serde_json::to_value(repeated).expect("repeated query serializes")
+        );
+        assert!(results.bounds.total > 0);
+        assert!(!results.matches.is_empty());
+        assert!(results.provenance.query_packs.contains_key("rust"));
+    }
 
     #[test]
     fn cancelled_request_returns_before_repository_access() {

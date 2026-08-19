@@ -1,6 +1,6 @@
 ---
 title: Git history
-description: Inspect bounded repository history without turning activity into a quality score.
+description: Inspect repository history without turning activity into a quality score.
 section: Reference
 group: Reference
 order: 5

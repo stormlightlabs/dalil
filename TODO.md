@@ -14,7 +14,7 @@
 ### T1.1 — Add a reviewable repository snapshot — complete
 
 - [x] Add `dalil export --review` and non-writing `--check` mode.
-- [x] Keep the snapshot deterministic, bounded, and focused on stable public
+- [x] Keep the snapshot deterministic and focused on stable public
       surface and architecture.
 - [x] Allow repositories to commit `review.md` without committing the complete
       evidence map.
@@ -32,24 +32,24 @@
 **Exit condition:** `dalil-core` exposes bounded repository-wide queries that
 CLI and integrations can use without reconstructing answers from reports.
 
-### T3 — Add a typed repository query model
+### T3 — Add a typed repository query model — complete
 
 **What to build:** One typed query/result layer for repository search and
 lookup operations.
 
 **Acceptance criteria:**
 
-- [ ] Define typed queries for text, path, symbol, project, language, symbol
+- [x] Define typed queries for text, path, symbol, project, language, symbol
       kind, test, changed-path, and revision-aware filters.
-- [ ] Define one bounded result contract with deterministic ordering, result
+- [x] Define one bounded result contract with deterministic ordering, result
       totals, omissions, and continuation where needed.
-- [ ] Keep query semantics in `dalil-core`; CLI, MCP, and renderers only adapt
+- [x] Keep query semantics in `dalil-core`; CLI, MCP, and renderers only adapt
       typed requests and responses.
-- [ ] Reuse existing repository evidence and caches instead of reparsing rendered
+- [x] Reuse existing repository evidence and caches instead of reparsing rendered
       output or rescanning unrelated files.
-- [ ] Preserve provenance, confidence, ambiguity, and partial-analysis state in
+- [x] Preserve provenance, confidence, ambiguity, and partial-analysis state in
       query results where those fields apply.
-- [ ] Add JSON fixtures for query compatibility and deterministic repeated runs.
+- [x] Add JSON fixtures for query compatibility and deterministic repeated runs.
 
 **Verification:** Exercise exact, prefix, substring, filtered, empty, ambiguous,
 and high-cardinality queries on small fixture repositories.

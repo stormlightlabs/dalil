@@ -3,6 +3,7 @@ mod context;
 mod impact;
 mod model;
 mod orientation;
+mod query;
 mod search;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -20,6 +21,8 @@ use crate::utils::token_count;
 use crate::{history, map, security, utils};
 
 pub use model::*;
+
+pub(crate) use query::compile as compile_query;
 
 /// The current compatibility version of the JSON report envelope.
 pub const SCHEMA_VERSION: u16 = 1;

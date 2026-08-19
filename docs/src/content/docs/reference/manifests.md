@@ -8,7 +8,7 @@ order: 5
 
 Dalil treats common package, workspace, and build manifests as repository landmarks.
 
-For `Cargo.toml`, `package.json`, and `pyproject.toml`, it also reads a bounded subset
+For `Cargo.toml`, `package.json`, and `pyproject.toml`, it also reads a subset
 of metadata that can point to runtime code, public library code, and common build, test,
 or run commands.
 

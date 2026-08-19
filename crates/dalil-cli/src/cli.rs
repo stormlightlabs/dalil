@@ -32,13 +32,13 @@ enum SubcommandName {
     Map(MapCommand),
     /// Write a portable repository evidence map to `.dalil/`.
     Export(ExportCommand),
-    /// Compile one bounded, task-oriented context bundle.
+    /// Compile one task-oriented context bundle.
     Context(ContextCommand),
-    /// Inspect bounded evidence surrounding a local revision range or dirty worktree.
+    /// Inspect evidence surrounding a local revision range or dirty worktree.
     Impact(ImpactCommand),
     /// Find a few strong path, symbol, or concept anchors for the next source read.
     Search(SearchCommand),
-    /// Explain the bounded evidence behind a path or symbol recommendation.
+    /// Explain the evidence behind a path or symbol recommendation.
     Explain(ExplainCommand),
     /// Produce Git-history findings, or select one focused history signal.
     History(HistoryCommand),
