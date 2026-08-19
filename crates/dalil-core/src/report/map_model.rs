@@ -2050,6 +2050,14 @@ pub struct ContextTest {
     pub path: String,
     pub reason: String,
     pub confidence: ConfidenceTier,
+    /// Impact reports populate these fields to rank downstream tests. Context
+    /// bundles leave them absent because their test suggestions are structural.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub score: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depth: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reachability: Option<ImpactReachability>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -2089,16 +2097,99 @@ pub struct ContextBudget {
     pub truncated: bool,
 }
 
-/// A bounded, review-oriented view of evidence surrounding resolved local changes.
+/// How an impact conclusion is connected to an explicit seed.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImpactReachability {
+    #[default]
+    Direct,
+    Transitive,
+    Inferred,
+}
+
+impl ImpactReachability {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::Transitive => "transitive",
+            Self::Inferred => "inferred",
+        }
+    }
+}
+
+/// The kind of input that seeded graph impact traversal.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImpactSeedKind {
+    Change,
+    File,
+    Symbol,
+}
+
+impl ImpactSeedKind {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Change => "change",
+            Self::File => "file",
+            Self::Symbol => "symbol",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ImpactSeed {
+    pub kind: ImpactSeedKind,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
+    #[serde(default)]
+    pub node_ids: Vec<String>,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ImpactTraversalBounds {
+    pub max_depth: usize,
+    pub work_limit: usize,
+    pub work_used: usize,
+    pub visited_nodes: usize,
+    pub inspected_edges: usize,
+    pub seed_nodes: usize,
+    pub affected_nodes: usize,
+    pub omitted_nodes: usize,
+    pub truncated: bool,
+    pub work_limited: bool,
+    pub depth_limited: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ImpactProject {
+    pub path: String,
+    pub score: u64,
+    pub confidence: ConfidenceTier,
+    pub reachability: ImpactReachability,
+    #[serde(default)]
+    pub affected_paths: Vec<String>,
+    #[serde(default)]
+    pub affected_symbols: Vec<String>,
+    #[serde(default)]
+    pub affected_tests: Vec<String>,
+}
+
+/// A review-oriented view of evidence surrounding resolved local changes.
 /// It identifies inspection targets without claiming semantic callers, callees, or breakage.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ImpactReport {
     pub request: ContextRequest,
     pub change_resolution: ChangeResolution,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub seeds: Vec<ImpactSeed>,
     #[serde(default)]
     pub targets: Vec<ImpactTarget>,
     #[serde(default)]
     pub relationships: Vec<ImpactRelationship>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub projects: Vec<ImpactProject>,
     #[serde(default)]
     pub likely_tests: Vec<ContextTest>,
     #[serde(default)]
@@ -2107,6 +2198,8 @@ pub struct ImpactReport {
     pub history: Vec<ImpactHistoryEvidence>,
     #[serde(default)]
     pub uncertainty: Vec<ContextUncertainty>,
+    #[serde(default)]
+    pub traversal: ImpactTraversalBounds,
     pub budget: ContextBudget,
 }
 
@@ -2120,6 +2213,14 @@ pub struct ImpactTarget {
     pub confidence: ConfidenceTier,
     pub score: u64,
     pub reason: String,
+    #[serde(default)]
+    pub reachability: ImpactReachability,
+    #[serde(default)]
+    pub depth: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_root: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub relationship_path: Vec<RepositoryRelationship>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub limitations: Vec<String>,
 }
@@ -2155,6 +2256,12 @@ pub struct ImpactRelationship {
     pub symbol: Option<String>,
     #[serde(default)]
     pub ambiguous: bool,
+    #[serde(default)]
+    pub reachability: ImpactReachability,
+    #[serde(default)]
+    pub depth: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relationship_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

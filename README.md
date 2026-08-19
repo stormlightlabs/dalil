@@ -52,7 +52,7 @@ The main workflows are:
 - `dalil map` inventories source, symbols, lexical relationships, project
   roots, entry points, tests, and other landmarks.
 - `dalil context` selects one task-shaped evidence bundle.
-- `dalil impact` prepares a review list for a revision range or dirty worktree.
+- `dalil impact` seeds the shared relationship graph from local changes, files, or symbols and ranks direct and downstream inspection targets, projects, and tests.
 - `dalil search` finds source content, paths, and symbols. Use `--language`,
   `--project`, `--symbol-kind`, `--test`, or `--changed-path` to narrow it;
   `--json` includes typed matches, totals, omissions, and continuation state.

@@ -45,6 +45,10 @@ dalil context --task 'review cache changes' --json
 With task context, JSON records normalized inputs in `map.task_seeds`. Each
 `map.ranking` entry includes `matched_seeds` and score contributions for
 centrality, seed proximity, lexical relevance, history evidence, and focus.
+Impact JSON adds `impact.seeds`, ranked `targets`, `projects`, and
+`likely_tests`. Graph-reached targets include `reachability`, `depth`, and a
+`relationship_path`; `impact.traversal` and `impact.uncertainty` report depth
+and work limits.
 Their sum is the entry's `score`. Supply `--task`, `--symbol`, `--task-path`,
 `--language`, `--project`, `--changed-path`, `--changed-symbol`, or `--search`
 to provide task context. `map.selection` records likely primary languages,

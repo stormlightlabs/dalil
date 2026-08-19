@@ -568,6 +568,79 @@ fn impact_returns_budgeted_change_evidence_without_breakage_claims() {
 }
 
 #[test]
+fn impact_traverses_direct_and_transitive_downstream_graph_paths() {
+    let fixture = MapFixtureRepository::new();
+    write_file(
+        fixture.root.join("Cargo.toml"),
+        b"[package]\nname = \"impact-graph-fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    );
+    write_file(fixture.root.join("src/one.rs"), b"pub fn changed() {}\n");
+    write_file(
+        fixture.root.join("src/middle.rs"),
+        b"use crate::one::changed;\npub fn middle() { changed(); }\n",
+    );
+    write_file(
+        fixture.root.join("src/top.rs"),
+        b"use crate::middle::middle;\npub fn top() { middle(); }\n",
+    );
+
+    let output = fixture.run(&[
+        "impact",
+        "--task-path",
+        "src/one.rs",
+        "--budget",
+        "12000",
+        "--no-cache",
+        "--json",
+    ]);
+    assert!(
+        output.status.success(),
+        "graph impact failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: Value = serde_json::from_str(&stdout(&output)).expect("valid graph impact JSON");
+    let targets = json["impact"]["targets"].as_array().expect("impact targets");
+    let middle = targets
+        .iter()
+        .find(|target| target["path"] == "src/middle.rs")
+        .expect("direct downstream target");
+    assert_eq!(middle["reachability"], "direct");
+    assert_eq!(middle["depth"], 1);
+    assert!(
+        middle["relationship_path"]
+            .as_array()
+            .is_some_and(|path| !path.is_empty())
+    );
+    let top = targets
+        .iter()
+        .find(|target| target["path"] == "src/top.rs")
+        .expect("transitive downstream target");
+    assert_eq!(top["reachability"], "transitive");
+    assert_eq!(top["depth"], 2);
+    assert!(top["relationship_path"].as_array().is_some_and(|path| path.len() >= 2));
+    assert_eq!(json["impact"]["traversal"]["work_limited"], false);
+    assert!(
+        json["impact"]["projects"]
+            .as_array()
+            .is_some_and(|projects| !projects.is_empty())
+    );
+    assert!(json["impact"]["seeds"].as_array().is_some_and(|seeds| {
+        seeds
+            .iter()
+            .any(|seed| seed["path"] == "src/one.rs" && seed["kind"] == "file")
+    }));
+
+    let symbol_output = fixture.run(&["impact", "--symbol", "changed", "--no-cache", "--json"]);
+    assert!(symbol_output.status.success());
+    let symbol_json: Value = serde_json::from_str(&stdout(&symbol_output)).expect("valid symbol impact JSON");
+    assert!(symbol_json["impact"]["seeds"].as_array().is_some_and(|seeds| {
+        seeds
+            .iter()
+            .any(|seed| seed["kind"] == "symbol" && seed["symbol"] == "changed")
+    }));
+}
+
+#[test]
 fn impact_identifies_a_test_only_dirty_worktree_change() {
     let fixture = MapFixtureRepository::new();
     write_file(fixture.root.join("src/lib.rs"), b"pub fn parse() {}\n");

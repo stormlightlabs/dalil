@@ -11,6 +11,17 @@ impl Render {
         }
         writeln!(output, "Change resolution: {}", impact.change_resolution.status.label())
             .expect("writing to a string cannot fail");
+        writeln!(
+            output,
+            "Impact traversal: {} node(s) from {} seed node(s); {} edge inspections of {} allowed (depth {}).{}",
+            impact.traversal.affected_nodes,
+            impact.traversal.seed_nodes,
+            impact.traversal.inspected_edges,
+            impact.traversal.work_limit,
+            impact.traversal.max_depth,
+            if impact.traversal.truncated { " Incomplete evidence was omitted." } else { "" },
+        )
+        .expect("writing to a string cannot fail");
         if impact.change_resolution.changes.is_empty() {
             writeln!(
                 output,
@@ -51,13 +62,29 @@ impl Render {
                     .join(", ");
                 writeln!(
                     output,
-                    "- `{}` ({} confidence; {}) — {}",
+                    "- `{}` ({} {}, depth {}; {} confidence; {}) — {}",
                     utils::escape_inline_code(&target.path),
+                    target.reachability.label(),
+                    if target.depth == 0 { "seed" } else { "downstream" },
+                    target.depth,
                     target.confidence.label(),
                     evidence,
                     utils::sanitize_text(&target.reason),
                 )
                 .expect("writing to a string cannot fail");
+                if !target.relationship_path.is_empty() {
+                    let path =
+                        target
+                            .relationship_path
+                            .iter()
+                            .map(|relationship| format!("`{}`", utils::escape_inline_code(&relationship.source_path)))
+                            .chain(target.relationship_path.last().map(|relationship| {
+                                format!("`{}`", utils::escape_inline_code(&relationship.target_path))
+                            }))
+                            .collect::<Vec<_>>()
+                            .join(" → ");
+                    writeln!(output, "  Path: {path}").expect("writing to a string cannot fail");
+                }
                 for symbol in &target.symbols {
                     writeln!(
                         output,
@@ -81,11 +108,14 @@ impl Render {
                     .unwrap_or_default();
                 writeln!(
                     output,
-                    "- {} `{}` to `{}`{} ({} confidence) — {}{}",
+                    "- {} `{}` to `{}`{} ({} {}, depth {}; {} confidence) — {}{}",
                     relationship.evidence.label(),
                     utils::escape_inline_code(&relationship.source),
                     utils::escape_inline_code(&relationship.target),
                     symbol,
+                    relationship.reachability.label(),
+                    if relationship.depth == 0 { "seed" } else { "downstream" },
+                    relationship.depth,
                     relationship.confidence.label(),
                     utils::sanitize_text(&relationship.reason),
                     if relationship.ambiguous { "; ambiguous candidate" } else { "" },
@@ -93,14 +123,32 @@ impl Render {
                 .expect("writing to a string cannot fail");
             }
         }
+        if !impact.projects.is_empty() {
+            Render::section_heading(output, "Affected projects");
+            for project in &impact.projects {
+                writeln!(
+                    output,
+                    "- `{}` ({}; {} confidence) — {} path(s), {} symbol(s), {} test(s)",
+                    utils::escape_inline_code(&project.path),
+                    project.reachability.label(),
+                    project.confidence.label(),
+                    project.affected_paths.len(),
+                    project.affected_symbols.len(),
+                    project.affected_tests.len(),
+                )
+                .expect("writing to a string cannot fail");
+            }
+        }
         if !impact.likely_tests.is_empty() {
             Render::section_heading(output, "Likely tests");
             for test in &impact.likely_tests {
+                let ranking = test.score.map(|score| format!(", score {score}")).unwrap_or_default();
                 writeln!(
                     output,
-                    "- `{}` ({} confidence) — {}",
+                    "- `{}` ({} confidence{}) — {}",
                     utils::escape_inline_code(&test.path),
                     test.confidence.label(),
+                    ranking,
                     utils::sanitize_text(&test.reason),
                 )
                 .expect("writing to a string cannot fail");

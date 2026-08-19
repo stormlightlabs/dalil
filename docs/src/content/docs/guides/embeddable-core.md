@@ -27,9 +27,10 @@ let request = AnalysisRequest::new(CommandDescriptor::map(root));
 let repository_map = map(request)?;
 ```
 
-The available operations are `orient`, `map`, `context`, `impact`, `explain`,
-`search`, `capabilities`, and `cache`. Use `analyze` when an adapter needs the
-full `Report` envelope.
+The available report operations are `orient`, `map`, `context`, `impact`,
+`explain`, and `search`. The typed graph operations are `relationships` and
+`traverse`; `capabilities` and `cache` expose installation and cache controls.
+Use `analyze` when an adapter needs the full `Report` envelope.
 
 `AnalysisRequest` contains the task seeds, profile, budget, cache policy, and
 history settings used by the CLI. Results carry recommendations, evidence,
@@ -50,6 +51,11 @@ mismatch, and the underlying analysis error.
 
 The core is read-only with respect to the analyzed repository. Cache commands
 write only to Dalil's user cache.
+
+`impact` returns graph seeds, ranked targets and projects, likely tests, and
+relationship paths. `traverse` is the lower-level operation for one
+neighborhood, path, or reverse-dependency walk; both operations use the same
+retained relationship graph and preserve confidence and ambiguity.
 
 ## Host lifecycle calls
 

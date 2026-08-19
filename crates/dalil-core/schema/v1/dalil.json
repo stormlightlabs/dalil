@@ -181,12 +181,32 @@
       "properties": {
         "request": { "type": "object" },
         "change_resolution": { "$ref": "#/$defs/change_resolution" },
+        "seeds": { "type": "array", "items": { "type": "object" } },
         "targets": { "type": "array", "items": { "type": "object" } },
         "relationships": { "type": "array", "items": { "type": "object" } },
+        "projects": { "type": "array", "items": { "type": "object" } },
         "likely_tests": { "type": "array", "items": { "type": "object" } },
         "ownership": { "type": "array", "items": { "type": "object" } },
         "history": { "type": "array", "items": { "type": "object" } },
         "uncertainty": { "type": "array", "items": { "type": "object" } },
+        "traversal": {
+          "type": "object",
+          "required": ["max_depth", "work_limit", "work_used", "visited_nodes", "inspected_edges", "seed_nodes", "affected_nodes", "omitted_nodes", "truncated", "work_limited", "depth_limited"],
+          "properties": {
+            "max_depth": { "type": "integer", "minimum": 0 },
+            "work_limit": { "type": "integer", "minimum": 1 },
+            "work_used": { "type": "integer", "minimum": 0 },
+            "visited_nodes": { "type": "integer", "minimum": 0 },
+            "inspected_edges": { "type": "integer", "minimum": 0 },
+            "seed_nodes": { "type": "integer", "minimum": 0 },
+            "affected_nodes": { "type": "integer", "minimum": 0 },
+            "omitted_nodes": { "type": "integer", "minimum": 0 },
+            "truncated": { "type": "boolean" },
+            "work_limited": { "type": "boolean" },
+            "depth_limited": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
         "budget": {
           "type": "object",
           "required": ["token_budget", "estimated_tokens", "truncated"],

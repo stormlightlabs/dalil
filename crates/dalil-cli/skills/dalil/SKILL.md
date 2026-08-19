@@ -67,8 +67,11 @@ For a committed change, use a local revision range:
 dalil impact --revision-range 'HEAD~1..HEAD' --json
 ```
 
-Treat relationships as lexical, structural, manifest, or history evidence to
-inspect. They do not prove runtime behavior or predict breakage.
+Treat impact relationships as lexical, structural, manifest, history, or
+shared-graph evidence to inspect. Impact JSON separates direct, transitive, and
+inferred targets, includes relationship paths for graph-reached targets, and
+reports traversal limits in `impact.traversal` and `impact.uncertainty`. These
+results do not prove runtime behavior or predict breakage.
 
 ## Export persistent evidence
 

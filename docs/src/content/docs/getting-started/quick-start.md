@@ -15,6 +15,8 @@ dalil map
 dalil export
 dalil context --task 'fix parser cache invalidation' --changed-path src/map/cache.rs
 dalil impact --revision-range 'HEAD~1..HEAD'
+dalil impact --task-path src/parser.rs --symbol parse --json
+dalil traverse reverse-dependencies src/parser.rs --depth 3
 dalil search parser
 dalil explain src/map.rs
 ```
@@ -40,7 +42,9 @@ dalil context --task 'fix parser cache invalidation' --changed-path src/map/cach
 
 `--task` derives local search terms and ranks matching files with related code.
 Add a symbol, path, language, project root, changed path or symbol, or
-`--search` term when you know a precise target.
+`--search` term when you know a precise target. `impact` accepts the same file
+and symbol seeds and follows incoming graph relationships to find downstream
+review targets.
 
 Use `--focus` and `--focus-path` to raise a file or term's priority:
 

@@ -147,6 +147,9 @@ pub fn compile(
             path: recommendation.path.clone(),
             reason: recommendation.reason.clone(),
             confidence: recommendation.confidence,
+            score: None,
+            depth: None,
+            reachability: None,
         };
         add_if_fits(&mut bundle, budget, |bundle| bundle.relevant_tests.push(test));
     }
@@ -588,6 +591,9 @@ mod tests {
                 path: "tests/service.rs".to_owned(),
                 reason: "the path is inside the recognized test root tests".to_owned(),
                 confidence: ConfidenceTier::High,
+                score: None,
+                depth: None,
+                reachability: None,
             }],
             next_reads: vec![recommendation("src/config.rs", ReadingPurpose::SupportingContext)],
             ..ContextBundle::default()

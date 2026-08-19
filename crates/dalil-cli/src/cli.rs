@@ -1200,7 +1200,7 @@ struct ContextCommand {
     dalil impact --revision-range 'HEAD~1..HEAD'
     dalil impact --dirty-worktree --task 'review parser changes' --json
 
-Impact reports changed symbols, related inspection targets, likely tests, ownership configuration, and history evidence. It labels lexical, structural, manifest, and history relationships without claiming that a change will break code.
+Impact seeds the shared relationship graph from resolved changes and explicit file or symbol inputs. It ranks direct, transitive, and inferred file, symbol, project, and test evidence, includes graph paths behind downstream targets, and reports traversal limits. It labels lexical, structural, manifest, and history relationships without claiming that a change will break code.
 
 Support: https://github.com/stormlightlabs/dalil/issues
 ")]

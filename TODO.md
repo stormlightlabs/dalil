@@ -128,16 +128,17 @@ a separate ad hoc ranking path.
 
 **Acceptance criteria:**
 
-- [ ] Seed impact from dirty paths, revision ranges, files, and symbols.
-- [ ] Separate direct evidence from transitive or inferred downstream impact.
-- [ ] Rank affected symbols, files, projects, and tests under a fixed output
+- [x] Seed impact from dirty paths, revision ranges, files, and symbols.
+- [x] Separate direct evidence from transitive or inferred downstream impact.
+- [x] Rank affected symbols, files, projects, and tests under a fixed output
       budget.
-- [ ] Report the relationship path behind high-priority impact conclusions.
-- [ ] Cap traversal work and state when the cap makes the result incomplete.
-- [ ] Keep existing human and JSON impact semantics compatible where practical.
+- [x] Report the relationship path behind high-priority impact conclusions.
+- [x] Cap traversal work and state when the cap makes the result incomplete.
+- [x] Keep existing human and JSON impact semantics compatible where practical.
 
 **Verification:** Exercise isolated changes, shared utilities, cross-project
 changes, cycles, test-only changes, ambiguous references, and large fan-out.
+
 
 ## Milestone: Structural repository analysis
 

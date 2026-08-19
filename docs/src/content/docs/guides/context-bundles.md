@@ -104,8 +104,15 @@ dalil impact --revision-range 'HEAD~1..HEAD'
 dalil impact --dirty-worktree --task 'review parser changes' --json
 ```
 
-The report includes changed symbols, inspection targets, likely tests,
-ownership configuration, and relevant path history under one budget. It labels
-each relationship as lexical, structural, manifest, or history evidence with a
-confidence tier. These relationships identify code to inspect; they do not
-prove that one path calls another or that a change will cause a failure.
+The report seeds the shared relationship graph from resolved changes and any
+explicit file or symbol inputs. It ranks direct and downstream file targets,
+affected projects, symbols, and likely tests under the report budget. Each
+high-priority graph target includes the retained relationship path that led to
+it. `direct`, `transitive`, and `inferred` labels separate changed or one-edge
+evidence, multi-edge downstream evidence, and ambiguous or structural evidence.
+
+`impact.traversal` reports the depth and edge-inspection limits. If the walk
+reaches a limit, `impact.uncertainty` says which downstream evidence may be
+missing. The report still includes the earlier results. Relationships identify
+code to inspect; they do not prove compiler-resolved callers, runtime control
+flow, or breakage.

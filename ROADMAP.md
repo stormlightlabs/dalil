@@ -216,11 +216,14 @@ The milestone is complete when CLI and JSON callers can perform the common
 repository-wide queries with bounded, deterministic results and equivalent cold
 and warm semantics.
 
-### 3. Relationship graph and traversal
+### 3. Relationship graph and traversal — complete
 
-Make repository relationships directly traversable.
+Make repository relationships directly traversable. `dalil impact` now seeds
+this graph from resolved changes and explicit file or symbol inputs, walks
+incoming relationships, and reports ranked direct, transitive, and
+inferred downstream evidence with the paths and limits behind each conclusion.
 
-Add efficient adjacency access over typed relationships, bounded neighborhoods,
+Add efficient adjacency access over typed relationships, neighborhoods,
 paths, reverse dependencies, callers/callees where evidence supports them, and
 change propagation. Preserve provenance and uncertainty through traversal.
 

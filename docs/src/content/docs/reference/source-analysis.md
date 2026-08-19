@@ -84,6 +84,36 @@ cycles and repeated nodes from expanding indefinitely. Paths and neighborhoods
 retain confidence, ambiguity, provenance, and partial-source limitations from
 the relationships they use.
 
+## Change impact
+
+Use `dalil impact` when a change needs downstream review rather than one direct
+relationship query:
+
+```sh
+dalil impact --dirty-worktree --json
+dalil impact --revision-range 'HEAD~1..HEAD' --json
+dalil impact --task-path src/parser.rs --json
+dalil impact --symbol parse --json
+```
+
+Impact seeds come from resolved dirty-worktree or revision-range paths and
+symbols, plus explicit `--task-path`, `--changed-path`, `--symbol`, and
+`--changed-symbol` inputs. The report includes `seeds`, ranked file targets and
+symbols, affected projects, ranked likely tests, and `relationship_path` data
+for graph-reached targets.
+
+A target marked `direct` is a changed or explicitly seeded path or symbol, or a
+one-edge downstream result. `transitive` requires more than one retained graph
+edge. `inferred` covers ambiguous or structural evidence that does not establish
+a direct graph relationship. The traversal is capped at 16 edges of depth and
+20,000 inspected edges. JSON reports `impact.traversal`; when a cap stops the
+walk, `impact.uncertainty` says that the result is incomplete.
+
+Impact walks incoming dependency, import, reference, type-reference, and call
+edges because a file or symbol used by another node is the downstream review
+seed. The relationship graph remains lexical evidence. It does not prove
+compiler-resolved callers, runtime control flow, or breakage.
+
 ## Evidence boundaries
 
 Relationships are lexical and structural evidence. They do not prove runtime
