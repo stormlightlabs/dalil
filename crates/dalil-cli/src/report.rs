@@ -141,6 +141,115 @@ pub fn render_relationships(report: &RelationshipResults, format: OutputFormat) 
     }
 }
 
+pub fn render_traversal(report: &TraversalResults, format: OutputFormat) -> anyhow::Result<String> {
+    match format {
+        OutputFormat::Json => Ok(format!("{}\n", serde_json::to_string_pretty(report)?)),
+        OutputFormat::Html => anyhow::bail!("graph traversal supports Markdown or JSON output, not HTML"),
+        OutputFormat::Markdown => {
+            let mut output = format!(
+                "# Dalil {}\n\nStart: `{}`\nRepository: `{}`\n\n",
+                report.request.operation.label(),
+                utils::escape_inline_code(&report.request.start),
+                utils::escape_inline_code(&report.request.repository),
+            );
+            if let Some(target) = &report.request.target {
+                writeln!(output, "Target: `{}`", utils::escape_inline_code(target))?;
+            }
+            writeln!(
+                output,
+                "Results: {} returned of {} ({} omitted); depth {}, {} edge inspections used of {}.",
+                report.bounds.returned,
+                report.bounds.total,
+                report.bounds.omitted,
+                report.bounds.max_depth,
+                report.bounds.inspected_edges,
+                report.bounds.work_limit,
+            )?;
+            if !report.nodes.is_empty() {
+                writeln!(output, "\n## Nodes\n")?;
+                for item in &report.nodes {
+                    let label = item
+                        .node
+                        .symbol
+                        .as_ref()
+                        .map(|symbol| symbol.name.as_str())
+                        .unwrap_or(item.node.path.as_str());
+                    writeln!(
+                        output,
+                        "- depth {}: `{}` — `{}` (confidence: {}, {})",
+                        item.depth,
+                        utils::escape_inline_code(&item.node.path),
+                        utils::escape_inline_code(label),
+                        item.via
+                            .as_ref()
+                            .map_or(ConfidenceTier::High, |relationship| relationship.confidence)
+                            .label(),
+                        item.via
+                            .as_ref()
+                            .map_or("start", |relationship| relationship.kind.label()),
+                    )?;
+                }
+            }
+            if !report.paths.is_empty() {
+                writeln!(output, "\n## Paths\n")?;
+                for path in &report.paths {
+                    let nodes = path
+                        .nodes
+                        .iter()
+                        .map(|node| utils::escape_inline_code(&node.path))
+                        .collect::<Vec<_>>()
+                        .join(" → ");
+                    writeln!(
+                        output,
+                        "- {} (depth {}, confidence: {}, {})",
+                        nodes,
+                        path.depth,
+                        path.confidence.label(),
+                        if path.ambiguous { "ambiguous" } else { "directly supported" },
+                    )?;
+                }
+            }
+            if !report.relationships.is_empty() {
+                writeln!(output, "\n## Relationships\n")?;
+                for relationship in &report.relationships {
+                    writeln!(
+                        output,
+                        "- {} `{}` → `{}` (confidence: {}, {})",
+                        relationship.kind.label(),
+                        utils::escape_inline_code(&relationship.source_path),
+                        utils::escape_inline_code(&relationship.target_path),
+                        relationship.confidence.label(),
+                        if relationship.ambiguous { "ambiguous" } else { "resolved lexically" },
+                    )?;
+                    writeln!(
+                        output,
+                        "  - relationship: `{}`",
+                        utils::escape_inline_code(&relationship.id)
+                    )?;
+                }
+            }
+            if !report.omissions.is_empty() {
+                writeln!(output, "\n## Omissions\n")?;
+                for omission in &report.omissions {
+                    writeln!(
+                        output,
+                        "- {}: {}",
+                        omission.reason.label(),
+                        utils::sanitize_text(&omission.detail)
+                    )?;
+                }
+            }
+            if !report.limitations.is_empty() {
+                writeln!(output, "\n## Limitations\n")?;
+                for limitation in &report.limitations {
+                    writeln!(output, "- {}", utils::sanitize_text(limitation))?;
+                }
+            }
+            Ok(output)
+        }
+    }
+}
+
 fn format_location(location: &SourceLocation) -> String {
     format!(
         "{}:{}-{}:{}",

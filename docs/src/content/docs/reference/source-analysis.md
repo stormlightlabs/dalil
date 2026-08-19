@@ -60,6 +60,30 @@ source evidence, confidence, and limitations.
 lexical candidates stay marked as ambiguous and are not presented as resolved
 semantic calls.
 
+## Graph traversal
+
+Use `dalil traverse` when a direct relationship query is not enough:
+
+```sh
+dalil traverse neighbors src/map.rs --depth 2 --limit 20
+dalil traverse path src/cli.rs src/report.rs --direction outgoing
+dalil traverse reverse-dependencies src/map.rs --depth 3
+```
+
+`neighbors` walks incoming, outgoing, or both directions. `path` returns one
+shortest path and uses relationship confidence and stable edge IDs to break
+ties. `reverse-dependencies` follows incoming file-level dependency and import
+edges, so it can walk transitive dependents for change review. Use `--kind` to
+select dependency, import, reference, type-reference, or call edges, and
+`--project` to stop at a detected project root.
+
+Every traversal has a maximum depth, edge-inspection work limit, result limit,
+and token budget. JSON output reports visited nodes, inspected edges, limits,
+omissions, and the edge evidence for each returned step. Visited node IDs stop
+cycles and repeated nodes from expanding indefinitely. Paths and neighborhoods
+retain confidence, ambiguity, provenance, and partial-source limitations from
+the relationships they use.
+
 ## Evidence boundaries
 
 Relationships are lexical and structural evidence. They do not prove runtime

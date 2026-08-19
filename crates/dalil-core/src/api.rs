@@ -10,6 +10,7 @@ use crate::{
     AnalysisProfile, CacheCommand, CacheControlReport, CommandDescriptor, CommandName, ContextBundle, ContextRequest,
     ExplainReport, HistorySettings, ImpactReport, MapReport, MapSettings, OrientationReport, QueryRequest,
     QueryResults, RelationshipRequest, RelationshipResults, Report, ReportError, SearchRequest, SearchResults,
+    TraversalRequest, TraversalResults,
 };
 
 /// The report serialization selected by an adapter. Rendering is implemented outside the core.
@@ -235,6 +236,19 @@ pub fn relationships(request: RelationshipRequest) -> Result<RelationshipResults
     let map =
         crate::map::analyze_with_history(Path::new(&request.repository), &settings, None).map_err(ReportError::Map)?;
     Ok(crate::report::compile_relationships(request, &map))
+}
+
+/// Traverse the typed repository relationship graph with explicit depth and work limits.
+pub fn traverse(request: TraversalRequest) -> Result<TraversalResults, CoreError> {
+    let settings = MapSettings {
+        profile: request.profile,
+        map_tokens: request.budget.max(1),
+        cache_mode: request.cache_mode,
+        ..MapSettings::default()
+    };
+    let map =
+        crate::map::analyze_with_history(Path::new(&request.repository), &settings, None).map_err(ReportError::Map)?;
+    Ok(crate::report::compile_traversal(request, &map))
 }
 
 /// Return installed analysis capabilities without opening a repository.

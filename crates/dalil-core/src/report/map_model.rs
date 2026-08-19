@@ -1435,6 +1435,252 @@ impl RelationshipResults {
     }
 }
 
+/// An operation over the in-memory repository relationship graph.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TraversalOperation {
+    #[default]
+    Neighbors,
+    Path,
+    ReverseDependencies,
+}
+
+impl TraversalOperation {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Neighbors => "neighbors",
+            Self::Path => "path",
+            Self::ReverseDependencies => "reverse_dependencies",
+        }
+    }
+}
+
+/// The direction used when walking relationship edges.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TraversalDirection {
+    Incoming,
+    Outgoing,
+    #[default]
+    Both,
+}
+
+impl TraversalDirection {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Incoming => "incoming",
+            Self::Outgoing => "outgoing",
+            Self::Both => "both",
+        }
+    }
+}
+
+/// A typed request for bounded graph traversal.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TraversalRequest {
+    pub repository: String,
+    pub operation: TraversalOperation,
+    pub start: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    /// An empty list means all relationship kinds for neighbors and paths. The
+    /// reverse-dependency operation supplies dependency and import kinds when
+    /// the caller leaves this list empty.
+    #[serde(default)]
+    pub relationship_kinds: Vec<RepositoryRelationshipKind>,
+    #[serde(default)]
+    pub direction: TraversalDirection,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    #[serde(default = "default_traversal_depth")]
+    pub max_depth: usize,
+    #[serde(default = "default_traversal_work_limit")]
+    pub work_limit: usize,
+    #[serde(default = "default_traversal_result_limit")]
+    pub result_limit: usize,
+    #[serde(default = "default_traversal_budget")]
+    pub budget: usize,
+    #[serde(default)]
+    pub profile: AnalysisProfile,
+    #[serde(default = "default_traversal_cache_mode")]
+    pub cache_mode: CacheMode,
+}
+
+impl TraversalRequest {
+    pub fn neighbors(repository: impl Into<String>, start: impl Into<String>) -> Self {
+        Self {
+            repository: repository.into(),
+            operation: TraversalOperation::Neighbors,
+            start: start.into(),
+            ..Self::default()
+        }
+    }
+
+    pub fn path(repository: impl Into<String>, start: impl Into<String>, target: impl Into<String>) -> Self {
+        Self {
+            repository: repository.into(),
+            operation: TraversalOperation::Path,
+            start: start.into(),
+            target: Some(target.into()),
+            direction: TraversalDirection::Outgoing,
+            ..Self::default()
+        }
+    }
+
+    pub fn reverse_dependencies(repository: impl Into<String>, start: impl Into<String>) -> Self {
+        Self {
+            repository: repository.into(),
+            operation: TraversalOperation::ReverseDependencies,
+            start: start.into(),
+            direction: TraversalDirection::Incoming,
+            ..Self::default()
+        }
+    }
+}
+
+impl Default for TraversalRequest {
+    fn default() -> Self {
+        Self {
+            repository: ".".to_owned(),
+            operation: TraversalOperation::Neighbors,
+            start: String::new(),
+            target: None,
+            relationship_kinds: Vec::new(),
+            direction: TraversalDirection::Both,
+            project: None,
+            max_depth: default_traversal_depth(),
+            work_limit: default_traversal_work_limit(),
+            result_limit: default_traversal_result_limit(),
+            budget: default_traversal_budget(),
+            profile: AnalysisProfile::Compact,
+            cache_mode: default_traversal_cache_mode(),
+        }
+    }
+}
+
+const fn default_traversal_depth() -> usize {
+    1
+}
+
+const fn default_traversal_work_limit() -> usize {
+    10_000
+}
+
+const fn default_traversal_result_limit() -> usize {
+    20
+}
+
+const fn default_traversal_budget() -> usize {
+    1_000
+}
+
+const fn default_traversal_cache_mode() -> CacheMode {
+    CacheMode::Auto
+}
+
+/// One node reached by a neighborhood or reverse-dependency traversal.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TraversalNode {
+    pub node: RelationshipNode,
+    pub depth: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via: Option<RepositoryRelationship>,
+}
+
+/// One shortest, deterministically tie-broken path between the requested
+/// anchors.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TraversalPath {
+    pub nodes: Vec<RelationshipNode>,
+    pub relationships: Vec<RepositoryRelationship>,
+    pub depth: usize,
+    pub confidence: ConfidenceTier,
+    pub ambiguous: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub limitations: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TraversalBounds {
+    pub token_budget: usize,
+    pub result_limit: usize,
+    pub max_depth: usize,
+    pub work_limit: usize,
+    pub work_used: usize,
+    pub visited_nodes: usize,
+    pub inspected_edges: usize,
+    pub total: usize,
+    pub returned: usize,
+    pub omitted: usize,
+    pub returned_relationships: usize,
+    pub truncated: bool,
+    pub work_limited: bool,
+    pub depth_limited: bool,
+    pub found_path: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TraversalOmission {
+    pub reason: TraversalOmissionReason,
+    pub count: usize,
+    pub detail: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TraversalOmissionReason {
+    ResultLimit,
+    TokenBudget,
+    WorkLimit,
+    DepthLimit,
+    ProjectBoundary,
+    SourceEvidence,
+    NoPath,
+}
+
+impl TraversalOmissionReason {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::ResultLimit => "result_limit",
+            Self::TokenBudget => "token_budget",
+            Self::WorkLimit => "work_limit",
+            Self::DepthLimit => "depth_limit",
+            Self::ProjectBoundary => "project_boundary",
+            Self::SourceEvidence => "source_evidence",
+            Self::NoPath => "no_path",
+        }
+    }
+}
+
+/// A graph traversal result. The graph is built from retained map
+/// evidence, and the response carries the edge evidence used for each step.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TraversalResults {
+    pub request: TraversalRequest,
+    #[serde(default)]
+    pub nodes: Vec<TraversalNode>,
+    #[serde(default)]
+    pub relationships: Vec<RepositoryRelationship>,
+    #[serde(default)]
+    pub paths: Vec<TraversalPath>,
+    pub bounds: TraversalBounds,
+    #[serde(default)]
+    pub omissions: Vec<TraversalOmission>,
+    pub provenance: RelationshipProvenance,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub limitations: Vec<String>,
+}
+
+impl TraversalResults {
+    pub fn is_complete(&self) -> bool {
+        !self.bounds.truncated
+            && self
+                .omissions
+                .iter()
+                .all(|omission| omission.reason == TraversalOmissionReason::NoPath)
+    }
+}
+
 /// The typed input for one path, symbol, or concept lookup.
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

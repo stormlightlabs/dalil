@@ -36,6 +36,9 @@ dalil search parser
 dalil search invalidation --language rust --test exclude --json
 dalil relationships definitions MapReport --json
 dalil relationships callers parse
+dalil traverse neighbors src/map.rs --depth 2
+dalil traverse path src/cli.rs src/report.rs --direction outgoing
+dalil traverse reverse-dependencies src/map.rs --depth 3
 dalil explain src/map.rs
 ```
 
@@ -57,6 +60,9 @@ The main workflows are:
 - `dalil relationships` queries definitions, references, imports, dependencies,
   reverse dependencies, related tests, callers, and callees. Results include
   stable node and relationship IDs plus lexical confidence and limitations.
+- `dalil traverse` walks bounded neighbors, shortest paths, and incoming file
+  dependencies. Use `--depth`, `--work-limit`, `--limit`, and `--budget` to
+  control traversal and output size; JSON reports the work and omissions.
 - `dalil history` reports churn, contributor, bug-cluster, activity,
   and firefighting signals.
 

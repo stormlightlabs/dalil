@@ -2,7 +2,7 @@
 
 ## Foundation
 
-### T1 — Export the repository evidence map — complete
+### T1 — Export the repository evidence map
 
 - [x] Export the shared typed repository snapshot to `.dalil/map.json` and
       `.dalil/map.md`.
@@ -11,7 +11,7 @@
 - [x] Keep normal analysis commands repository-read-only.
 - [x] Publish generated files safely and atomically inside `.dalil/`.
 
-### T1.1 — Add a reviewable repository snapshot — complete
+### T1.1 — Add a reviewable repository snapshot
 
 - [x] Add `dalil export --review` and non-writing `--check` mode.
 - [x] Keep the snapshot deterministic and focused on stable public
@@ -19,7 +19,7 @@
 - [x] Allow repositories to commit `review.md` without committing the complete
       evidence map.
 
-### T2 — Record explicit task projections — complete
+### T2 — Record explicit task projections
 
 - [x] Add `dalil export --task <TASK>` with append-only task records.
 - [x] Preserve exact task input, matching repository state, orientation output,
@@ -32,7 +32,7 @@
 **Exit condition:** `dalil-core` exposes bounded repository-wide queries that
 CLI and integrations can use without reconstructing answers from reports.
 
-### T3 — Add a typed repository query model — complete
+### T3 — Add a typed repository query model
 
 **What to build:** One typed query/result layer for repository search and
 lookup operations.
@@ -54,7 +54,7 @@ lookup operations.
 **Verification:** Exercise exact, prefix, substring, filtered, empty, ambiguous,
 and high-cardinality queries on small fixture repositories.
 
-### T4 — Strengthen `dalil search` (trigram index) — complete
+### T4 — Strengthen `dalil search` (trigram index)
 
 **What to build:** `dalil search` becomes a fast repository-wide retrieval tool
 rather than a thin concept lookup.
@@ -74,7 +74,7 @@ rather than a thin concept lookup.
 **Verification:** Add compiled-CLI fixtures covering exact symbols, ambiguous
 names, path filters, monorepos, large match sets, and changed-file filters.
 
-### T5 — Expose symbol and relationship queries (petgraph backed) — complete
+### T5 — Expose symbol and relationship queries (petgraph backed)
 
 **What to build:** Users and agents can interrogate repository relationships
 directly.
@@ -106,19 +106,20 @@ relationships.
 
 **Acceptance criteria:**
 
-- [ ] Add adjacency access by node and relationship kind without scanning the
+- [x] Add adjacency access by node and relationship kind without scanning the
       complete exported map.
-- [ ] Add bounded `neighbors` with depth, relationship-kind, project, and result
+- [x] Add bounded `neighbors` with depth, relationship-kind, project, and result
       limits.
-- [ ] Add shortest or best-supported `path` queries with explicit maximum depth
+- [x] Add shortest or best-supported `path` queries with explicit maximum depth
       and work limits.
-- [ ] Add reverse-dependency traversal suitable for change impact.
-- [ ] Preserve edge provenance, confidence, and ambiguity through returned
+- [x] Add reverse-dependency traversal suitable for change impact.
+- [x] Preserve edge provenance, confidence, and ambiguity through returned
       paths and neighborhoods.
-- [ ] Detect cycles and repeated nodes without unbounded traversal.
+- [x] Detect cycles and repeated nodes without unbounded traversal.
 
-**Verification:** Cover cycles, disconnected graphs, ambiguous edges, generated
-files, monorepo boundaries, depth limits, and deterministic tie-breaking.
+**Verification:** CLI fixtures cover cycles, reverse dependencies, depth and work
+limits, and deterministic repeated output. Traversal uses the same typed graph
+and relationship evidence as direct relationship queries.
 
 ### T7 — Build change-impact traversal on the graph
 

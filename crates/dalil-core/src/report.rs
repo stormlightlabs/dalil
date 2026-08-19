@@ -6,6 +6,7 @@ mod orientation;
 mod query;
 mod relationships;
 mod search;
+mod traversal;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
@@ -25,6 +26,7 @@ pub use model::*;
 
 pub(crate) use query::compile as compile_query;
 pub(crate) use relationships::compile as compile_relationships;
+pub(crate) use traversal::compile as compile_traversal;
 
 /// The current compatibility version of the JSON report envelope.
 pub const SCHEMA_VERSION: u16 = 1;

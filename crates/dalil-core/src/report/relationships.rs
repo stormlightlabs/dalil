@@ -18,9 +18,9 @@ struct RelationshipSource {
     project_root: Option<String>,
 }
 
-struct RelationshipGraph {
-    graph: StableDiGraph<RelationshipNode, RepositoryRelationship>,
-    file_nodes: BTreeMap<String, NodeIndex>,
+pub(crate) struct RelationshipGraph {
+    pub(crate) graph: StableDiGraph<RelationshipNode, RepositoryRelationship>,
+    pub(crate) file_nodes: BTreeMap<String, NodeIndex>,
 }
 
 #[derive(Clone)]
@@ -169,7 +169,7 @@ fn normalize_request(request: &mut RelationshipRequest) {
     request.budget = request.budget.max(1);
 }
 
-fn cache_provenance(map: &MapReport) -> CacheProvenance {
+pub(crate) fn cache_provenance(map: &MapReport) -> CacheProvenance {
     CacheProvenance {
         mode: map.cache.mode,
         status: map.cache.status,
@@ -208,7 +208,7 @@ fn operation_limitations(operation: RelationshipOperation) -> Vec<String> {
 }
 
 impl RelationshipGraph {
-    fn build(map: &MapReport) -> Self {
+    pub(crate) fn build(map: &MapReport) -> Self {
         Self::from_parts(relationship_sources(map), relationship_edges(map))
     }
 
@@ -343,14 +343,14 @@ impl RelationshipGraph {
         Self { graph, file_nodes }
     }
 
-    fn node(&self, index: NodeIndex) -> RelationshipNode {
+    pub(crate) fn node(&self, index: NodeIndex) -> RelationshipNode {
         self.graph
             .node_weight(index)
             .expect("relationship graph index points to a node")
             .clone()
     }
 
-    fn symbol_nodes(&self, target: &str, role: Option<SymbolRole>) -> Vec<NodeIndex> {
+    pub(crate) fn symbol_nodes(&self, target: &str, role: Option<SymbolRole>) -> Vec<NodeIndex> {
         let mut nodes = self
             .graph
             .node_indices()
@@ -366,7 +366,24 @@ impl RelationshipGraph {
         nodes
     }
 
-    fn file_nodes_for_target(&self, target: &str) -> Vec<NodeIndex> {
+    pub(crate) fn nodes_for_target(&self, target: &str) -> Vec<NodeIndex> {
+        let target_path = target.trim().replace('\\', "/");
+        let target_path = target_path.trim_start_matches("./");
+        if let Some(index) = self.file_nodes.get(target_path) {
+            return vec![*index];
+        }
+        let symbols = self.symbol_nodes(target, None);
+        if !symbols.is_empty() {
+            return symbols;
+        }
+        self.file_nodes
+            .keys()
+            .filter(|path| path.starts_with(&format!("{target_path}/")))
+            .filter_map(|path| self.file_nodes.get(path).copied())
+            .collect()
+    }
+
+    pub(crate) fn file_nodes_for_target(&self, target: &str) -> Vec<NodeIndex> {
         let target_path = target.trim().replace('\\', "/");
         let target_path = target_path.trim_start_matches("./");
         if let Some(index) = self.file_nodes.get(target_path) {
@@ -377,16 +394,16 @@ impl RelationshipGraph {
             .into_iter()
             .map(|index| self.node(index).path)
             .collect::<BTreeSet<_>>();
-        let mut nodes = paths.into_iter().collect::<Vec<_>>();
-        if nodes.is_empty() {
-            nodes = self
-                .file_nodes
+        let paths = if paths.is_empty() {
+            self.file_nodes
                 .keys()
                 .filter(|path| path.starts_with(&format!("{target_path}/")))
                 .cloned()
-                .collect();
-        }
-        nodes
+                .collect()
+        } else {
+            paths
+        };
+        paths
             .into_iter()
             .filter_map(|path| self.file_nodes.get(&path).copied())
             .collect()

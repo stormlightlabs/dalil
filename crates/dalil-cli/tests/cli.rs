@@ -28,5 +28,7 @@ mod orientation;
 mod output;
 #[path = "cli/relationships.rs"]
 mod relationships;
+#[path = "cli/traversal.rs"]
+mod traversal;
 #[path = "cli/workflow.rs"]
 mod workflow;

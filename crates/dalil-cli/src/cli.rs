@@ -33,6 +33,9 @@ enum SubcommandName {
     /// Query definitions, references, imports, dependencies, callers, callees, and tests.
     #[command(name = "relationships", visible_alias = "relations", alias = "symbol")]
     Relationships(RelationshipsCommand),
+    /// Traverse neighbors, paths, and incoming file dependencies.
+    #[command(name = "traverse", visible_alias = "graph")]
+    Traverse(TraversalCommand),
     /// Explain the evidence behind a path or symbol recommendation.
     Explain(ExplainCommand),
     /// Produce Git-history findings, or select one focused history signal.
@@ -141,6 +144,44 @@ impl From<RelationshipOperationOption> for RelationshipOperation {
             RelationshipOperationOption::Tests => Self::Tests,
             RelationshipOperationOption::Callers => Self::Callers,
             RelationshipOperationOption::Callees => Self::Callees,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum TraversalRelationshipKindOption {
+    Dependency,
+    Import,
+    Reference,
+    TypeReference,
+    Call,
+}
+
+impl From<TraversalRelationshipKindOption> for RepositoryRelationshipKind {
+    fn from(kind: TraversalRelationshipKindOption) -> Self {
+        match kind {
+            TraversalRelationshipKindOption::Dependency => Self::Dependency,
+            TraversalRelationshipKindOption::Import => Self::Import,
+            TraversalRelationshipKindOption::Reference => Self::Reference,
+            TraversalRelationshipKindOption::TypeReference => Self::TypeReference,
+            TraversalRelationshipKindOption::Call => Self::Call,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum TraversalDirectionOption {
+    Incoming,
+    Outgoing,
+    Both,
+}
+
+impl From<TraversalDirectionOption> for TraversalDirection {
+    fn from(direction: TraversalDirectionOption) -> Self {
+        match direction {
+            TraversalDirectionOption::Incoming => Self::Incoming,
+            TraversalDirectionOption::Outgoing => Self::Outgoing,
+            TraversalDirectionOption::Both => Self::Both,
         }
     }
 }
@@ -294,7 +335,7 @@ struct CacheCommandCli {
 The default command and `orient` return the same concise orientation report.
 
 Primary workflows: `orient`, `map`, `context`, `impact`, `search`,
-`relationships`, and `explain`.
+`relationships`, `traverse`, and `explain`.
 Use `history` for focused evidence inspection. Use `cache`, `capabilities`, and
 `doctor` for maintenance.
 
@@ -311,6 +352,8 @@ Examples:
     dalil search parser --json
     dalil search --symbol CacheStore --json
     dalil relationships definitions CacheStore --json
+    dalil traverse neighbors src/api.rs --depth 2 --json
+    dalil traverse path src/cli.rs src/report.rs --json
     dalil history contributors .
     dalil explain src/parser.rs --json
     dalil context --task 'inspect parser cache' --json
@@ -474,7 +517,7 @@ impl From<Cli> for CommandRequest {
                     Some(request),
                 )
             }
-            Some(SubcommandName::Relationships(_)) => (
+            Some(SubcommandName::Relationships(_)) | Some(SubcommandName::Traverse(_)) => (
                 CommandDescriptor::map(cli.path),
                 HistorySettings::default(),
                 default_map_settings,
@@ -573,6 +616,9 @@ impl Cli {
         }
         if let Some(SubcommandName::Relationships(relationships)) = &self.command {
             relationships.validate()?;
+        }
+        if let Some(SubcommandName::Traverse(traverse)) = &self.command {
+            traverse.validate()?;
         }
         if let Some(SubcommandName::Explain(explain)) = &self.command {
             explain.options.validate()?;
@@ -780,6 +826,188 @@ impl RelationshipsCommand {
             budget: self.budget,
             profile,
             cache_mode: if self.no_cache { CacheMode::Disabled } else { self.cache_mode.into() },
+        }
+    }
+}
+
+#[derive(Debug, Subcommand)]
+enum TraversalOperationCommand {
+    /// Return nodes reachable within the selected depth.
+    Neighbors(TraversalNeighborsCommand),
+    /// Return the shortest supported path between two anchors.
+    Path(TraversalPathCommand),
+    /// Walk incoming file dependencies from a changed or selected path.
+    #[command(name = "reverse-dependencies")]
+    ReverseDependencies(TraversalReverseDependenciesCommand),
+}
+
+#[derive(Debug, clap::Args)]
+struct TraversalCommand {
+    #[command(subcommand)]
+    operation: TraversalOperationCommand,
+}
+
+#[derive(Debug, clap::Args)]
+struct TraversalNeighborsCommand {
+    #[arg(value_name = "START")]
+    start: String,
+    #[arg(value_name = "PATH", default_value = ".")]
+    path: PathBuf,
+    #[command(flatten)]
+    options: TraversalOptions,
+}
+
+#[derive(Debug, clap::Args)]
+struct TraversalPathCommand {
+    #[arg(value_name = "START")]
+    start: String,
+    #[arg(value_name = "TARGET")]
+    target: String,
+    #[arg(value_name = "PATH", default_value = ".")]
+    path: PathBuf,
+    #[command(flatten)]
+    options: TraversalOptions,
+}
+
+#[derive(Debug, clap::Args)]
+struct TraversalReverseDependenciesCommand {
+    #[arg(value_name = "START")]
+    start: String,
+    #[arg(value_name = "PATH", default_value = ".")]
+    path: PathBuf,
+    #[command(flatten)]
+    options: TraversalOptions,
+}
+
+#[derive(Debug, clap::Args)]
+struct TraversalOptions {
+    /// Restrict traversal to these edge kinds; repeat to include several kinds.
+    #[arg(long = "kind", value_name = "KIND", value_enum, action = ArgAction::Append)]
+    relationship_kinds: Vec<TraversalRelationshipKindOption>,
+
+    /// Direction for neighbors and paths. Reverse dependencies always use incoming edges.
+    #[arg(long, value_enum, default_value_t = TraversalDirectionOption::Both)]
+    direction: TraversalDirectionOption,
+
+    /// Restrict traversal to one detected project root.
+    #[arg(long, value_name = "PATH")]
+    project: Option<String>,
+
+    /// Maximum number of edges from each start node (default: 1).
+    #[arg(long, default_value_t = 1)]
+    depth: usize,
+
+    /// Maximum number of inspected edges (default: 10000).
+    #[arg(long = "work-limit", default_value_t = 10_000)]
+    work_limit: usize,
+
+    /// Maximum returned nodes or paths (default: 20).
+    #[arg(long, default_value_t = 20)]
+    limit: usize,
+
+    /// Estimated-token budget for returned traversal evidence (default: 1000).
+    #[arg(long, default_value_t = 1_000)]
+    budget: usize,
+
+    /// Cache policy: auto, always, files, or manual (default: auto).
+    #[arg(long = "cache", value_enum, default_value_t = CacheModeOption::Auto)]
+    cache_mode: CacheModeOption,
+
+    #[arg(long = "no-cache", action = ArgAction::SetTrue)]
+    no_cache: bool,
+}
+
+impl TraversalOptions {
+    fn request(
+        &self, operation: TraversalOperation, start: &str, target: Option<&str>, path: &Path, profile: AnalysisProfile,
+    ) -> TraversalRequest {
+        TraversalRequest {
+            repository: path.to_string_lossy().into_owned(),
+            operation,
+            start: start.to_owned(),
+            target: target.map(str::to_owned),
+            relationship_kinds: self.relationship_kinds.iter().copied().map(Into::into).collect(),
+            direction: self.direction.into(),
+            project: self.project.clone(),
+            max_depth: self.depth,
+            work_limit: self.work_limit,
+            result_limit: self.limit,
+            budget: self.budget,
+            profile,
+            cache_mode: if self.no_cache { CacheMode::Disabled } else { self.cache_mode.into() },
+        }
+    }
+
+    fn validate(&self) -> Result<(), ApplicationError> {
+        if self.limit == 0 || self.limit > 256 {
+            return Err(ApplicationError::usage("`--limit` must be between 1 and 256"));
+        }
+        if self.budget == 0 {
+            return Err(ApplicationError::usage("`--budget` must be greater than zero"));
+        }
+        if self.work_limit == 0 {
+            return Err(ApplicationError::usage("`--work-limit` must be greater than zero"));
+        }
+        if self.depth > 64 {
+            return Err(ApplicationError::usage("`--depth` must be between 0 and 64"));
+        }
+        Ok(())
+    }
+}
+
+impl TraversalCommand {
+    fn validate(&self) -> Result<(), ApplicationError> {
+        match &self.operation {
+            TraversalOperationCommand::Neighbors(command) => {
+                if command.start.trim().is_empty() {
+                    return Err(ApplicationError::usage(
+                        "`traverse neighbors` requires a non-empty start target",
+                    ));
+                }
+                command.options.validate()
+            }
+            TraversalOperationCommand::Path(command) => {
+                if command.start.trim().is_empty() || command.target.trim().is_empty() {
+                    return Err(ApplicationError::usage(
+                        "`traverse path` requires non-empty START and TARGET anchors",
+                    ));
+                }
+                command.options.validate()
+            }
+            TraversalOperationCommand::ReverseDependencies(command) => {
+                if command.start.trim().is_empty() {
+                    return Err(ApplicationError::usage(
+                        "`traverse reverse-dependencies` requires a non-empty start target",
+                    ));
+                }
+                command.options.validate()
+            }
+        }
+    }
+
+    fn request(&self, profile: AnalysisProfile) -> TraversalRequest {
+        match &self.operation {
+            TraversalOperationCommand::Neighbors(command) => command.options.request(
+                TraversalOperation::Neighbors,
+                &command.start,
+                None,
+                &command.path,
+                profile,
+            ),
+            TraversalOperationCommand::Path(command) => command.options.request(
+                TraversalOperation::Path,
+                &command.start,
+                Some(&command.target),
+                &command.path,
+                profile,
+            ),
+            TraversalOperationCommand::ReverseDependencies(command) => command.options.request(
+                TraversalOperation::ReverseDependencies,
+                &command.start,
+                None,
+                &command.path,
+                profile,
+            ),
         }
     }
 }
@@ -1553,6 +1781,20 @@ fn invoke<W: Write, E: Write>(
         let output = report::render_relationships(&relationships, output_format.into())
             .map_err(|error| ApplicationError::Rendering(error.to_string()))?;
         deliver_output(output_format, open, output, stdout, stderr, "relationship report")?;
+        return Ok(());
+    }
+    if let Some(SubcommandName::Traverse(command)) = &cli.command {
+        if output_format == OutputFormat::Html {
+            return Err(ApplicationError::usage("`traverse` supports Markdown or JSON output, not HTML").into());
+        }
+        if stderr_is_terminal {
+            let _ = writeln!(stderr, "dalil: analyzing repository traversal…");
+        }
+        let traversal =
+            dalil_core::traverse(command.request(cli.output.profile.into())).map_err(ApplicationError::Core)?;
+        let output = report::render_traversal(&traversal, output_format.into())
+            .map_err(|error| ApplicationError::Rendering(error.to_string()))?;
+        deliver_output(output_format, open, output, stdout, stderr, "traversal report")?;
         return Ok(());
     }
     if let Some(SubcommandName::Export(command)) = &cli.command {
