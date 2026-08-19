@@ -368,7 +368,7 @@ fn resolve_dirty_worktree(
         &scope.selected_path,
         &scope.repository_root,
         WalkOptions {
-            standard_filters: false,
+            standard_filters: true,
             max_entries: MAX_CHANGED_PATHS,
             recursive: false,
             prune_classified_directories: true,

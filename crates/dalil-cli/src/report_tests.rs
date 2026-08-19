@@ -14,6 +14,72 @@ use crate::report::{CommandDescriptor, Finding, Limitation, ReportScope, ReportS
 use std::path::PathBuf;
 
 #[test]
+fn map_markdown_explains_when_the_source_file_projection_is_omitted() {
+    let map = MapReport {
+        profile: AnalysisProfile::Compact,
+        repository_root: ".".to_owned(),
+        scope_path: ".".to_owned(),
+        head: HeadSnapshot::default(),
+        worktree: WorktreeSnapshot::default(),
+        query_pack: "rust-v1".to_owned(),
+        query_packs: Default::default(),
+        exclusions: Vec::new(),
+        task_seeds: TaskSeeds::default(),
+        inventory: MapInventory { tracked: 84, modified: 0, untracked: 0, analyzed: 84, omitted: 0 },
+        classifications: MapClassificationSummary::default(),
+        availability: MapAvailability::default(),
+        files: Vec::new(),
+        omissions: Vec::new(),
+        findings: Vec::new(),
+        limitations: Vec::new(),
+        edges: Vec::new(),
+        ranking: Vec::new(),
+        selection: MapSelection {
+            token_budget: 1_000,
+            estimated_tokens: 0,
+            snippets: Vec::new(),
+            primary_languages: Vec::new(),
+            omitted_relevant_paths: Vec::new(),
+            shortfall: None,
+        },
+        cache: MapCacheReport {
+            mode: CacheMode::Disabled,
+            status: CacheStatus::Disabled,
+            index_status: PersistentIndexStatus::Bypassed,
+            index_detail: None,
+            matched: 0,
+            unmatched: 0,
+            unavailable: 0,
+            reused: Vec::new(),
+            invalidated: Vec::new(),
+            hits: 0,
+            misses: 0,
+            refreshed: Vec::new(),
+            stale: Vec::new(),
+        },
+        landmarks: Vec::new(),
+        project_roots: Vec::new(),
+        collections: MapCollections {
+            files: CollectionSummary {
+                total: 84,
+                returned: 0,
+                truncated: true,
+                reason: Some(TruncationReason::ProfileProjection),
+            },
+            ..MapCollections::default()
+        },
+        reading_evidence: ReadingPlanEvidence::default(),
+    };
+    let mut markdown = String::new();
+    crate::render::Render::map_markdown(&mut markdown, &map);
+
+    assert!(markdown.contains(
+        "No source files were returned; the bounded projection omitted the file list after analyzing 84 source files."
+    ));
+    assert!(!markdown.contains("No Rust files were analyzed."));
+}
+
+#[test]
 fn markdown_escapes_report_content_that_could_add_control_sequences() {
     let report = Report {
         schema_version: SCHEMA_VERSION,

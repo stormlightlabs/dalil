@@ -393,6 +393,39 @@ fn context_resolves_dirty_worktree_paths_and_changed_symbols() {
 }
 
 #[test]
+fn dirty_worktree_honors_repository_ignore_rules() {
+    let fixture = MapFixtureRepository::new();
+    write_file(
+        fixture.root.join(".gitignore"),
+        b"src/ignored.rs\n.sandbox/\n.thndrs/\n",
+    );
+    fs::create_dir_all(fixture.root.join(".sandbox/session")).expect("create ignored session directory");
+    fs::create_dir_all(fixture.root.join(".thndrs")).expect("create ignored TUI directory");
+    write_file(fixture.root.join(".sandbox/session/status.md"), b"session status\n");
+    write_file(fixture.root.join(".thndrs/state.toml"), b"state = true\n");
+
+    let output = fixture.run(&["impact", "--dirty-worktree", "--no-cache", "--json"]);
+    let json: Value = serde_json::from_str(&stdout(&output)).expect("valid ignored-path impact JSON");
+    assert!(output.status.success());
+    let changes = json["impact"]["change_resolution"]["changes"]
+        .as_array()
+        .expect("change resolution");
+    for ignored in ["src/ignored.rs", ".sandbox/session/status.md", ".thndrs/state.toml"] {
+        assert!(
+            !changes.iter().any(|change| change["path"] == ignored),
+            "included {ignored}"
+        );
+    }
+    assert!(
+        json["impact"]["change_resolution"]["uncertainty"]
+            .as_array()
+            .expect("uncertainty")
+            .iter()
+            .all(|item| item["kind"] != "worktree_read")
+    );
+}
+
+#[test]
 fn impact_returns_budgeted_change_evidence_without_breakage_claims() {
     let fixture = MapFixtureRepository::new();
     fs::create_dir_all(fixture.root.join("tests")).expect("create impact test root");
@@ -530,7 +563,7 @@ fn impact_keeps_ambiguous_lexical_candidates_explicit() {
         b"package fixture\nfunc Duplicate() { helper() }\nfunc helper() {}\n",
     );
 
-    let output = fixture.run(&["impact", "--dirty-worktree", "--no-cache", "--json"]);
+    let output = fixture.run(&["impact", "--dirty-worktree", "--no-cache", "--budget", "1200", "--json"]);
     assert!(
         output.status.success(),
         "ambiguous impact failed: {}",

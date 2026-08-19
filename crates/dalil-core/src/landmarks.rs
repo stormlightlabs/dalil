@@ -83,7 +83,8 @@ pub fn analyze(options: LandmarkAnalysisOptions<'_>) -> LandmarkAnalysis {
         if !in_scope(path, scope_path) || is_excluded(repository_root, path, exclusions) {
             continue;
         }
-        let base_name = basename(path).to_ascii_lowercase();
+        let original_base_name = basename(path);
+        let base_name = original_base_name.to_ascii_lowercase();
         let project_root = project_root_for_path(path, &roots);
         let state = state_for_path(path, path_states);
 
@@ -105,7 +106,7 @@ pub fn analyze(options: LandmarkAnalysisOptions<'_>) -> LandmarkAnalysis {
                 state,
             );
         }
-        if is_agent_instructions(&base_name) {
+        if is_agent_instructions(&original_base_name) {
             collector.add(
                 LandmarkKind::AgentInstructions,
                 path.clone(),
@@ -627,7 +628,7 @@ fn is_contributor_instructions(name: &str) -> bool {
 }
 
 fn is_agent_instructions(name: &str) -> bool {
-    matches!(name, "agents.md" | "claude.md" | "codex.md")
+    matches!(name, "AGENTS.md" | "CLAUDE.md" | "CODEX.md")
 }
 
 pub(crate) fn is_manifest(name: &str) -> bool {
@@ -756,7 +757,8 @@ mod tests {
     #[test]
     fn classifies_landmark_filenames_and_project_roots() {
         assert!(is_readme("readme.md"));
-        assert!(is_agent_instructions("agents.md"));
+        assert!(is_agent_instructions("AGENTS.md"));
+        assert!(!is_agent_instructions("agents.md"));
         assert!(is_manifest("cargo.toml"));
         assert!(is_manifest("go.mod"));
         assert!(is_manifest("build.zig.zon"));

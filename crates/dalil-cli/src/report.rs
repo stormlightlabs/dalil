@@ -79,9 +79,10 @@ pub fn render_report(report: &Report, format: OutputFormat) -> anyhow::Result<St
 
 fn render_markdown(report: &Report) -> String {
     let mut output = String::new();
-    let command = match report.command.operation {
-        Some(operation) => format!("{}: {}", report.command.name.label(), operation.label()),
-        None => report.command.name.label().to_owned(),
+    let command = match (report.command.name, report.command.operation) {
+        (CommandName::Orient, None) => "Orientation".to_owned(),
+        (_, Some(operation)) => format!("{}: {}", report.command.name.label(), operation.label()),
+        (_, None) => report.command.name.label().to_owned(),
     };
 
     writeln!(output, "# Dalil {command}").expect("writing to a string cannot fail");

@@ -119,7 +119,7 @@ fn default_markdown_orientation_keeps_selected_sections_readable() {
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
     assert_plain_report(&markdown);
-    assert!(markdown.starts_with("# Dalil orient\n"));
+    assert!(markdown.starts_with("# Dalil Orientation\n"));
     assert!(markdown.contains("Status: Analyzed"));
     assert!(
         markdown.chars().count().div_ceil(4) <= 1_000,
@@ -147,6 +147,27 @@ fn default_markdown_orientation_keeps_selected_sections_readable() {
     assert!(json_value.get("map").is_none());
     assert!(json_value.get("history").is_none());
     assert!(!markdown.contains("\\`, \\`"));
+}
+
+#[test]
+fn lowercase_agents_documentation_is_not_an_instruction_landmark() {
+    let fixture = FixtureRepository::new();
+    fs::create_dir_all(fixture.root.join("docs")).expect("create documentation directory");
+    write_file(
+        fixture.root.join("docs/agents.md"),
+        b"Documentation about agent integrations.\n",
+    );
+
+    let output = fixture.run(&["map", "--profile", "evidence", "--no-cache", "--json"]);
+    let value: Value = serde_json::from_str(&stdout(&output)).expect("valid map JSON");
+    assert!(output.status.success());
+    assert!(
+        !value["map"]["landmarks"]
+            .as_array()
+            .expect("landmarks")
+            .iter()
+            .any(|landmark| landmark["path"] == "docs/agents.md")
+    );
 }
 
 #[test]

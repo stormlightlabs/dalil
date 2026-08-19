@@ -128,8 +128,18 @@ impl Render {
         }
         if files_by_language.len() <= 1 {
             if map.files.is_empty() {
-                Render::section_heading(output, "Rust files");
-                writeln!(output, "No Rust files were analyzed.").expect("writing to a string cannot fail");
+                if map.inventory.analyzed == 0 {
+                    Render::section_heading(output, "Rust files");
+                    writeln!(output, "No Rust files were analyzed.").expect("writing to a string cannot fail");
+                } else {
+                    Render::section_heading(output, "Source files");
+                    writeln!(
+                        output,
+                        "No source files were returned; the bounded projection omitted the file list after analyzing {} source files.",
+                        map.inventory.analyzed
+                    )
+                    .expect("writing to a string cannot fail");
+                }
             } else {
                 let (language, files) = files_by_language.iter().next().expect("one language group");
                 Render::section_heading(output, &format!("{} files", language.display_label()));
