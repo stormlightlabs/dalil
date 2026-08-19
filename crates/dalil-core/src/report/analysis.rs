@@ -279,6 +279,7 @@ pub fn build_reading_plan(history: &HistoryReport, map: &MapReport) -> ReadingPl
             omissions: map.omissions.clone(),
             landmarks: map.landmarks.clone(),
             project_roots: map.project_roots.clone(),
+            trigram_index: map.reading_evidence.trigram_index.clone(),
         };
         &fallback_evidence
     } else {

@@ -33,6 +33,7 @@ dalil
 dalil context --task 'fix parser cache invalidation' --changed-path src/map/cache.rs
 dalil impact --revision-range 'HEAD~1..HEAD'
 dalil search parser
+dalil search invalidation --language rust --test exclude --json
 dalil explain src/map.rs
 ```
 
@@ -47,8 +48,10 @@ The main workflows are:
   roots, entry points, tests, and other landmarks.
 - `dalil context` selects one task-shaped evidence bundle.
 - `dalil impact` prepares a review list for a revision range or dirty worktree.
-- `dalil search` finds path, symbol, or concept anchors. `dalil explain` shows
-  the evidence behind one recommendation.
+- `dalil search` finds source content, paths, and symbols. Use `--language`,
+  `--project`, `--symbol-kind`, `--test`, or `--changed-path` to narrow it;
+  `--json` includes typed matches, totals, omissions, and continuation state.
+  `dalil explain` shows the evidence behind one recommendation.
 - `dalil history` reports churn, contributor, bug-cluster, activity,
   and firefighting signals.
 

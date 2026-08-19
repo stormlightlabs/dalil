@@ -204,16 +204,33 @@ impl Render {
         if let Some(shortfall) = &search.shortfall {
             writeln!(
                 output,
-                "Shortfall: {} of {} requested anchors — {}",
+                "Shortfall: {} of {} requested results — {}",
                 shortfall.returned,
                 shortfall.requested,
                 utils::sanitize_text(&shortfall.reason),
             )
             .expect("writing to a string cannot fail");
         }
+        if let Some(query) = &search.query {
+            writeln!(
+                output,
+                "Matches: {} of {} returned; {} omitted.",
+                query.bounds.returned, query.bounds.total, query.bounds.omitted,
+            )
+            .expect("writing to a string cannot fail");
+            for omission in &query.omissions {
+                writeln!(
+                    output,
+                    "Omitted: {} — {}",
+                    omission.count,
+                    utils::sanitize_text(&omission.detail),
+                )
+                .expect("writing to a string cannot fail");
+            }
+        }
         writeln!(
             output,
-            "Search budget: {} of {} estimated tokens; {} of {} candidate anchors returned.",
+            "Search budget: {} of {} estimated tokens; {} of {} candidate results returned.",
             search.budget.estimated_tokens,
             search.budget.token_budget,
             search.budget.returned,

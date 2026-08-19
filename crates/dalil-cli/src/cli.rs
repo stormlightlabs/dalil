@@ -18,8 +18,9 @@ use crate::{
     bundle,
     report::{
         AnalysisProfile, CacheMode, CommandDescriptor, ContextRequest, ContextRevisionContext, DoctorReport,
-        HistoryOperation, HistorySettings, KeywordMatchMode, SearchQueryMode, SearchRequest, SourceLanguage,
-        StrictIssue, TaskChangeSeed, TaskSeeds,
+        HistoryOperation, HistorySettings, KeywordMatchMode, QueryFilters, QueryMatchMode, QueryTestFilter,
+        SearchQueryMode, SearchRequest, SourceLanguage, StrictIssue, SymbolKind, SymbolQuery, TaskChangeSeed,
+        TaskSeeds,
     },
 };
 use dalil_core::{CacheCommand, CacheControlReport, MapSettings};
@@ -437,6 +438,8 @@ impl From<Cli> for CommandRequest {
                     result_limit: limit,
                     budget: map.map_tokens,
                     profile,
+                    filters: options.query_filters(&query, mode),
+                    ..SearchRequest::default()
                 };
                 (
                     CommandDescriptor::search(query, path),
@@ -645,8 +648,12 @@ struct ExportCommand {
     dalil search parser
     dalil search --symbol CacheStore --json
     dalil search cache --limit 3 --budget 600
+    dalil search --symbol CacheStore --language rust --symbol-kind struct
+    dalil search invalidation --test only --changed-path src/cache.rs
 
-Search returns path, symbol, and direct lexical anchors for the next source read.
+Search uses the shared bounded repository query model for source content,
+paths, symbols, and filters. Human output is concise; `--json` includes the
+complete typed query page, totals, omissions, and continuation state.
 It does not expose graph traversal, callers, or a general graph-query language.
 
 Support: https://github.com/stormlightlabs/dalil/issues
@@ -659,7 +666,7 @@ struct SearchCommand {
     #[arg(long, value_name = "NAME")]
     symbol: Option<String>,
 
-    /// Maximum number of returned anchors (default: 5, maximum: 12).
+    /// Maximum number of returned results (default: 5, maximum: 12).
     #[arg(long, value_name = "N", default_value_t = 5, value_parser = clap::value_parser!(usize))]
     limit: usize,
 
@@ -677,15 +684,27 @@ struct SearchOptions {
     #[arg(long = "exclude", value_name = "GLOB", action = ArgAction::Append)]
     excludes: Vec<String>,
 
-    /// Rank matching anchors in this source language; repeat for multiple languages.
+    /// Restrict matches to this source language; repeat for map-ranking compatibility.
     #[arg(long = "language", value_name = "LANGUAGE", action = ArgAction::Append, value_parser = parse_source_language)]
     languages: Vec<SourceLanguage>,
 
-    /// Prefer matching anchors in this project root; repeat for multiple roots.
+    /// Restrict matches to this project root; repeat for map-ranking compatibility.
     #[arg(long = "project", value_name = "PATH", action = ArgAction::Append)]
     projects: Vec<String>,
 
-    /// Total estimated-token budget for returned search anchors (default: 1000).
+    /// Restrict symbol searches to one symbol kind.
+    #[arg(long = "symbol-kind", value_name = "KIND", value_parser = parse_symbol_kind)]
+    symbol_kind: Option<SymbolKind>,
+
+    /// Restrict results to any, test-only, or non-test files.
+    #[arg(long = "test", value_name = "MODE", value_enum, default_value_t = SearchTestFilter::Any)]
+    test: SearchTestFilter,
+
+    /// Require the result to be related to this current changed path.
+    #[arg(long = "changed-path", value_name = "PATH")]
+    changed_path: Option<String>,
+
+    /// Total estimated-token budget for returned search results (default: 1000).
     #[arg(long = "budget", value_name = "N", default_value_t = 1_000, value_parser = clap::value_parser!(usize))]
     budget: usize,
 
@@ -706,7 +725,43 @@ struct SearchOptions {
     recursive: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, ValueEnum)]
+enum SearchTestFilter {
+    #[default]
+    Any,
+    Only,
+    Exclude,
+}
+
 impl SearchOptions {
+    fn query_filters(&self, query: &str, mode: SearchQueryMode) -> QueryFilters {
+        QueryFilters {
+            text: (mode == SearchQueryMode::Plain)
+                .then(|| crate::report::TextQuery { value: query.to_owned(), mode: QueryMatchMode::Substring }),
+            symbol: (mode == SearchQueryMode::Symbol).then(|| SymbolQuery {
+                name: query.to_owned(),
+                mode: QueryMatchMode::Exact,
+                role: None,
+            }),
+            project: self
+                .projects
+                .first()
+                .map(|path| crate::report::ProjectQuery { path: path.clone(), mode: QueryMatchMode::Prefix }),
+            language: self.languages.first().copied(),
+            symbol_kind: self.symbol_kind,
+            path: None,
+            test: match self.test {
+                SearchTestFilter::Any => QueryTestFilter::Any,
+                SearchTestFilter::Only => QueryTestFilter::Only,
+                SearchTestFilter::Exclude => QueryTestFilter::Exclude,
+            },
+            changed_path: self
+                .changed_path
+                .as_ref()
+                .map(|path| crate::report::ChangedPathQuery { path: path.clone(), mode: QueryMatchMode::Substring }),
+        }
+    }
+
     fn settings(&self, query: &str, mode: SearchQueryMode) -> MapSettings {
         MapSettings {
             excludes: self.excludes.clone(),
@@ -741,6 +796,9 @@ impl SearchOptions {
         }
         if self.cache_files.iter().any(|path| path.trim().is_empty()) {
             return Err(ApplicationError::usage("`--cache-file` paths must not be empty"));
+        }
+        if self.changed_path.as_ref().is_some_and(|path| path.trim().is_empty()) {
+            return Err(ApplicationError::usage("`--changed-path` must not be empty"));
         }
         Ok(())
     }
@@ -966,6 +1024,30 @@ struct MapOptions {
 impl From<MapOptions> for MapSettings {
     fn from(options: MapOptions) -> Self {
         options.settings()
+    }
+}
+
+fn parse_symbol_kind(value: &str) -> Result<SymbolKind, String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "function" | "fn" => Ok(SymbolKind::Function),
+        "struct" => Ok(SymbolKind::Struct),
+        "enum" => Ok(SymbolKind::Enum),
+        "trait" => Ok(SymbolKind::Trait),
+        "type" => Ok(SymbolKind::Type),
+        "const" => Ok(SymbolKind::Const),
+        "static" => Ok(SymbolKind::Static),
+        "module" | "mod" => Ok(SymbolKind::Module),
+        "macro" => Ok(SymbolKind::Macro),
+        "field" => Ok(SymbolKind::Field),
+        "class" => Ok(SymbolKind::Class),
+        "method" => Ok(SymbolKind::Method),
+        "variable" | "var" => Ok(SymbolKind::Variable),
+        "interface" => Ok(SymbolKind::Interface),
+        "import" => Ok(SymbolKind::Import),
+        "export" => Ok(SymbolKind::Export),
+        "identifier" => Ok(SymbolKind::Identifier),
+        "other" => Ok(SymbolKind::Other),
+        _ => Err(format!("unsupported symbol kind `{value}`")),
     }
 }
 

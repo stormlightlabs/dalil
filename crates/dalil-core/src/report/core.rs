@@ -1,5 +1,7 @@
 use super::*;
 
+use crate::TrigramIndex;
+
 /// Controls how much evidence is emitted after analysis completes.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -754,6 +756,8 @@ pub struct ReadingPlanEvidence {
     pub omissions: Vec<SourceOmission>,
     pub landmarks: Vec<Landmark>,
     pub project_roots: Vec<ProjectRoot>,
+    /// Private lexical content evidence used by typed search before projection.
+    pub trigram_index: TrigramIndex,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1200,9 +1204,18 @@ impl Report {
                 let map_report =
                     map::analyze_with_history(&req.command.path, &map_settings, None).map_err(ReportError::Map)?;
                 let search_request = req.search.clone().unwrap_or_default();
-                let search = super::search::compile(search_request, &map_report);
+                let query_request =
+                    super::search::query_request(&search_request, &map_report.repository_root, map_report.cache.mode);
+                let change_resolution = if query_request.revision.is_requested() {
+                    let revision_context: crate::ContextRevisionContext = (&query_request.revision).into();
+                    map::resolve_changes(&req.command.path, &revision_context).map_err(ReportError::Map)?
+                } else {
+                    crate::ChangeResolution::default()
+                };
+                let query = super::query::compile(query_request, &map_report, change_resolution);
+                let search = super::search::from_query(query);
                 let summary = format!(
-                    "Found {} search anchor(s) from {} candidate(s).",
+                    "Found {} search result(s) from {} candidate(s).",
                     search.matches.len(),
                     search.budget.total_candidates,
                 );

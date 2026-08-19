@@ -54,22 +54,22 @@ lookup operations.
 **Verification:** Exercise exact, prefix, substring, filtered, empty, ambiguous,
 and high-cardinality queries on small fixture repositories.
 
-### T4 — Strengthen `dalil search` (trigram index)
+### T4 — Strengthen `dalil search` (trigram index) — complete
 
 **What to build:** `dalil search` becomes a fast repository-wide retrieval tool
 rather than a thin concept lookup.
 
 **Acceptance criteria:**
 
-- [ ] Support lexical content, path, and symbol search through the T3 query
+- [x] Support lexical content, path, and symbol search through the T3 query
       model.
-- [ ] Add filters for project, language, symbol kind, tests, and current changes.
-- [ ] Rank exact symbol and path matches ahead of broad lexical matches while
+- [x] Add filters for project, language, symbol kind, tests, and current changes.
+- [x] Rank exact symbol and path matches ahead of broad lexical matches while
       keeping ordering deterministic.
-- [ ] Return concise human output by default and the complete bounded typed
+- [x] Return concise human output by default and the complete bounded typed
       result through `--json`.
-- [ ] Report total matches and omitted results instead of silently truncating.
-- [ ] Ensure warm repeated searches avoid unnecessary parsing or Git work.
+- [x] Report total matches and omitted results instead of silently truncating.
+- [x] Ensure warm repeated searches avoid unnecessary parsing or Git work.
 
 **Verification:** Add compiled-CLI fixtures covering exact symbols, ambiguous
 names, path filters, monorepos, large match sets, and changed-file filters.

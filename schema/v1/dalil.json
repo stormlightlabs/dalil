@@ -122,14 +122,17 @@
             "mode": { "enum": ["plain", "symbol"] },
             "result_limit": { "type": "integer", "minimum": 1, "maximum": 12 },
             "budget": { "type": "integer", "minimum": 1 },
-            "profile": { "enum": ["compact", "evidence"] }
+            "profile": { "enum": ["compact", "evidence"] },
+            "filters": { "type": "object", "additionalProperties": true },
+            "revision": { "type": "object", "additionalProperties": true }
           },
           "additionalProperties": false
         },
         "matches": { "type": "array", "items": { "$ref": "#/$defs/search_match" } },
         "budget": { "$ref": "#/$defs/search_budget" },
         "shortfall": { "$ref": "#/$defs/search_shortfall" },
-        "limitations": { "type": "array", "items": { "type": "string" } }
+        "limitations": { "type": "array", "items": { "type": "string" } },
+        "query": { "type": ["object", "null"], "additionalProperties": true }
       },
       "additionalProperties": false
     },

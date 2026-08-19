@@ -167,6 +167,49 @@ fn search_returns_path_symbol_concept_and_budget_limited_anchors() {
 }
 
 #[test]
+fn search_uses_content_index_and_typed_filters() {
+    let fixture = MapFixtureRepository::new();
+
+    let content = fixture.run(&["search", "let value", "--language", "rust", "--no-cache", "--json"]);
+    assert!(
+        content.status.success(),
+        "content search failed: {}",
+        String::from_utf8_lossy(&content.stderr)
+    );
+    let content: Value = serde_json::from_str(&stdout(&content)).expect("valid content search JSON");
+    assert_eq!(content["search"]["query"]["bounds"]["total"], 1);
+    assert_eq!(content["search"]["query"]["matches"][0]["path"], "src/lib.rs");
+    assert!(
+        content["search"]["query"]["matches"][0]["evidence"]
+            .as_array()
+            .is_some_and(|evidence| evidence
+                .iter()
+                .any(|item| item["detail"].as_str().unwrap_or_default().contains("source content")))
+    );
+
+    let limited = fixture.run(&["search", "duplicate", "--limit", "1", "--no-cache", "--json"]);
+    assert!(limited.status.success());
+    let limited: Value = serde_json::from_str(&stdout(&limited)).expect("valid limited search JSON");
+    assert_eq!(limited["search"]["query"]["bounds"]["returned"], 1);
+    assert!(
+        limited["search"]["query"]["bounds"]["omitted"]
+            .as_u64()
+            .is_some_and(|omitted| omitted > 0)
+    );
+    assert!(limited["search"]["query"]["bounds"]["continuation"].is_object());
+
+    let filtered = fixture.run(&["search", "duplicate", "--symbol-kind", "struct", "--no-cache", "--json"]);
+    assert!(filtered.status.success());
+    let filtered: Value = serde_json::from_str(&stdout(&filtered)).expect("valid filtered search JSON");
+    assert_eq!(filtered["search"]["query"]["bounds"]["total"], 0);
+
+    let tests_only = fixture.run(&["search", "duplicate", "--test", "only", "--no-cache", "--json"]);
+    assert!(tests_only.status.success());
+    let tests_only: Value = serde_json::from_str(&stdout(&tests_only)).expect("valid test-filtered search JSON");
+    assert_eq!(tests_only["search"]["query"]["bounds"]["total"], 0);
+}
+
+#[test]
 fn packaged_agent_skill_uses_supported_cli_workflows() {
     let skill = include_str!("../../skills/dalil/SKILL.md");
 

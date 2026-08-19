@@ -58,6 +58,11 @@ pub(crate) fn compile(request: QueryRequest, map: &MapReport, change_resolution:
     let change_paths = active_change_paths(&sources, &change_resolution);
     let ambiguous_paths = ambiguous_paths(map);
     let ranking = query_ranking(map);
+    let content_matches = request
+        .filters
+        .text
+        .as_ref()
+        .map(|query| indexed_content_matches(map, query));
     let candidate_context = CandidateContext { ambiguous_paths: &ambiguous_paths, resolution: &change_resolution };
     let mut candidates = Vec::new();
 
@@ -71,6 +76,9 @@ pub(crate) fn compile(request: QueryRequest, map: &MapReport, change_resolution:
             .text
             .as_ref()
             .and_then(|query| match_text(query, &source.path));
+        let text_content_score = content_matches
+            .as_ref()
+            .and_then(|matches| matches.contains(&source.path).then_some(content_match_score()));
         let symbol_constraints = request.filters.symbol.is_some() || request.filters.symbol_kind.is_some();
         let mut symbol_matches = Vec::new();
 
@@ -97,7 +105,7 @@ pub(crate) fn compile(request: QueryRequest, map: &MapReport, change_resolution:
         if symbol_constraints || request.filters.text.is_some() {
             let no_symbol_match = symbol_matches.is_empty();
             let allow_path_fallback = no_symbol_match
-                && text_path_score.is_some()
+                && (text_path_score.is_some() || text_content_score.is_some())
                 && request.filters.symbol.is_none()
                 && request.filters.symbol_kind.is_none();
             for (symbol, symbol_score, text_score, evidence) in symbol_matches {
@@ -119,13 +127,25 @@ pub(crate) fn compile(request: QueryRequest, map: &MapReport, change_resolution:
                 // A path or text query can still return an omitted or source file
                 // when the path matched but no retained symbol did.
                 if allow_path_fallback {
+                    let mut evidence = base_evidence(source, &request.filters, &change_paths);
+                    if text_content_score.is_some() {
+                        evidence.push(QueryEvidence {
+                            kind: QueryEvidenceKind::Text,
+                            detail: "text substring matched retained source content".to_owned(),
+                        });
+                    }
                     candidates.push(candidate_for_file(
                         source,
-                        base_evidence(source, &request.filters, &change_paths),
+                        evidence,
                         ranking_score(&ranking, &source.path)
                             .saturating_add(path_score.map_or(0, |score| score.score))
-                            .saturating_add(text_path_score.map_or(0, |score| score.score)),
-                        "the text query matched the retained source path",
+                            .saturating_add(text_path_score.map_or(0, |score| score.score))
+                            .saturating_add(text_content_score.map_or(0, |score| score.score)),
+                        if text_content_score.is_some() && text_path_score.is_none() {
+                            "the text query matched retained source content"
+                        } else {
+                            "the text query matched the retained source path"
+                        },
                         &candidate_context,
                     ));
                 }
@@ -506,6 +526,21 @@ fn match_text_value(value: &str, mode: QueryMatchMode, subject: &str) -> Option<
 
 fn match_text(query: &TextQuery, subject: &str) -> Option<MatchScore> {
     match_text_value(&query.value, query.mode, subject)
+}
+
+fn indexed_content_matches(map: &MapReport, query: &TextQuery) -> BTreeSet<String> {
+    if query.mode != QueryMatchMode::Substring {
+        return BTreeSet::new();
+    }
+    map.reading_evidence
+        .trigram_index
+        .search(query.value.as_bytes())
+        .into_iter()
+        .collect()
+}
+
+fn content_match_score() -> MatchScore {
+    MatchScore { score: 700_000_000, confidence: ConfidenceTier::Medium }
 }
 
 fn project_root(source: &QuerySource) -> &str {
@@ -923,7 +958,7 @@ fn query_limitations(
     }
     if request.filters.text.is_some() {
         limitations.push(
-            "text matching uses retained paths, symbol names, and syntax contexts; raw source bodies are not rescanned"
+            "text matching uses the private trigram index for retained source content, plus paths, symbol names, and syntax contexts"
                 .to_owned(),
         );
     }
@@ -1152,6 +1187,7 @@ mod tests {
                     recommendation_total: 0,
                     recommended_paths: Vec::new(),
                 }],
+                trigram_index: crate::TrigramIndex::default(),
             },
         }
     }
@@ -1195,6 +1231,32 @@ mod tests {
         );
         assert_eq!(path_text.bounds.total, 1);
         assert_eq!(path_text.matches[0].target, QueryTarget::File);
+    }
+
+    #[test]
+    fn text_queries_use_contiguous_trigram_content_evidence() {
+        let mut map = fixture_map();
+        map.reading_evidence
+            .trigram_index
+            .insert("packages/api/src/build.rs", b"cache invalidation marker");
+        let request = QueryRequest {
+            filters: QueryFilters {
+                text: Some(TextQuery { value: "invalidation".to_owned(), mode: QueryMatchMode::Substring }),
+                ..QueryFilters::default()
+            },
+            cache_mode: CacheMode::Disabled,
+            ..QueryRequest::new("/fixture")
+        };
+        let first = compile(request.clone(), &map, ChangeResolution::default());
+        let second = compile(request, &map, ChangeResolution::default());
+
+        assert_eq!(first, second);
+        assert_eq!(first.bounds.total, 1);
+        assert_eq!(first.matches[0].path, "packages/api/src/build.rs");
+        assert_eq!(first.matches[0].target, QueryTarget::File);
+        assert!(first.matches[0].evidence.iter().any(|evidence| {
+            evidence.kind == QueryEvidenceKind::Text && evidence.detail.contains("source content")
+        }));
     }
 
     #[test]

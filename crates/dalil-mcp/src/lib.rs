@@ -352,6 +352,7 @@ fn run_search(arguments: SearchArguments) -> Result<AnalysisRequest, String> {
         result_limit: limit,
         budget,
         profile: common.profile,
+        ..SearchRequest::default()
     };
     Ok(request_with_common(
         CommandDescriptor::search(query, PathBuf::from(&common.path)),

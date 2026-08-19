@@ -1094,6 +1094,11 @@ pub struct SearchRequest {
     pub budget: usize,
     #[serde(default)]
     pub profile: AnalysisProfile,
+    /// Typed repository-query filters supplied by an adapter.
+    #[serde(default)]
+    pub filters: QueryFilters,
+    #[serde(default)]
+    pub revision: QueryRevision,
 }
 
 const fn default_search_result_limit() -> usize {
@@ -1109,6 +1114,8 @@ impl Default for SearchRequest {
             result_limit: default_search_result_limit(),
             budget: 1_000,
             profile: AnalysisProfile::Compact,
+            filters: QueryFilters::default(),
+            revision: QueryRevision::default(),
         }
     }
 }
@@ -1143,6 +1150,11 @@ pub struct SearchResults {
     pub shortfall: Option<SearchShortfall>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub limitations: Vec<String>,
+    /// Complete bounded typed-query evidence used to produce the concise
+    /// search projection. Kept additive so older v1 search reports remain
+    /// readable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<QueryResults>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

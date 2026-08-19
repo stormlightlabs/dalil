@@ -266,6 +266,7 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
     let mut total_source_bytes = 0usize;
     let mut total_symbols = 0usize;
     let mut work_limit_reached = false;
+    let mut trigram_index = TrigramIndex::default();
     let mut analyzers = BTreeMap::<SourceLanguage, LanguageAnalyzer>::new();
     for (path, candidate) in candidates {
         if analysis_started.elapsed().as_millis() >= u128::from(limits.max_elapsed_ms) {
@@ -419,6 +420,7 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
             continue;
         }
         total_source_bytes = total_source_bytes.saturating_add(source.len());
+        trigram_index.insert(path.clone(), &source);
         let fingerprint = source_fingerprint(&source);
         let requested = requested_cache_files.contains(&path);
         let forced_refresh =
@@ -593,6 +595,11 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
             .as_bytes(),
     );
     let index_state = cache.load_index(&index_identity);
+    if index_state.status == PersistentIndexStatus::Hit {
+        if let Some(cached_trigram_index) = index_state.trigram_index() {
+            trigram_index = cached_trigram_index;
+        }
+    }
     let incremental_edges = if cache_stats.stale.is_empty() && cache_stats.unavailable == 0 && !work_limit_reached {
         index_state.incremental_edges(
             &files,
@@ -645,6 +652,7 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
                 .collect(),
             edges.clone(),
             history_weights.clone(),
+            trigram_index.clone(),
         ) {
             cache_stats.index_status = PersistentIndexStatus::Failed;
             cache_stats.index_detail = Some(error);
@@ -708,6 +716,7 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
         omissions: omissions.clone(),
         landmarks: topology.landmarks.clone(),
         project_roots: project_roots.clone(),
+        trigram_index: trigram_index.clone(),
     };
     let resource_limited = omissions.iter().any(|omission| {
         matches!(

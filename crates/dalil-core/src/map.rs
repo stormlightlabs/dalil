@@ -5,6 +5,7 @@ mod graph;
 mod languages;
 mod parser;
 mod repository;
+mod trigram;
 
 #[cfg(test)]
 mod tests;
@@ -43,13 +44,15 @@ use repository::*;
 pub(crate) use analysis::analyze_with_history;
 pub use cache::{CacheCommand, CacheControlReport, cache_control};
 pub(crate) use changes::{enrich_change_symbols, resolve_changes};
+#[allow(unused_imports)]
+pub use trigram::{FileId, Posting, Trigram, TrigramIndex};
 
 const MAX_CONTEXT_CHARS: usize = 180;
 const DEFAULT_MAP_TOKENS: usize = 1_000;
 const MIN_SELECTED_FILES: usize = 3;
 const CACHE_SCHEMA_VERSION: u16 = 2;
-const CACHE_INDEX_SCHEMA_VERSION: u16 = 2;
-const CACHE_TOOL_VERSION: &str = "dalil-map-v9";
+const CACHE_INDEX_SCHEMA_VERSION: u16 = 3;
+const CACHE_TOOL_VERSION: &str = "dalil-map-v10";
 const CACHE_MAX_RECORDS_PER_REPOSITORY: usize = 256;
 const CACHE_MAX_BYTES_PER_REPOSITORY: u64 = 32 * 1024 * 1024;
 const CACHE_MAX_AGE_SECONDS: u64 = 30 * 24 * 60 * 60;

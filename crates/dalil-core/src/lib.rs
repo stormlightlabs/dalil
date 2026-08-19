@@ -18,5 +18,7 @@ mod utils;
 pub use api::*;
 pub use export::*;
 pub use lifecycle::*;
-pub use map::{CacheCommand, CacheControlReport, MapError, MapSettings, cache_control};
+pub use map::{
+    CacheCommand, CacheControlReport, FileId, MapError, MapSettings, Posting, Trigram, TrigramIndex, cache_control,
+};
 pub use report::*;

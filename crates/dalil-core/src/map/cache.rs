@@ -33,6 +33,8 @@ struct RepositoryIndex {
     files: Vec<IndexedFile>,
     lexical_edges: Vec<LexicalEdge>,
     history_path_weights: BTreeMap<String, u64>,
+    #[serde(default)]
+    trigram_index: TrigramIndex,
     created_at: u128,
 }
 
@@ -171,7 +173,7 @@ impl CacheStore {
 
     pub fn write_index(
         &self, identity: &IndexIdentity, query_packs: BTreeMap<String, String>, files: Vec<IndexFileInput>,
-        lexical_edges: Vec<LexicalEdge>, history_path_weights: BTreeMap<String, u64>,
+        lexical_edges: Vec<LexicalEdge>, history_path_weights: BTreeMap<String, u64>, trigram_index: TrigramIndex,
     ) -> Option<String> {
         let path = self.index_path()?;
         let index = RepositoryIndex {
@@ -214,6 +216,7 @@ impl CacheStore {
                 .collect(),
             lexical_edges,
             history_path_weights,
+            trigram_index,
             created_at: unix_timestamp(),
         };
         let bytes = match serde_json::to_vec(&index) {
@@ -379,6 +382,11 @@ pub struct IncrementalEdges {
 }
 
 impl IndexState {
+    /// Return the cached content index when the repository index was usable.
+    pub fn trigram_index(&self) -> Option<TrigramIndex> {
+        self.index.as_ref().map(|index| index.trigram_index.clone())
+    }
+
     /// Rebuild only the lexical component that could be affected by changed
     /// source fingerprints. Any graph that might have been cut off is
     /// rebuilt cold so the result remains equivalent to a fresh analysis.
