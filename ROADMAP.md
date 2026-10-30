@@ -1,337 +1,232 @@
 ---
 title: "Dalil roadmap"
 status: "in-progress"
-updated: "2026-08-19"
+updated: "2026-10-30"
 ---
 
-Dalil is a local repository intelligence engine for humans and coding agents.
-It builds a rich, queryable model of a codebase, then turns that model into
-small, inspectable answers and artifacts.
+Dalil is a local repository guide for coding agents, usable by people through
+the same commands. It answers three questions an agent meets on every task:
 
-## Product direction
+1. What is this repository, and where do I start?
+2. How was a change like this one made before?
+3. What did my change miss: companion files, related tests, the command to
+   run them?
 
-Dalil should answer both kinds of questions:
+Dalil answers from the repository's own Git history first, and from code
+search and the symbol graph second. It runs offline, does not call a model,
+and does not execute repository code.
 
-> What does this repository contain and how is it connected?
+Open work lives in arcl, under `.arcl/workspace`, in the "Roadmap" plan. This
+file holds the decisions behind it. `arcl ready` lists what can start.
 
-and:
+## Why history first
 
-> Given this task, change, symbol, or subsystem, what is the smallest useful
-> projection of that repository intelligence?
+On 2026-10-30 we ran Dalil on its own repository (222 files, 50 commits):
 
-The first question defines Dalil's capability surface. The second defines its
-output discipline.
+- `dalil context --task 'add a new language (Kotlin) support'` recommended
+  only `README.md`.
+- `dalil relationships callers language_capabilities` returned 0 results.
+  `grep` finds 2 call sites in 2 files.
+- `dalil impact` listed identifiers such as `writeln` and `expect` as changed
+  symbols.
+- A warm `map`, `orient` or `search` took 0.8 to 0.9 s, against about 10 ms for
+  `grep`. The cache was 23 MB of JSON.
 
-Dalil should know more than it normally prints.
+The commit `e11dc77 feat: Zig structural map support` touched the files a
+Kotlin change needs: `Cargo.toml`, `map/languages.rs`, `map/parser.rs`,
+`landmarks.rs`, the Zig query files and both test suites. Dalil read that
+commit but used it only for churn counts.
 
-### Product principles
+A lexical symbol graph is less precise than a language server and less
+flexible than `grep`, and several tools already ship one. The
+[Codebase-Memory paper](https://arxiv.org/pdf/2603.27277) measured a
+tree-sitter graph over MCP against a grep-and-read agent: half the tool calls,
+lower answer quality (0.83 against 0.92). History is a signal agents cannot
+get from `grep`, and Dalil already parses it.
 
-1. **Rich model, bounded outputs.** The repository model may contain files,
-   symbols, definitions, references, calls, imports, dependencies, tests,
-   manifests, history, changes, and derived structural signals. Human and agent
-   outputs remain concise by default.
-2. **Search is infrastructure.** Repeated lexical, path, symbol, structural,
-   and Git-aware queries should be cheap after indexing.
-3. **Relationships are queryable facts.** Callers, callees, references,
-   dependencies, neighborhoods, paths, and change propagation are first-class
-   operations rather than details hidden inside reports.
-4. **Artifacts are projections, not dumps.** Architecture, subsystem, impact,
-   review, context, and repository-map artifacts select and summarize the
-   underlying model for a specific use.
-5. **One semantic core.** CLI commands, MCP tools, agent integrations, HTML,
-   JSON, Markdown, and exported artifacts must use the same typed operations.
-6. **Local and inspectable by default.** Core analysis stays offline,
-   deterministic where the underlying evidence is deterministic, and does not
-   execute repository-controlled code.
-7. **Evidence carries provenance.** Derived relationships and structural claims
-   retain source, resolution, confidence, ambiguity, and limitations.
+## Position
 
-## Repository intelligence model
+| Tool       | What it does                                                       | When it runs          |
+| ---------- | ------------------------------------------------------------------ | --------------------- |
+| CodeRabbit | Hosted LLM pull request review over a code graph                   | After a PR opens      |
+| Greptile   | Hosted LLM review, API and MCP over a code graph                   | After a PR opens      |
+| Graphify   | Local tree-sitter knowledge graph, `graph.json`, report, HTML view | On demand             |
+| Dalil      | Local history-first retrieval, no model                            | While the agent works |
 
-Dalil has three conceptual layers:
+CodeRabbit and Greptile judge a finished change. Dalil points at files while
+the change is being written, so the two kinds of tool can run together.
+Graphify overlaps with Dalil's export bundle and graph. Dalil does not compete
+there: `export`, `map.md` and `--html` stay, but get no new scope.
 
-```text
-repository
-    |
-    v
-index
-  files | text | symbols | git | manifests | tests
-    |
-    v
-relationship graph
-  refs | calls | imports | dependencies | containment | changes
-    |
-    v
-query + analysis
-  search | neighbors | paths | impact | structure | ranking
-    |
-    v
-bounded projections
-  orient | context | architecture | subsystem | impact | review | export
+## Product claim
+
+Dalil names the files a real change touched, measured as recall@k over replayed
+commits, with a warm query under 50 ms and no model. Every retrieval change is
+judged against that measurement.
+
+## Design
+
+### Repository store
+
+One private store holds everything Dalil indexes. Exported formats, such as
+`map.json`, are projections of it and keep their own schema.
+
+- Paths, symbols, commits and authors are interned. `PathId`, `SymbolId`,
+  `CommitId` and `AuthorId` are `u32` indices into one string table. Other
+  structures hold only these integers.
+- The store is encoded with `postcard`, behind a header with a format version
+  and a checksum of the encoded body. A version mismatch or a failed checksum
+  rebuilds the store; `postcard` alone can decode a corrupted body without an
+  error. Memory-mapping is considered only if load time still dominates.
+- The trigram index, symbol index and relationship graph move to interned IDs.
+  Today `FileId` is a `String`, so every trigram posting repeats a full path.
+
+### Commit table
+
+A commit never changes, so its row is keyed by its oid and written once.
+`CommitId` is the order of ingest, not of history.
+
+```rust
+struct CommitRec {
+    oid: [u8; 20],
+    time: i64,
+    author: AuthorId,
+    subject: StrRef,
+    parents: Range<u32>, // into commit_parents
+    files: Range<u32>,   // into commit_files
+}
+
+commits: Vec<CommitRec>
+commit_parents: Vec<CommitId>
+commit_files: Vec<PathId>     // changed paths of every commit, flat
+path_commits: Csr<PathId, CommitId> + Vec<(PathId, CommitId)>  // sealed + appended
 ```
 
-The implementation does not need to expose these layers as separate storage
-systems. The distinction exists to keep indexing, graph analysis, and report
-rendering from collapsing into one pipeline.
+A warm run walks every parent from `HEAD` and stops on each branch of the walk
+at a commit whose oid is already stored. Side branches behind a merge are
+ingested, and switching branches, rebasing or force pushing only adds the
+commits not yet seen. Ingest costs time proportional to the new commits.
 
-## Query surface
+Rows are never dropped because `HEAD` stops reaching them. A query marks the
+commits reachable from `HEAD` in a bitset, computed from `commit_parents` and
+cached per `HEAD`, and ignores the rest. Merge commits keep their parents but
+no file lists, as today.
 
-Dalil should expose composable repository-wide primitives in `dalil-core`.
-CLI, MCP, and other adapters project these operations rather than implementing
-new semantics.
+New rows for `path_commits` go to the append buffer. Compaction merges the
+buffer into the sealed CSR once it exceeds a tenth of the sealed size, so its
+cost is spread over the commits that filled it. Compaction also drops the
+rows of commits no local branch, tag or `HEAD` reaches, so rewritten history
+does not grow the store without bound.
 
-The target operation families are:
+Rename detection runs once per commit at ingest, using `gix` rewrite tracking.
+It records each rename with its `CommitId`, and forwarding follows the renames
+reachable from the commit asked about, so history recorded under an old name
+counts toward that commit's name for the file.
 
-- repository overview and project discovery;
-- lexical, path, symbol, and filtered search;
-- symbol lookup and definition/reference queries;
-- callers, callees, imports, and dependency queries where supported;
-- bounded neighborhoods and paths through repository relationships;
-- current-change and revision-range impact;
-- relevant tests, entry points, and project boundaries;
-- history, churn, activity, and hotspot signals;
-- structural summaries such as central nodes, components, and communities when
-  the evidence supports them.
+### Co-change
 
-Every operation must have deterministic limits or explicit pagination. A query
-that matches hundreds of facts should return the best bounded result plus
-collection totals or continuation metadata rather than flooding model context.
+Co-change is computed per query and not stored as a matrix. Given seed files,
+walk their reachable `path_commits`, count the other files in each commit and
+weight each commit by `1 / files_in_commit`. Commits that touch more than a
+configured number of files (default 50) are skipped, since formatting passes
+and mass renames carry no pairing signal. The work is limited by the seeds'
+history, not by repository size. A per-path cache of the top 32 neighbors is
+added only if profiling shows the query is too slow.
 
-## Repository artifacts
+### Commit-message index
 
-The repository bundle remains an explicit export surface:
+An inverted index maps terms in each commit's subject and body to `CommitId`s,
+ranked with BM25. A task's text finds the best matching commits. Their files,
+passed through the rename table, become candidates. This answers "how was a
+change like this made before".
 
-```text
-.dalil/
-├── map.json
-├── map.md
-├── review.md
-└── tasks/
-    └── <timestamp>-<task-slug>-<id>.md
-```
+### Fusion
 
-- `map.json` is the portable, versioned repository evidence model.
-- `map.md` is a bounded human-readable projection of that snapshot.
-- `review.md` is a compact, stable architectural surface intended for Git
-  review.
-- Task records preserve task-specific projections when explicitly requested.
+A recommended file's score combines four ranked lists: commit-message matches,
+co-change with the seed files, trigram and path search, and graph proximity.
+Start with reciprocal rank fusion, which needs no weights. The evaluation
+decides whether learned weights are worth adding.
 
-Additional artifacts should be able to use the same model without expanding
-`map.md` into a universal report. Candidate projections include architecture,
-subsystem, hotspot, and change-impact reports.
+### Evaluation
 
-Artifacts should answer a recognizable question, fit a published size budget,
-and report omitted detail. The complete repository model is available through
-JSON and typed queries; Markdown should favor usefulness over completeness.
+Each historical commit `i` is a test case: its subject is the task, and the
+files it touched are the expected answer. Dalil must answer as it would have
+at `i`'s parent, and the two kinds of list get there differently.
 
-## Repository bundle contract
+- History lists, the commit-message index and co-change, are masked. The
+  reachability bitset is computed from `i`'s parent instead of `HEAD`, so `i`
+  and every later commit drop out. BM25 document counts and IDF come from the
+  masked set, and renames are forwarded as of the parent.
+- Code lists, trigram and path search and the graph, describe a tree and
+  cannot be masked: today's tree holds the files `i` created. They are built
+  from the parent's tree for each case.
 
-### Explicit repository writes
+The harness reads the parent's tree with `gix` into a temporary directory.
+It runs no hooks, filters or checkout, and removes the directory when the case
+ends, when it is interrupted, or at the next start after a killed run.
 
-Dalil writes `.dalil/` only through explicit export operations. Ordinary
-analysis and query commands remain read-only with respect to the target
-repository.
+The harness reports recall@5, recall@10, bytes returned and latency per
+query. It compares each Dalil command against a baseline of keyword search
+plus path ranking. Routine CI runs on small synthetic repositories. A larger
+tier runs on pinned public repositories before a release.
 
-The export flow may create `.dalil/`, replace Dalil-owned generated files, and
-append explicitly requested records. It must not edit `.gitignore`, delete
-unknown files, or decide whether generated artifacts should be committed.
+## Targets
 
-### Portable evidence map
+On a repository with 10,000 files and 50,000 commits:
 
-The JSON map stores reusable repository facts and evidence:
+- A warm query takes under 50 ms at the median.
+- History ingest after a pull takes time proportional to the new commits,
+  with compaction spread over the commits that filled the buffer.
+- The store is at most a quarter of the size of today's JSON cache for the
+  same repository.
 
-- repository identity, revision, worktree fingerprint, scope, and provenance;
-- project roots, files, symbols, manifests, entry points, tests, and landmarks;
-- typed relationships with source, target, evidence kind, resolution,
-  confidence, and ambiguity;
-- bounded history and current-change facts;
-- collection summaries, limitations, and quality metadata;
-- schema and producer versions needed to reject incompatible data.
+Cold indexing gets a published time budget once the store exists and can be
+measured.
 
-Task rankings, reading order, token allocation, graph ranking, impact
-conclusions, communities, and other analyses are projections over repository
-facts unless their representation explicitly defines them as derived evidence.
-They do not silently become canonical facts.
+## Agent surface
 
-Node and relationship identifiers remain stable when their underlying facts do
-not change. Arrays and Markdown sections use deterministic ordering. Changing
-the meaning of an existing exported field requires a schema version change.
+The MCP server and the skill expose a few tools, one per question at the top
+of this file, plus search. Their names and parameters are still open; the
+current CLI command names are not the target. Every collection a tool returns
+has a default limit and reports totals and omissions.
 
-### Markdown and review projections
+Human output keeps the same evidence. The standard limitation text moves out
+of the default output into `--json` and `explain`.
 
-`map.md` renders a bounded overview from the same typed snapshot as `map.json`.
-It may omit low-priority detail but records totals and omissions.
+## Distribution
 
-`review.md` remains intentionally smaller. It contains stable public-surface
-and architectural facts useful in a Git diff and excludes noisy reference-level
-or worktree-specific detail.
+Dalil has not been released and will not be published to crates.io. Releases
+use fabrial's flow: a Release PR workflow writes the version and
+`CHANGELOG.md`, the merge is tagged, and the tag builds binaries with `dist`,
+creates the GitHub release and updates the Homebrew tap. The current
+`release.yml` is replaced.
 
-### Task records
+## Deferred
 
-`dalil export --task <TASK>` remains supported, but task journaling is one
-projection rather than the organizing model for Dalil. Task files preserve the
-original task, matching repository state, selected evidence, quality, and
-limitations. They remain append-only from Dalil's perspective.
+These stay out of the plan until the evaluation shows they help:
 
-### Cache and freshness
+- Structural analysis: centrality, communities and dependency components.
+- Architecture and subsystem projections.
+- New export formats and HTML views.
+- Language-server or SCIP providers for precise references.
+- More languages.
 
-The private cache is an implementation detail optimized for repeated local
-queries. Export formats must not expose cache layout or require consumers to
-understand it.
+## Principles
 
-Cold and warm analysis of unchanged repository state must be semantically
-equivalent. Targeted invalidation should avoid rebuilding unrelated index and
-graph state. Every exported artifact records enough repository state to detect
-staleness.
-
-### Safety
-
-Repository analysis does not execute project code, Git hooks, filters, pagers,
-editors, credential helpers, or network transports. Export validates all
-repository-local destinations and publishes generated files safely.
-
-Partial analysis retains typed uncertainty and limitations rather than
-silently promoting inferred relationships to precise facts.
-
-## Milestones
-
-### 1. Repository evidence foundation — complete
-
-Ship the portable repository evidence map, bounded Markdown projection,
-reviewable architectural snapshot, safe export flow, and explicit task records.
-
-This establishes the stable repository model and artifact contract on which
-later query and graph capabilities build.
-
-### 2. Repository query engine
-
-Turn the existing evidence model into a first-class query surface.
-
-Deliver typed core operations for filtered search, symbol lookup, definitions,
-references, dependency relationships, current changes, tests, and history.
-Strengthen the private index so repeated queries avoid rescanning unrelated
-repository content.
-
-The milestone is complete when CLI and JSON callers can perform the common
-repository-wide queries with bounded, deterministic results and equivalent cold
-and warm semantics.
-
-### 3. Relationship graph and traversal — complete
-
-Make repository relationships directly traversable. `dalil impact` now seeds
-this graph from resolved changes and explicit file or symbol inputs, walks
-incoming relationships, and reports ranked direct, transitive, and
-inferred downstream evidence with the paths and limits behind each conclusion.
-
-Add efficient adjacency access over typed relationships, neighborhoods,
-paths, reverse dependencies, callers/callees where evidence supports them, and
-change propagation. Preserve provenance and uncertainty through traversal.
-
-The milestone is complete when graph-native operations are useful without
-requiring consumers to parse `map.json` or reconstruct relationships from
-rendered reports.
-
-### 4. Structural repository analysis
-
-Build useful codebase-wide analysis on top of the query and relationship
-layers.
-
-Add structural signals such as central nodes, dependency components,
-architectural boundaries, hotspots, and communities where they produce stable,
-explainable results. Combine structure with tests, entry points, Git history,
-and current changes instead of treating the source graph in isolation.
-
-The milestone is complete when each derived result can explain the evidence
-behind it and remains bounded enough for routine agent use.
-
-### 5. Bounded artifact projections
-
-Use repository-wide intelligence to produce concise artifacts for recognizable
-workflows.
-
-Prioritize architecture, subsystem, impact, review, and context projections.
-Each projection receives a hard output budget, reports omissions, and links its
-claims back to typed repository evidence.
-
-The milestone is complete when a user can obtain useful repository-wide
-artifacts without consuming the complete graph or evidence map.
-
-### 6. Agent and integration surface
-
-Expose the same repository intelligence as composable agent tools.
-
-MCP and native integrations should support repository overview, search, symbol
-lookup, references, dependencies, callers/callees, neighborhoods, paths,
-changes, impact, history, and bounded context construction. Large collections
-must use limits or continuation rather than unbounded tool responses.
-
-The milestone is complete when an agent can investigate a repository through
-small tool calls without falling back to repeated broad file reads for facts
-Dalil already knows.
-
-### 7. Quality, scale, and distribution
-
-Benchmark search quality, graph correctness, context efficiency, traversal
-cost, artifact usefulness, indexing work, invalidation, latency, memory, and
-output size on public or synthetic repositories.
-
-Harden safety and cross-interface semantic consistency, then build and validate
-checksummed packages on supported platforms.
-
-## Deferred extensions
-
-Optional semantic providers, framework-specific enrichers, additional
-languages, alternate persistent stores, and independently distributed query
-packs stay outside the active roadmap until there is a concrete implementation
-reason to schedule them.
-
-They should become TODO items only when Dalil has decided to build them. The
-TODO is not a research queue.
+1. Outputs have stated limits and report what they omit.
+2. CLI, MCP and the skill call the same typed operations in `dalil-core`.
+3. Analysis is offline and deterministic. It does not execute project code,
+   Git hooks, filters, pagers, credential helpers or network transports.
+4. Ordinary commands do not write to the repository. Only `dalil export`
+   writes, and only under `.dalil/`.
+5. Derived results keep their provenance and confidence. A lexical match is
+   not reported as a resolved call.
+6. A dependency is added only when it simplifies a committed capability.
 
 ## Technical constraints
 
 - Rust edition 2024 with MSRV 1.85.
-- Keep `dalil-core` authoritative for repository facts, queries, analysis, and
-  projection models.
-- Keep dependency direction from CLI and MCP crates into `dalil-core`.
-- Renderers and adapters must not create separate analysis semantics.
-- Keep outputs bounded by default; machine-readable interfaces must report
-  totals, omissions, or continuation state when results are truncated.
-- Preserve provenance, confidence, ambiguity, and partial-analysis state across
-  query and graph operations.
-- Add dependencies only when they materially simplify a capability Dalil has
-  committed to shipping.
-- Verify at the compiled CLI boundary with small fixture repositories and use
-  focused unit tests for index, query, graph, schema, rendering, and safety
-  behavior.
-- Keep private repository contents out of committed fixtures. Use public or
-  synthetic inputs for regressions and benchmarks.
-
-Required verification remains:
-
-```text
-cargo fmt --all -- --check
-cargo check --workspace --all-targets --all-features
-cargo test --workspace --all-features
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
-cargo package --workspace --exclude xtask --locked
-cargo release-assets
-```
-
-## Risks and open questions
-
-- A richer graph can tempt Dalil into returning too much. Output budgets and
-  continuation must remain part of every public query contract.
-- Approximate lexical or syntax relationships can look more precise than they
-  are. Traversal and derived analysis must preserve provenance and confidence.
-- A persistent index can become a second public format by accident. Cache
-  layout remains private; exported schemas stay intentionally separate.
-- Structural algorithms can reward generic utility nodes or generated code.
-  Ranking and community outputs need repository-aware filtering and clear
-  explanations.
-- Cross-language call and reference resolution will remain incomplete without
-  semantic providers. Dalil should return bounded uncertainty rather than hide
-  the gap.
-- Checked-in generated artifacts can become stale or noisy. Full evidence stays
-  local by default; Git-oriented projections remain deliberately compact.
+- Dependencies point from `dalil-cli` and `dalil-mcp` into `dalil-core`.
+- The store layout is private and versioned apart from exported schemas.
+- Fixtures and benchmarks use public or synthetic repositories only.
+- The gates are the command `gates` names in `.github/fabrial.toml`.
