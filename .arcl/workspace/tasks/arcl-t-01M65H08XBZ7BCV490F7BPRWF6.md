@@ -15,5 +15,5 @@ Acceptance criteria:
 
 - [ ] `PathId`, `SymbolId`, `CommitId` and `AuthorId` index one string table
 - [ ] The trigram index, symbol index and relationship graph hold only IDs
-- [ ] Reports and exported schemas are unchanged; the existing tests pass
-      unmodified
+- [ ] Reports and exported schemas are unchanged; the CLI and schema tests
+      pass unmodified

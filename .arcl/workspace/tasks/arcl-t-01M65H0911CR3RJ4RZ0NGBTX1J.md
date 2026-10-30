@@ -5,7 +5,7 @@ title = "Report what a change missed"
 status = "pending"
 priority = "normal"
 position = 3
-blocked-by = ["arcl-t-01M65H08ZZWHP7SFFAA0X7P6W2"]
+blocked-by = ["arcl-t-01M65H08W8HBCF0NZCAQXN1KGQ", "arcl-t-01M65H08ZZWHP7SFFAA0X7P6W2"]
 +++
 
 Answer "what did my change miss" for the dirty worktree or a revision range:

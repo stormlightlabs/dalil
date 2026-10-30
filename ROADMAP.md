@@ -26,7 +26,7 @@ On 2026-10-30 we ran Dalil on its own repository (222 files, 50 commits):
 - `dalil context --task 'add a new language (Kotlin) support'` recommended
   only `README.md`.
 - `dalil relationships callers language_capabilities` returned 0 results.
-  `grep` finds 3 call sites in 2 files.
+  `grep` finds 2 call sites in 2 files.
 - `dalil impact` listed identifiers such as `writeln` and `expect` as changed
   symbols.
 - A warm `map`, `orient` or `search` took 0.8 to 0.9 s, against about 10 ms for
@@ -46,12 +46,12 @@ get from `grep`, and Dalil already parses it.
 
 ## Position
 
-| Tool       | What it does                                   | When it runs        |
-| ---------- | ---------------------------------------------- | ------------------- |
-| CodeRabbit | Hosted LLM pull request review over a code graph | After a PR opens  |
-| Greptile   | Hosted LLM review, API and MCP over a code graph | After a PR opens  |
-| Graphify   | Local tree-sitter knowledge graph, `graph.json`, report, HTML view | On demand |
-| Dalil      | Local history-first retrieval, no model         | While the agent works |
+| Tool       | What it does                                                       | When it runs          |
+| ---------- | ------------------------------------------------------------------ | --------------------- |
+| CodeRabbit | Hosted LLM pull request review over a code graph                   | After a PR opens      |
+| Greptile   | Hosted LLM review, API and MCP over a code graph                   | After a PR opens      |
+| Graphify   | Local tree-sitter knowledge graph, `graph.json`, report, HTML view | On demand             |
+| Dalil      | Local history-first retrieval, no model                            | While the agent works |
 
 CodeRabbit and Greptile judge a finished change. Dalil points at files while
 the change is being written, so the two kinds of tool can run together.
@@ -81,7 +81,8 @@ One private store holds everything Dalil indexes. Exported formats, such as
 
 ### Commit table
 
-Commits never change, so the commit table is append-only.
+Commits never change, so the commit table is append-only while history only
+grows.
 
 ```rust
 struct CommitRec {
@@ -98,8 +99,10 @@ path_commits: Csr<PathId, CommitId>  // inverse index
 ```
 
 A warm run walks from `HEAD` until it reaches a known commit, so ingest costs
-time proportional to the new commits. Merge commits are recorded without file
-lists, as today.
+time proportional to the new commits. After a rebase or force push, rows for
+commits no longer reachable from `HEAD` are dropped back to the newest known
+commit that is still reachable, and the commits after it are ingested again.
+Merge commits are recorded without file lists, as today.
 
 Rename detection runs once per commit at ingest, using `gix` rewrite tracking.
 It fills a forwarding table from each old `PathId` to its current `PathId`, so

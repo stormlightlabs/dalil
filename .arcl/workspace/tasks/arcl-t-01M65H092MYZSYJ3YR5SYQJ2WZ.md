@@ -5,6 +5,7 @@ title = "Release with fabrial's dist flow"
 status = "pending"
 priority = "normal"
 position = 1
+blocked-by = ["arcl-t-01M65H093DD9QMJAYD27BA5P28"]
 +++
 
 Dalil has not been released and will not go to crates.io. Use fabrial's

@@ -21,4 +21,4 @@ Acceptance criteria:
 - [ ] It reports the same numbers for a baseline of keyword search plus path
       ranking
 - [ ] Results for Dalil and one pinned public repository are recorded in
-      `docs/`
+      `docs/src/content/docs/reference/evaluation.md`
