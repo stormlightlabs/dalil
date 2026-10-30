@@ -241,7 +241,7 @@ pub(crate) fn compile(mut request: TraversalRequest, map: &MapReport) -> Travers
             detail: "some repository paths were omitted before graph construction".to_owned(),
         });
     }
-    omissions.sort_by(|left, right| left.reason.cmp(&right.reason));
+    omissions.sort_by_key(|left| left.reason);
 
     let mut limitations = map.limitations.clone();
     limitations.push(
