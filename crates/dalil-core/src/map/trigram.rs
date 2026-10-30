@@ -75,7 +75,7 @@ impl Serialize for TrigramIndex {
                 (*trigram, entries)
             })
             .collect::<Vec<_>>();
-        postings.sort_by(|left, right| left.0.cmp(&right.0));
+        postings.sort_by_key(|left| left.0);
         let mut trigrams_by_file = self
             .trigrams_by_file
             .iter()
