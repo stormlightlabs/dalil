@@ -12,13 +12,7 @@ code, hooks, filters, repository programs, or network transports.
 
 ## Install
 
-Install the published crate:
-
-```sh
-cargo install --locked dalil
-```
-
-To build a source checkout instead:
+Dalil has no release yet. Build it from a source checkout:
 
 ```sh
 cargo build --locked --release
