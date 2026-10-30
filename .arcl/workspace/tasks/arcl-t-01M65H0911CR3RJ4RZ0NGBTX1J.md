@@ -19,4 +19,5 @@ Acceptance criteria:
 - [ ] Output lists related tests and a command to run them for Cargo, npm,
       pytest and Go projects
 - [ ] A replay check: for commits split in two, the second half's files rank
-      in the top 10
+      in the top 10 given the first half, with history masked to the commit's
+      parent so the commit itself and later commits do not count

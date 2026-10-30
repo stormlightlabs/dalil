@@ -14,6 +14,9 @@ commits.
 Acceptance criteria:
 
 - [ ] Ingest detects renames with `gix` rewrite tracking
-- [ ] A forwarding table maps each old `PathId` to its current `PathId`
+- [ ] Each rename is stored with its `CommitId`, and forwarding follows only
+      the renames reachable from the commit asked about
 - [ ] Churn and `path_commits` for a renamed file include commits from before
       the rename, covered by a fixture
+- [ ] Asked as of a commit before the rename, the fixture's file keeps its old
+      name

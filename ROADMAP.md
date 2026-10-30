@@ -74,15 +74,17 @@ One private store holds everything Dalil indexes. Exported formats, such as
 - Paths, symbols, commits and authors are interned. `PathId`, `SymbolId`,
   `CommitId` and `AuthorId` are `u32` indices into one string table. Other
   structures hold only these integers.
-- The store is encoded with `postcard`. Memory-mapping is considered only if
-  load time still dominates after that.
+- The store is encoded with `postcard`, behind a header with a format version
+  and a checksum of the encoded body. A version mismatch or a failed checksum
+  rebuilds the store; `postcard` alone can decode a corrupted body without an
+  error. Memory-mapping is considered only if load time still dominates.
 - The trigram index, symbol index and relationship graph move to interned IDs.
   Today `FileId` is a `String`, so every trigram posting repeats a full path.
 
 ### Commit table
 
-Commits never change, so the commit table is append-only while history only
-grows.
+A commit never changes, so its row is keyed by its oid and written once.
+`CommitId` is the order of ingest, not of history.
 
 ```rust
 struct CommitRec {
@@ -90,29 +92,42 @@ struct CommitRec {
     time: i64,
     author: AuthorId,
     subject: StrRef,
-    files: Range<u32>, // into commit_files
+    parents: Range<u32>, // into commit_parents
+    files: Range<u32>,   // into commit_files
 }
 
-commits: Vec<CommitRec>        // ordered, oldest first
-commit_files: Vec<PathId>      // changed paths of every commit, flat
-path_commits: Csr<PathId, CommitId>  // inverse index
+commits: Vec<CommitRec>
+commit_parents: Vec<CommitId>
+commit_files: Vec<PathId>     // changed paths of every commit, flat
+path_commits: Csr<PathId, CommitId> + Vec<(PathId, CommitId)>  // sealed + appended
 ```
 
-A warm run walks from `HEAD` until it reaches a known commit, so ingest costs
-time proportional to the new commits. After a rebase or force push, rows for
-commits no longer reachable from `HEAD` are dropped back to the newest known
-commit that is still reachable, and the commits after it are ingested again.
-Merge commits are recorded without file lists, as today.
+A warm run walks every parent from `HEAD` and stops on each branch of the walk
+at a commit whose oid is already stored. Side branches behind a merge are
+ingested, and switching branches, rebasing or force pushing only adds the
+commits not yet seen. Ingest costs time proportional to the new commits.
+
+Rows are never dropped because `HEAD` stops reaching them. A query marks the
+commits reachable from `HEAD` in a bitset, computed from `commit_parents` and
+cached per `HEAD`, and ignores the rest. Merge commits keep their parents but
+no file lists, as today.
+
+New rows for `path_commits` go to the append buffer. Compaction merges the
+buffer into the sealed CSR once it exceeds a tenth of the sealed size, so its
+cost is spread over the commits that filled it. Compaction also drops the
+rows of commits no local branch, tag or `HEAD` reaches, so rewritten history
+does not grow the store without bound.
 
 Rename detection runs once per commit at ingest, using `gix` rewrite tracking.
-It fills a forwarding table from each old `PathId` to its current `PathId`, so
-history recorded under an old name counts toward today's file.
+It records each rename with its `CommitId`, and forwarding follows the renames
+reachable from the commit asked about, so history recorded under an old name
+counts toward that commit's name for the file.
 
 ### Co-change
 
 Co-change is computed per query and not stored as a matrix. Given seed files,
-walk their `path_commits`, count the other files in each commit and weight
-each commit by `1 / files_in_commit`. Commits that touch more than a
+walk their reachable `path_commits`, count the other files in each commit and
+weight each commit by `1 / files_in_commit`. Commits that touch more than a
 configured number of files (default 50) are skipped, since formatting passes
 and mass renames carry no pairing signal. The work is limited by the seeds'
 history, not by repository size. A per-path cache of the top 32 neighbors is
@@ -134,10 +149,21 @@ decides whether learned weights are worth adding.
 
 ### Evaluation
 
-The commit table is ordered, so "what Dalil would have said before commit `i`"
-means ignoring every `CommitId` at or after `i`. No rebuild is needed. Each
-historical commit is a test case: its subject is the task, and the files it
-touched are the expected answer.
+Each historical commit `i` is a test case: its subject is the task, and the
+files it touched are the expected answer. Dalil must answer as it would have
+at `i`'s parent, and the two kinds of list get there differently.
+
+- History lists, the commit-message index and co-change, are masked. The
+  reachability bitset is computed from `i`'s parent instead of `HEAD`, so `i`
+  and every later commit drop out. BM25 document counts and IDF come from the
+  masked set, and renames are forwarded as of the parent.
+- Code lists, trigram and path search and the graph, describe a tree and
+  cannot be masked: today's tree holds the files `i` created. They are built
+  from the parent's tree for each case.
+
+The harness reads the parent's tree with `gix` into a temporary directory.
+It runs no hooks, filters or checkout, and removes the directory when the case
+ends, when it is interrupted, or at the next start after a killed run.
 
 The harness reports recall@5, recall@10, bytes returned and latency per
 query. It compares each Dalil command against a baseline of keyword search
@@ -149,7 +175,8 @@ tier runs on pinned public repositories before a release.
 On a repository with 10,000 files and 50,000 commits:
 
 - A warm query takes under 50 ms at the median.
-- History ingest after a pull takes time proportional to the new commits.
+- History ingest after a pull takes time proportional to the new commits,
+  with compaction spread over the commits that filled the buffer.
 - The store is at most a quarter of the size of today's JSON cache for the
   same repository.
 

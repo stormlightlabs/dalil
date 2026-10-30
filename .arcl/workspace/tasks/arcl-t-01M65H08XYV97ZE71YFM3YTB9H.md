@@ -13,7 +13,9 @@ to 0.9 s.
 
 Acceptance criteria:
 
-- [ ] The store is encoded with `postcard` and carries its own format version
-- [ ] A store from another version or a corrupt store is rebuilt, not read
+- [ ] The store is encoded with `postcard` behind a header carrying its own
+      format version and a checksum of the encoded body
+- [ ] A store from another version, or one whose checksum fails, is rebuilt,
+      not read; a test flips a byte in the body and sees a rebuild
 - [ ] Store size and warm `map`, `orient` and `search` times on Dalil are
       recorded before and after in the pull request
