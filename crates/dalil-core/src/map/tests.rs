@@ -1844,6 +1844,37 @@ fn changed_definitions_map_a_javascript_arrow_body_to_its_binding() {
 }
 
 #[test]
+fn changed_definitions_map_a_named_function_expression_to_its_binding() {
+    let source = "const f = function g() {\n  a();\n};\nconsole.log(function h() {\n  a();\n});\n";
+    for support in [&JAVASCRIPT_SUPPORT, &TYPESCRIPT_SUPPORT] {
+        assert_eq!(changed_names(source, support, 2), [("f".to_owned(), 1)]);
+        let symbols = parse_source(source.as_bytes(), support).symbols;
+        let unbound = symbols
+            .iter()
+            .find(|symbol| symbol.name == "a" && symbol.location.start.line == 5)
+            .expect("reference inside the unbound expression");
+        assert_eq!(unbound.scope, ["h"], "an unbound named expression keeps its name");
+    }
+}
+
+#[test]
+fn owning_definition_applies_its_filter_after_resolving_the_owner() {
+    let source = "function b() {}\nclass A {\n  run() {}\n}\nconst run = () => {\n  b();\n};\n";
+    let symbols = parse_source(source.as_bytes(), &JAVASCRIPT_SUPPORT).symbols;
+    let call = symbols
+        .iter()
+        .find(|symbol| symbol.name == "b" && symbol.role != SymbolRole::Definition)
+        .expect("call to b");
+    let owner = changes::owning_definition(call, &symbols, |_| true).expect("owner of the call");
+    assert_eq!((owner.name.as_str(), owner.location.start.line), ("run", 5));
+    let not_variable = |symbol: &SourceSymbol| symbol.kind != SymbolKind::Variable;
+    assert!(
+        changes::owning_definition(call, &symbols, not_variable).is_none(),
+        "a rejected owner must not fall back to the method `A.run`"
+    );
+}
+
+#[test]
 fn changed_definitions_map_lua_table_function_bodies_to_the_function() {
     let source = "local M = {}\nfunction M.foo()\n  g()\nend\nfunction M:bar()\n  g()\nend\nreturn M\n";
     assert_eq!(changed_names(source, &LUA_SUPPORT, 3), [("foo".to_owned(), 2)]);

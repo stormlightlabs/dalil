@@ -680,20 +680,26 @@ pub fn scope_for_node(start: Option<Node<'_>>, source: &[u8], scope_kinds: &[&st
     scopes
 }
 
-/// Like [`scope_for_node`], but a function without a name of its own that
-/// is the value of a `const`, `let` or `var` declarator takes the
-/// declarator's name, so `const f = () => {}` scopes its body under `f`.
+/// Like [`scope_for_node`], but a function that is the value of a `const`,
+/// `let` or `var` declarator takes the declarator's name, so
+/// `const f = () => {}` and `const f = function g() {}` scope their bodies
+/// under `f`. The declarator is the definition; `g` is visible only inside
+/// the function. A named function expression with no declarator keeps its
+/// own name.
 fn javascript_scope(start: Option<Node<'_>>, source: &[u8], scope_kinds: &[&str]) -> Vec<String> {
     let mut scopes = Vec::new();
     let mut current = start;
     while let Some(node) = current {
         if scope_kinds.contains(&node.kind()) || node.kind() == "function_expression" {
-            let name = node.child_by_field_name("name").or_else(|| {
-                let parent = node.parent().filter(|parent| parent.kind() == "variable_declarator")?;
-                let value = parent.child_by_field_name("value")?;
-                let name = parent.child_by_field_name("name")?;
-                (value.id() == node.id() && name.kind() == "identifier").then_some(name)
-            });
+            let declarator = node
+                .parent()
+                .filter(|parent| parent.kind() == "variable_declarator")
+                .and_then(|parent| {
+                    let value = parent.child_by_field_name("value")?;
+                    let name = parent.child_by_field_name("name")?;
+                    (value.id() == node.id() && name.kind() == "identifier").then_some(name)
+                });
+            let name = declarator.or_else(|| node.child_by_field_name("name"));
             if let Some(name) = name {
                 scopes.push(text_for_node(name, source));
             }

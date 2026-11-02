@@ -7,6 +7,9 @@ use super::*;
 
 const MAX_CHANGED_PATHS: usize = 4_096;
 const MAX_CHANGED_TREE_NODES: usize = 100_000;
+/// The uncertainty kind for an edit whose symbols all lie outside any
+/// definition. It does not make the resolution partial.
+const TOP_LEVEL_CHANGE: &str = "top_level_change";
 
 #[derive(Clone, Copy)]
 struct TreeFile {
@@ -144,8 +147,34 @@ pub fn enrich_change_symbols(resolution: &mut ChangeResolution, map: &MapReport)
             continue;
         }
         change.symbols = changed_definitions(&source.symbols, &change.changed_lines);
+        for range in &change.changed_lines {
+            let range = std::slice::from_ref(range);
+            let has_symbols = source
+                .symbols
+                .iter()
+                .any(|symbol| line_ranges_overlap(&symbol.location, range));
+            if has_symbols && changed_definitions(&source.symbols, range).is_empty() {
+                let lines = if range[0].start == range[0].end {
+                    format!("line {}", range[0].start)
+                } else {
+                    format!("lines {}-{}", range[0].start, range[0].end)
+                };
+                resolution.uncertainty.push(change_uncertainty(
+                    TOP_LEVEL_CHANGE,
+                    format!(
+                        "The edit at `{}` {lines} is outside any definition, so only the file seeds impact.",
+                        change.path
+                    ),
+                ));
+            }
+        }
     }
-    if !resolution.uncertainty.is_empty() && resolution.status == ChangeResolutionStatus::Resolved {
+    // A top-level edit resolved fully; it only has no definition to name.
+    let incomplete = resolution
+        .uncertainty
+        .iter()
+        .any(|uncertainty| uncertainty.kind != TOP_LEVEL_CHANGE);
+    if incomplete && resolution.status == ChangeResolutionStatus::Resolved {
         resolution.status = ChangeResolutionStatus::Partial;
     }
 }
@@ -531,7 +560,7 @@ fn is_function_like(definition: &SourceSymbol) -> bool {
 }
 
 /// Finds the definition in the same file that owns `symbol`: the innermost
-/// entry of its scope chain that names an accepted definition.
+/// entry of its scope chain that names a definition, if `accept` takes it.
 ///
 /// Each entry also matches by its last segment after `.` or `:`, so Lua's
 /// `M.foo` and `M:foo` find `foo`. Among definitions of that name before the
@@ -539,33 +568,40 @@ fn is_function_like(definition: &SourceSymbol) -> bool {
 /// failing that, the nearest one of that name. The fallback covers chains
 /// that differ from the definition's, such as a Go method body's `[p, M]`
 /// against the method's `[p, R]`.
+///
+/// The owner is found among all definitions and `accept` is applied to it
+/// afterwards. When `accept` rejects it, there is no owner: filtering first
+/// would let the name-only fallback pick another definition of that name,
+/// such as a method `A.run` for the body of `const run = () => {}`.
 pub(crate) fn owning_definition<'a>(
     symbol: &SourceSymbol, symbols: &'a [SourceSymbol], accept: impl Fn(&SourceSymbol) -> bool,
 ) -> Option<&'a SourceSymbol> {
-    (1..=symbol.scope.len()).rev().find_map(|depth| {
-        let entry = &symbol.scope[depth - 1];
-        let parents = &symbol.scope[..depth - 1];
-        let short = entry.rsplit(['.', ':']).next().unwrap_or(entry);
-        let candidates = symbols
-            .iter()
-            .filter(|definition| {
-                definition.role == SymbolRole::Definition
-                    && definition.evidence != SymbolEvidence::Import
-                    && !std::ptr::eq(*definition, symbol)
-                    && (definition.name == *entry || definition.name == short)
-                    && definition.location.start.line <= symbol.location.start.line
-                    && accept(definition)
-            })
-            .collect::<Vec<_>>();
-        let nearest = |exact: bool| {
-            candidates
+    (1..=symbol.scope.len())
+        .rev()
+        .find_map(|depth| {
+            let entry = &symbol.scope[depth - 1];
+            let parents = &symbol.scope[..depth - 1];
+            let short = entry.rsplit(['.', ':']).next().unwrap_or(entry);
+            let candidates = symbols
                 .iter()
-                .copied()
-                .filter(|definition| !exact || definition.scope == parents)
-                .max_by_key(|definition| (definition.location.start.line, definition.location.start.column))
-        };
-        nearest(true).or_else(|| nearest(false))
-    })
+                .filter(|definition| {
+                    definition.role == SymbolRole::Definition
+                        && definition.evidence != SymbolEvidence::Import
+                        && !std::ptr::eq(*definition, symbol)
+                        && (definition.name == *entry || definition.name == short)
+                        && definition.location.start.line <= symbol.location.start.line
+                })
+                .collect::<Vec<_>>();
+            let nearest = |exact: bool| {
+                candidates
+                    .iter()
+                    .copied()
+                    .filter(|definition| !exact || definition.scope == parents)
+                    .max_by_key(|definition| (definition.location.start.line, definition.location.start.column))
+            };
+            nearest(true).or_else(|| nearest(false))
+        })
+        .filter(|owner| accept(owner))
 }
 
 fn line_ranges_overlap(location: &SourceLocation, ranges: &[ChangedLineRange]) -> bool {

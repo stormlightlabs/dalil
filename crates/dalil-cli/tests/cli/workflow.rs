@@ -436,6 +436,45 @@ fn context_resolves_dirty_worktree_paths_and_changed_symbols() {
 }
 
 #[test]
+fn top_level_edits_are_reported_without_making_the_resolution_partial() {
+    let fixture = MapFixtureRepository::new();
+    write_file(fixture.root.join("src/run.py"), b"run()\n");
+    write_file(
+        fixture.root.join("src/spec.test.js"),
+        b"describe(\"x\", () => {\n  b();\n});\n",
+    );
+
+    let output = fixture.run(&["impact", "--dirty-worktree", "--no-cache", "--json"]);
+    assert!(output.status.success(), "impact failed: {:?}", output.stderr);
+    let json: Value = serde_json::from_str(&stdout(&output)).expect("valid impact JSON");
+    let resolution = &json["impact"]["change_resolution"];
+    assert_eq!(resolution["status"], "resolved");
+    let changes = resolution["changes"].as_array().expect("resolved changes");
+    let uncertainty = resolution["uncertainty"].as_array().expect("uncertainty");
+    for (path, lines) in [("src/run.py", "line 1"), ("src/spec.test.js", "lines 1-3")] {
+        let change = changes
+            .iter()
+            .find(|change| change["path"] == path)
+            .unwrap_or_else(|| panic!("change for {path}"));
+        assert!(change["symbols"].as_array().is_some_and(Vec::is_empty), "{change:?}");
+        assert!(
+            uncertainty.iter().any(|item| item["kind"] == "top_level_change"
+                && item["detail"]
+                    .as_str()
+                    .is_some_and(|detail| detail.contains(&format!("`{path}` {lines} is outside any definition")))),
+            "{uncertainty:?}"
+        );
+    }
+    assert!(
+        !uncertainty.iter().any(|item| item["kind"] == "top_level_change"
+            && item["detail"]
+                .as_str()
+                .is_some_and(|detail| detail.contains("src/lib.rs"))),
+        "a body edit names its definition"
+    );
+}
+
+#[test]
 fn dirty_worktree_honors_repository_ignore_rules() {
     let fixture = MapFixtureRepository::new();
     write_file(
