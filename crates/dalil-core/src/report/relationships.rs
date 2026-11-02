@@ -878,15 +878,8 @@ fn relationship_for_edge(
 fn call_owner_node(
     path: &str, reference: &SourceSymbol, symbols: &[SourceSymbol], node_ids: &BTreeMap<String, NodeIndex>,
 ) -> Option<NodeIndex> {
-    for scope in reference.scope.iter().rev() {
-        let owner = symbols.iter().find(|symbol| {
-            symbol.role == SymbolRole::Definition && symbol.name == *scope && is_graph_definition(symbol)
-        });
-        if let Some(owner) = owner {
-            return node_ids.get(&symbol_node_id(path, owner)).copied();
-        }
-    }
-    None
+    let owner = crate::map::owning_definition(reference, symbols, is_graph_definition)?;
+    node_ids.get(&symbol_node_id(path, owner)).copied()
 }
 
 fn import_target_names(symbol_name: &str, context: &str) -> BTreeSet<String> {

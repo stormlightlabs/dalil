@@ -1819,3 +1819,44 @@ impl Second {\n\
     );
     assert!(changed(1, 1).is_empty(), "imports are not changed definitions");
 }
+
+fn changed_names(source: &str, support: &LanguageSupport, line: usize) -> Vec<(String, usize)> {
+    let symbols = parse_source(source.as_bytes(), support).symbols;
+    changes::changed_definitions(&symbols, &[ChangedLineRange { start: line, end: line }])
+        .into_iter()
+        .map(|symbol| (symbol.name, symbol.location.start.line))
+        .collect()
+}
+
+#[test]
+fn changed_definitions_map_a_go_method_body_to_the_method() {
+    let source = "package p\ntype R struct{}\nfunc (r R) M() {\n\tx := foo()\n\t_ = x\n}\n";
+    assert_eq!(changed_names(source, &GO_SUPPORT, 4), [("M".to_owned(), 3)]);
+}
+
+#[test]
+fn changed_definitions_map_a_javascript_arrow_body_to_its_binding() {
+    let source = "const f = () => {\n  g();\n};\nconst h = function () {\n  const y = g();\n};\n";
+    for support in [&JAVASCRIPT_SUPPORT, &TYPESCRIPT_SUPPORT] {
+        assert_eq!(changed_names(source, support, 2), [("f".to_owned(), 1)]);
+        assert_eq!(changed_names(source, support, 5), [("h".to_owned(), 4)]);
+    }
+}
+
+#[test]
+fn changed_definitions_map_lua_table_function_bodies_to_the_function() {
+    let source = "local M = {}\nfunction M.foo()\n  g()\nend\nfunction M:bar()\n  g()\nend\nreturn M\n";
+    assert_eq!(changed_names(source, &LUA_SUPPORT, 3), [("foo".to_owned(), 2)]);
+    assert_eq!(changed_names(source, &LUA_SUPPORT, 6), [("bar".to_owned(), 5)]);
+}
+
+#[test]
+fn changed_definitions_map_locals_to_their_function_and_keep_module_constants() {
+    let source = "X = 1\ndef f():\n    x = g()\n    y = 2\n    return x\nclass C:\n    z = 3\n";
+    assert_eq!(changed_names(source, &PYTHON_SUPPORT, 1), [("X".to_owned(), 1)]);
+    assert_eq!(changed_names(source, &PYTHON_SUPPORT, 3), [("f".to_owned(), 2)]);
+    assert_eq!(changed_names(source, &PYTHON_SUPPORT, 4), [("f".to_owned(), 2)]);
+    assert_eq!(changed_names(source, &PYTHON_SUPPORT, 7), [("z".to_owned(), 7)]);
+    let go = "package p\nfunc F() {\n\tx := 1\n\t_ = x\n}\n";
+    assert_eq!(changed_names(go, &GO_SUPPORT, 3), [("F".to_owned(), 2)]);
+}

@@ -485,22 +485,27 @@ fn changed_lines(before: Option<&[u8]>, after: Option<&[u8]>) -> Vec<ChangedLine
 ///
 /// A definition's location is its name, so an edit inside a function body
 /// overlaps only the references there. Each reference on a changed line maps
-/// to the definition its scope names; definitions on changed lines count
-/// directly. Imports are not definitions of this file's own code and are left out.
+/// to the definition that owns it, as [`owning_definition`] finds it. A
+/// definition on a changed line counts directly, except a local variable,
+/// which maps to its function. Imports are not definitions of this file's own
+/// code and are left out.
 pub(crate) fn changed_definitions(symbols: &[SourceSymbol], ranges: &[ChangedLineRange]) -> Vec<ChangedSymbol> {
-    let definitions = symbols
-        .iter()
-        .filter(|symbol| symbol.role == SymbolRole::Definition && symbol.evidence != SymbolEvidence::Import)
-        .collect::<Vec<_>>();
     let mut changed = BTreeMap::new();
     for symbol in symbols
         .iter()
         .filter(|symbol| line_ranges_overlap(&symbol.location, ranges))
     {
-        let definition = if symbol.role == SymbolRole::Definition {
-            (symbol.evidence != SymbolEvidence::Import).then_some(symbol)
+        let definition = if symbol.role != SymbolRole::Definition {
+            owning_definition(symbol, symbols, |_| true)
+        } else if symbol.evidence == SymbolEvidence::Import {
+            None
+        } else if matches!(symbol.kind, SymbolKind::Variable | SymbolKind::Const) {
+            match owning_definition(symbol, symbols, |_| true) {
+                Some(owner) if is_function_like(owner) => Some(owner),
+                _ => Some(symbol),
+            }
         } else {
-            enclosing_definition(symbol, &definitions)
+            Some(symbol)
         };
         if let Some(definition) = definition {
             changed
@@ -516,22 +521,50 @@ pub(crate) fn changed_definitions(symbols: &[SourceSymbol], ranges: &[ChangedLin
     changed.into_values().collect()
 }
 
-/// Finds the innermost definition whose name and parent scope match the
-/// reference's scope chain, taking the nearest one before the reference when
-/// several share a name.
-fn enclosing_definition<'a>(reference: &SourceSymbol, definitions: &[&'a SourceSymbol]) -> Option<&'a SourceSymbol> {
-    (1..=reference.scope.len()).rev().find_map(|depth| {
-        let name = &reference.scope[depth - 1];
-        let parents = &reference.scope[..depth - 1];
-        definitions
+/// A definition whose body holds locals. A variable owns a scope only when it
+/// is bound to a function, as `const f = () => {}` is in JavaScript.
+fn is_function_like(definition: &SourceSymbol) -> bool {
+    matches!(
+        definition.kind,
+        SymbolKind::Function | SymbolKind::Method | SymbolKind::Variable
+    )
+}
+
+/// Finds the definition in the same file that owns `symbol`: the innermost
+/// entry of its scope chain that names an accepted definition.
+///
+/// Each entry also matches by its last segment after `.` or `:`, so Lua's
+/// `M.foo` and `M:foo` find `foo`. Among definitions of that name before the
+/// symbol, the nearest one whose own scope equals the entry's parents wins;
+/// failing that, the nearest one of that name. The fallback covers chains
+/// that differ from the definition's, such as a Go method body's `[p, M]`
+/// against the method's `[p, R]`.
+pub(crate) fn owning_definition<'a>(
+    symbol: &SourceSymbol, symbols: &'a [SourceSymbol], accept: impl Fn(&SourceSymbol) -> bool,
+) -> Option<&'a SourceSymbol> {
+    (1..=symbol.scope.len()).rev().find_map(|depth| {
+        let entry = &symbol.scope[depth - 1];
+        let parents = &symbol.scope[..depth - 1];
+        let short = entry.rsplit(['.', ':']).next().unwrap_or(entry);
+        let candidates = symbols
             .iter()
             .filter(|definition| {
-                &definition.name == name
-                    && definition.scope == parents
-                    && definition.location.start.line <= reference.location.start.line
+                definition.role == SymbolRole::Definition
+                    && definition.evidence != SymbolEvidence::Import
+                    && !std::ptr::eq(*definition, symbol)
+                    && (definition.name == *entry || definition.name == short)
+                    && definition.location.start.line <= symbol.location.start.line
+                    && accept(definition)
             })
-            .max_by_key(|definition| (definition.location.start.line, definition.location.start.column))
-            .copied()
+            .collect::<Vec<_>>();
+        let nearest = |exact: bool| {
+            candidates
+                .iter()
+                .copied()
+                .filter(|definition| !exact || definition.scope == parents)
+                .max_by_key(|definition| (definition.location.start.line, definition.location.start.column))
+        };
+        nearest(true).or_else(|| nearest(false))
     })
 }
 

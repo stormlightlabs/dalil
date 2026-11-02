@@ -402,6 +402,15 @@ fn language_scope(
     if support.language == SourceLanguage::Zig {
         return zig_scope(scope_start, source);
     }
+    if matches!(
+        support.language,
+        SourceLanguage::JavaScript
+            | SourceLanguage::JavaScriptJsx
+            | SourceLanguage::TypeScript
+            | SourceLanguage::TypeScriptTsx
+    ) {
+        return javascript_scope(scope_start, source, support.scope_kinds);
+    }
     let mut scopes = scope_for_node(scope_start, source, support.scope_kinds);
     if !matches!(support.language, SourceLanguage::Go | SourceLanguage::Lua) {
         return scopes;
@@ -415,7 +424,14 @@ fn language_scope(
         {
             let table = text_for_node(table, source);
             if !scopes.contains(&table) {
-                scopes.push(table);
+                // The table encloses `M.foo`, so it goes before that entry
+                // when the symbol is inside the function's body.
+                let function = text_for_node(name, source);
+                let at = scopes
+                    .iter()
+                    .position(|scope| *scope == function)
+                    .unwrap_or(scopes.len());
+                scopes.insert(at, table);
             }
         }
         return scopes;
@@ -657,6 +673,30 @@ pub fn scope_for_node(start: Option<Node<'_>>, source: &[u8], scope_kinds: &[&st
             && let Some(name) = node.child_by_field_name("name")
         {
             scopes.push(text_for_node(name, source));
+        }
+        current = node.parent();
+    }
+    scopes.reverse();
+    scopes
+}
+
+/// Like [`scope_for_node`], but a function without a name of its own that
+/// is the value of a `const`, `let` or `var` declarator takes the
+/// declarator's name, so `const f = () => {}` scopes its body under `f`.
+fn javascript_scope(start: Option<Node<'_>>, source: &[u8], scope_kinds: &[&str]) -> Vec<String> {
+    let mut scopes = Vec::new();
+    let mut current = start;
+    while let Some(node) = current {
+        if scope_kinds.contains(&node.kind()) || node.kind() == "function_expression" {
+            let name = node.child_by_field_name("name").or_else(|| {
+                let parent = node.parent().filter(|parent| parent.kind() == "variable_declarator")?;
+                let value = parent.child_by_field_name("value")?;
+                let name = parent.child_by_field_name("name")?;
+                (value.id() == node.id() && name.kind() == "identifier").then_some(name)
+            });
+            if let Some(name) = name {
+                scopes.push(text_for_node(name, source));
+            }
         }
         current = node.parent();
     }
