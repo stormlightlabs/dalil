@@ -234,7 +234,7 @@ fn insert_symbol(
         }
         return true;
     }
-    if symbols.len() >= limit {
+    if symbols.len() >= limit && !retained_past_symbol_limits(&symbol) {
         return false;
     }
     symbols.insert(key, symbol);
@@ -291,7 +291,27 @@ pub fn symbol_from_capture(
         context: context_snippet(node, source, support.declaration_kinds),
         visibility: visibility_for_node(declaration, role, source, support.language, kind, &name),
         evidence: evidence_for_node(node, capture_name, role, kind),
+        qualifier: reference_qualifier(node, role, source, support.language),
     }
+}
+
+/// Returns the path before a Rust reference's name, such as `map` in `map::f`.
+fn reference_qualifier(node: Node<'_>, role: SymbolRole, source: &[u8], language: SourceLanguage) -> Option<String> {
+    if role != SymbolRole::Reference || language != SourceLanguage::Rust {
+        return None;
+    }
+    let parent = node.parent()?;
+    if parent.kind() != "scoped_identifier" || parent.child_by_field_name("name")?.id() != node.id() {
+        return None;
+    }
+    let path = text_for_node(parent.child_by_field_name("path")?, source);
+    (!path.is_empty()).then_some(path)
+}
+
+/// Definitions and calls are kept past the per-file and total symbol limits,
+/// since relationship queries cannot find a caller or callee without them.
+pub(crate) fn retained_past_symbol_limits(symbol: &SourceSymbol) -> bool {
+    symbol.role == SymbolRole::Definition || symbol.evidence == SymbolEvidence::Call
 }
 
 fn symbol_name(node: Node<'_>, declaration: Node<'_>, source: &[u8], support: &LanguageSupport) -> String {

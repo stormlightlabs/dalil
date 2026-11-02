@@ -45,6 +45,10 @@ pub fn build_lexical_edges(files: &[SourceFile], max_candidates: usize, max_edge
         .collect::<BTreeMap<_, _>>();
 
     let mut edges = Vec::new();
+    // Every occurrence of a reference proposes the same edges again. Counting
+    // only unseen (candidate group, target) pairs keeps `max_edges` a limit on
+    // distinct edges, so repeated calls early in the file list cannot use it up.
+    let mut seen = BTreeSet::new();
     'files: for file in files {
         for symbol in &file.symbols {
             if edges.len() >= max_edges {
@@ -76,6 +80,12 @@ pub fn build_lexical_edges(files: &[SourceFile], max_candidates: usize, max_edge
                 } else {
                     continue;
                 }
+            } else if let Some(qualified_candidates) = qualified_path_candidates(symbol, &all_candidates) {
+                (
+                    qualified_candidates,
+                    LexicalResolutionReason::QualifiedPath,
+                    ConfidenceTier::High,
+                )
             } else if let Some(module_candidates) = same_module_candidates(file, &all_candidates, &modules) {
                 (
                     module_candidates,
@@ -120,6 +130,9 @@ pub fn build_lexical_edges(files: &[SourceFile], max_candidates: usize, max_edge
             );
             let ambiguous = candidates.len() > 1;
             for (target, target_visibility) in &candidates {
+                if !seen.insert((candidate_group.clone(), target.clone())) {
+                    continue;
+                }
                 if edges.len() >= max_edges {
                     break 'files;
                 }
@@ -874,6 +887,34 @@ fn import_module_hints(context: &str, language: SourceLanguage) -> Vec<String> {
     hints.sort();
     hints.dedup();
     hints
+}
+
+/// Keeps the candidates whose module path ends with the reference's qualifier,
+/// so `map::language_capabilities()` resolves to `map.rs` or `map/mod.rs`.
+/// `crate`, `self` and `super` segments are dropped; a qualifier made only of
+/// them names no module and yields no candidates.
+fn qualified_path_candidates(
+    symbol: &SourceSymbol, candidates: &[(String, SymbolVisibility)],
+) -> Option<Vec<(String, SymbolVisibility)>> {
+    let qualifier = symbol.qualifier.as_deref()?;
+    let module = qualifier
+        .split("::")
+        .filter(|segment| !matches!(*segment, "crate" | "self" | "super"))
+        .collect::<Vec<_>>()
+        .join("/")
+        .to_ascii_lowercase();
+    if module.is_empty() {
+        return None;
+    }
+    let matching = candidates
+        .iter()
+        .filter(|(path, _)| {
+            let normalized = normalize_module_hint(path);
+            normalized == module || normalized.ends_with(&format!("/{module}"))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    (!matching.is_empty()).then_some(matching)
 }
 
 fn normalize_module_hint(value: &str) -> String {

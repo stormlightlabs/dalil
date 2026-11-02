@@ -1431,3 +1431,104 @@ fn generated_markers_and_bounded_minification_are_content_evidence() {
         &format!("const value = {};\n", "x ".repeat(600))
     ));
 }
+
+fn rust_file(path: &str, source: &str) -> SourceFile {
+    let parsed = parse_source(source.as_bytes(), &RUST_SUPPORT);
+    SourceFile {
+        path: path.to_owned(),
+        language: SourceLanguage::Rust,
+        extension: "rs".to_owned(),
+        worktree_state: WorktreeState::Tracked,
+        status: parsed.status,
+        symbols: parsed.symbols,
+        limitations: parsed.limitations,
+        classifications: Vec::new(),
+        classification_overridden: false,
+    }
+}
+
+#[test]
+fn qualified_paths_resolve_cross_file_calls_without_imports() {
+    let caller = rust_file("src/caller.rs", "fn caller() { target::target(); }");
+    let call = caller
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == "target" && symbol.location.start.column == 23)
+        .expect("qualified call reference");
+    assert_eq!(call.evidence, SymbolEvidence::Call);
+    assert_eq!(call.qualifier.as_deref(), Some("target"));
+
+    let edges = build_lexical_edges(&[caller, rust_file("src/target.rs", "pub fn target() {}")], 32, 32);
+    let edge = edges.first().expect("qualified-path edge");
+    assert_eq!(edge.target, "src/target.rs");
+    assert_eq!(edge.resolution_reason, LexicalResolutionReason::QualifiedPath);
+    assert_eq!(edge.confidence, ConfidenceTier::High);
+
+    let crate_path = rust_file("src/crate_path.rs", "fn caller() { crate::target::target(); }");
+    assert_eq!(
+        build_lexical_edges(&[crate_path, rust_file("src/target.rs", "pub fn target() {}")], 32, 32)
+            .first()
+            .map(|edge| edge.resolution_reason),
+        Some(LexicalResolutionReason::QualifiedPath)
+    );
+
+    for source in ["fn caller() { other::target(); }", "fn caller() { super::target(); }"] {
+        let edges = build_lexical_edges(
+            &[
+                rust_file("src/caller.rs", source),
+                rust_file("src/target.rs", "pub fn target() {}"),
+            ],
+            32,
+            32,
+        );
+        assert!(edges.is_empty(), "{source} produced {edges:?}");
+    }
+}
+
+#[test]
+fn repeated_references_do_not_use_up_the_edge_limit() {
+    let caller = rust_file(
+        "src/caller.rs",
+        "fn caller() { target::first(); target::first(); target::first(); target::first(); target::second(); }",
+    );
+    let target = rust_file("src/target.rs", "pub fn first() {}\npub fn second() {}");
+    let edges = build_lexical_edges(&[caller, target], 32, 2);
+    let symbols = edges.iter().map(|edge| edge.symbol.as_str()).collect::<Vec<_>>();
+    assert_eq!(symbols, ["first", "second"]);
+}
+
+#[test]
+fn definitions_and_calls_survive_the_per_file_symbol_limit() {
+    let mut source = String::from("fn filler(value: usize) {\n");
+    for _ in 0..200 {
+        source.push_str("    let _ = value;\n");
+    }
+    source.push_str("}\npub fn late() { target::late_call(); late_bare; }\n");
+    let mut analyzer = LanguageAnalyzer::new(&RUST_SUPPORT);
+    let parsed = parse_source_with_analyzer(
+        source.as_bytes(),
+        &mut analyzer,
+        &ReportLimits::for_profile(AnalysisProfile::Compact),
+    );
+
+    assert!(parsed.symbols.len() > 128);
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|symbol| symbol.name == "late" && symbol.role == SymbolRole::Definition)
+    );
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|symbol| symbol.name == "late_call" && symbol.evidence == SymbolEvidence::Call)
+    );
+    assert!(!parsed.symbols.iter().any(|symbol| symbol.name == "late_bare"));
+    assert!(
+        parsed
+            .limitations
+            .iter()
+            .any(|limitation| limitation.contains("per-file symbol limit (128)"))
+    );
+}

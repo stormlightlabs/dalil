@@ -83,3 +83,48 @@ fn relationship_operations_cover_definitions_references_imports_dependencies_and
     let duplicate_json: Value = serde_json::from_str(&stdout(&duplicate)).expect("duplicate definitions JSON");
     assert_eq!(duplicate_json["bounds"]["total"], 2);
 }
+
+#[test]
+fn callers_are_found_past_output_and_symbol_limits_through_qualified_paths() {
+    let fixture = MapFixtureRepository::new();
+    for index in 0..40 {
+        write_file(
+            fixture.root.join(format!("src/filler_{index:02}.rs")),
+            format!("pub fn filler_{index}() {{}}\n").as_bytes(),
+        );
+    }
+    let mut registry = String::from("pub fn padding(value: usize) {\n");
+    for _ in 0..200 {
+        registry.push_str("    let _ = value;\n");
+    }
+    registry.push_str("}\npub fn late_target() { late_bare; }\n");
+    write_file(fixture.root.join("src/registry.rs"), registry.as_bytes());
+    write_file(
+        fixture.root.join("src/zz_caller.rs"),
+        b"use super::*;\npub fn caller() { registry::late_target(); }\n",
+    );
+
+    let output = fixture.run(&["relationships", "callers", "late_target", ".", "--json"]);
+    assert!(output.status.success(), "callers query failed: {:?}", output.stderr);
+    let value: Value = serde_json::from_str(&stdout(&output)).expect("relationship JSON");
+    let matches = value["matches"].as_array().expect("relationship matches");
+    assert!(
+        matches.iter().any(|item| item["node"]["symbol"]["name"] == "caller"),
+        "callers: {matches:?}"
+    );
+
+    // The default run above cached registry.rs under the 128-symbol limit; the
+    // evidence profile must parse it again rather than reuse that record.
+    let output = fixture.run(&[
+        "relationships",
+        "references",
+        "late_bare",
+        ".",
+        "--profile",
+        "evidence",
+        "--json",
+    ]);
+    assert!(output.status.success(), "references query failed: {:?}", output.stderr);
+    let value: Value = serde_json::from_str(&stdout(&output)).expect("relationship JSON");
+    assert_eq!(value["bounds"]["total"], 1, "references: {value}");
+}

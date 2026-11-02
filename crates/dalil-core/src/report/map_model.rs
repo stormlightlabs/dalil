@@ -732,6 +732,11 @@ pub struct SourceSymbol {
     pub visibility: SymbolVisibility,
     #[serde(default)]
     pub evidence: SymbolEvidence,
+    /// The path written before a reference's name, such as `map` in
+    /// `map::language_capabilities()`. Graph construction reads it as module
+    /// evidence when a file has no import for the name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qualifier: Option<String>,
 }
 
 /// A typed repository-wide query. Query adapters can compose the filters without

@@ -560,6 +560,7 @@ mod tests {
                 context: "struct RequestState;".to_owned(),
                 visibility: SymbolVisibility::Public,
                 evidence: SymbolEvidence::Declaration,
+                qualifier: None,
             },
             score: 1,
         }

@@ -234,7 +234,7 @@ pub fn relationships(request: RelationshipRequest) -> Result<RelationshipResults
         ..MapSettings::default()
     };
     let map =
-        crate::map::analyze_with_history(Path::new(&request.repository), &settings, None).map_err(ReportError::Map)?;
+        crate::map::analyze_unbounded(Path::new(&request.repository), &settings, None).map_err(ReportError::Map)?;
     Ok(crate::report::compile_relationships(request, &map))
 }
 
@@ -247,7 +247,7 @@ pub fn traverse(request: TraversalRequest) -> Result<TraversalResults, CoreError
         ..MapSettings::default()
     };
     let map =
-        crate::map::analyze_with_history(Path::new(&request.repository), &settings, None).map_err(ReportError::Map)?;
+        crate::map::analyze_unbounded(Path::new(&request.repository), &settings, None).map_err(ReportError::Map)?;
     Ok(crate::report::compile_traversal(request, &map))
 }
 

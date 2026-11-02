@@ -2,7 +2,7 @@
 id = "arcl-t-01M65H08TMKJ4CW2SXYHXDCTCZ"
 phase = "arcl-ph-01M65H08QHQG2WE9TPFPAR1JTJ"
 title = "Stop the symbol limit from hiding callers"
-status = "pending"
+status = "in_progress"
 priority = "normal"
 position = 1
 +++

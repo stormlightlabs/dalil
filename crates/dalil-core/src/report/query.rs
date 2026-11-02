@@ -1062,6 +1062,7 @@ mod tests {
             context: format!("pub fn {name}() {{}}"),
             visibility: SymbolVisibility::Public,
             evidence: SymbolEvidence::Declaration,
+            qualifier: None,
         }
     }
 

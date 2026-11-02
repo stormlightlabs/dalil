@@ -322,7 +322,7 @@ pub fn cache_path_is_safe(root: &Path, path: &Path) -> Result<(), PathSafetyErro
 }
 
 pub fn read_cache_file(root: &Path, path: &Path) -> Result<Vec<u8>, ReadError> {
-    const MAX_CACHE_RECORD_BYTES: usize = 32 * 1024 * 1024;
+    const MAX_CACHE_RECORD_BYTES: usize = 128 * 1024 * 1024;
     cache_path_is_safe(root, path).map_err(ReadError::Safety)?;
     #[cfg(unix)]
     {
@@ -341,7 +341,7 @@ pub fn read_cache_file(root: &Path, path: &Path) -> Result<Vec<u8>, ReadError> {
         if bytes.len() > MAX_CACHE_RECORD_BYTES {
             return Err(ReadError::Io(io::Error::new(
                 io::ErrorKind::InvalidData,
-                "cache record exceeds the 32 MiB read limit",
+                "cache record exceeds the 128 MiB read limit",
             )));
         }
         Ok(bytes)

@@ -503,6 +503,7 @@ pub enum LexicalResolutionReason {
     SameModule,
     ImportedModule,
     ImportedName,
+    QualifiedPath,
 }
 
 impl LexicalResolutionReason {
@@ -512,6 +513,7 @@ impl LexicalResolutionReason {
             Self::SameModule => "same_module",
             Self::ImportedModule => "imported_module",
             Self::ImportedName => "imported_name",
+            Self::QualifiedPath => "qualified_path",
         }
     }
 }
@@ -1117,6 +1119,14 @@ pub struct Report {
     pub search: Option<SearchResults>,
 }
 
+/// Whether a command's map keeps the output limits or feeds a graph that needs
+/// every retained symbol.
+#[derive(Clone, Copy)]
+enum MapBounds {
+    Output,
+    Unbounded,
+}
+
 impl Report {
     pub fn analyze(req: AnalysisRequest) -> Result<Self, ReportError> {
         let captured_at = utils::capture_date(SystemTime::now());
@@ -1239,7 +1249,7 @@ impl Report {
                 let history_report =
                     history::analyze(&path, req.history.clone(), None, req.profile).map_err(ReportError::History)?;
                 let (context_request, change_resolution, map_report) =
-                    Self::change_evidence(&path, &req, &history_report)?;
+                    Self::change_evidence(&path, &req, &history_report, MapBounds::Output)?;
                 let context = super::context::compile(context_request, &map_report, &history_report, change_resolution);
                 let summary = format!(
                     "Compiled task context with {} recommended file(s), {} relationship(s), and {} history observation(s).",
@@ -1259,7 +1269,7 @@ impl Report {
                 let history_report =
                     history::analyze(&path, req.history.clone(), None, req.profile).map_err(ReportError::History)?;
                 let (context_request, change_resolution, map_report) =
-                    Self::change_evidence(&path, &req, &history_report)?;
+                    Self::change_evidence(&path, &req, &history_report, MapBounds::Unbounded)?;
                 let impact = super::impact::compile(context_request, &map_report, &history_report, change_resolution);
                 let summary = format!(
                     "Compiled impact context with {} inspection target(s), {} relationship(s), and {} likely test(s).",
@@ -1301,7 +1311,7 @@ impl Report {
     }
 
     fn change_evidence(
-        path: &std::path::Path, req: &AnalysisRequest, history: &HistoryReport,
+        path: &std::path::Path, req: &AnalysisRequest, history: &HistoryReport, bounds: MapBounds,
     ) -> Result<(ContextRequest, ChangeResolution, MapReport), ReportError> {
         let mut context_request = req.context.clone().unwrap_or(ContextRequest {
             repository: path.to_string_lossy().into_owned(),
@@ -1320,7 +1330,11 @@ impl Report {
                 std::iter::once(TaskChangeSeed::Path(change.path.clone()))
                     .chain(change.previous_path.clone().map(TaskChangeSeed::Path))
             }));
-        let map_report = map::analyze_with_history(path, &map_settings, Some(history)).map_err(ReportError::Map)?;
+        let map_report = match bounds {
+            MapBounds::Output => map::analyze_with_history(path, &map_settings, Some(history)),
+            MapBounds::Unbounded => map::analyze_unbounded(path, &map_settings, Some(history)),
+        }
+        .map_err(ReportError::Map)?;
         map::enrich_change_symbols(&mut change_resolution, &map_report);
         context_request.change_resolution = change_resolution.clone();
         Ok((context_request, change_resolution, map_report))
