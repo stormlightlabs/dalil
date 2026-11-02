@@ -2,9 +2,10 @@
 id = "arcl-t-01M65H08TMKJ4CW2SXYHXDCTCZ"
 phase = "arcl-ph-01M65H08QHQG2WE9TPFPAR1JTJ"
 title = "Stop the symbol limit from hiding callers"
-status = "pending"
+status = "completed"
 priority = "normal"
 position = 1
+evidence = "Done in #3 at a475b27: graph commands read the unbounded map, definitions and calls survive the symbol limits, the edge limit counts distinct edges, and Rust path qualifiers resolve cross-file calls. callers language_capabilities returns both call sites on Dalil."
 +++
 
 `dalil relationships callers language_capabilities` returns 0 results on

@@ -1016,6 +1016,7 @@ mod tests {
             context: format!("{name}()"),
             visibility: SymbolVisibility::Public,
             evidence,
+            qualifier: None,
         }
     }
 

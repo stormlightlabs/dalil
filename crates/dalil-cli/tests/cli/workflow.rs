@@ -694,6 +694,53 @@ fn impact_keeps_ambiguous_lexical_candidates_explicit() {
 }
 
 #[test]
+fn impact_reports_bounded_evidence_when_the_edge_limit_is_reached() {
+    // The compact profile builds at most 2,000 lexical edges; three callers of
+    // 700 distinct functions each propose 2,100.
+    let fixture = MapFixtureRepository::new();
+    write_file(
+        fixture.root.join("src/lib.rs"),
+        b"mod target;\nmod first;\nmod second;\nmod third;\n",
+    );
+    let target = (0..700)
+        .map(|index| format!("pub fn f{index}() {{}}\n"))
+        .collect::<String>();
+    write_file(fixture.root.join("src/target.rs"), target.as_bytes());
+    for caller in ["first", "second", "third"] {
+        let calls = (0..700)
+            .map(|index| format!("    target::f{index}();\n"))
+            .collect::<String>();
+        write_file(
+            fixture.root.join(format!("src/{caller}.rs")),
+            format!("pub fn {caller}() {{\n{calls}}}\n").as_bytes(),
+        );
+    }
+
+    let output = fixture.run(&[
+        "impact",
+        "--task-path",
+        "src/target.rs",
+        "--budget",
+        "12000",
+        "--no-cache",
+        "--json",
+    ]);
+    assert!(
+        output.status.success(),
+        "edge-limit impact failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: Value = serde_json::from_str(&stdout(&output)).expect("valid edge-limit impact JSON");
+    assert!(
+        json["impact"]["uncertainty"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item["kind"] == "bounded_evidence")),
+        "{}",
+        json["impact"]["uncertainty"]
+    );
+}
+
+#[test]
 fn impact_reports_unsupported_changed_source_as_uncertainty() {
     let fixture = MapFixtureRepository::new();
     write_file(fixture.root.join("src/lib.rs"), b"pub fn parse() {}\n");

@@ -1431,3 +1431,357 @@ fn generated_markers_and_bounded_minification_are_content_evidence() {
         &format!("const value = {};\n", "x ".repeat(600))
     ));
 }
+
+fn rust_file(path: &str, source: &str) -> SourceFile {
+    let parsed = parse_source(source.as_bytes(), &RUST_SUPPORT);
+    SourceFile {
+        path: path.to_owned(),
+        language: SourceLanguage::Rust,
+        extension: "rs".to_owned(),
+        worktree_state: WorktreeState::Tracked,
+        status: parsed.status,
+        symbols: parsed.symbols,
+        limitations: parsed.limitations,
+        classifications: Vec::new(),
+        classification_overridden: false,
+    }
+}
+
+#[test]
+fn qualified_paths_resolve_cross_file_calls_without_imports() {
+    let caller = rust_file("src/caller.rs", "fn caller() { target::target(); }");
+    let call = caller
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == "target" && symbol.location.start.column == 23)
+        .expect("qualified call reference");
+    assert_eq!(call.evidence, SymbolEvidence::Call);
+    assert_eq!(call.qualifier.as_deref(), Some("target"));
+
+    // An unanchored `target::` needs a `mod target;` in the crate.
+    let lib = rust_file("src/lib.rs", "mod target;");
+    let edges = build_lexical_edges(
+        &[caller, lib.clone(), rust_file("src/target.rs", "pub fn target() {}")],
+        32,
+        32,
+    );
+    let edge = edges.first().expect("qualified-path edge");
+    assert_eq!(edge.target, "src/target.rs");
+    assert_eq!(edge.resolution_reason, LexicalResolutionReason::QualifiedPath);
+    assert_eq!(edge.confidence, ConfidenceTier::High);
+
+    let crate_path = rust_file("src/crate_path.rs", "fn caller() { crate::target::target(); }");
+    assert_eq!(
+        build_lexical_edges(&[crate_path, rust_file("src/target.rs", "pub fn target() {}")], 32, 32)
+            .first()
+            .map(|edge| edge.resolution_reason),
+        Some(LexicalResolutionReason::QualifiedPath)
+    );
+
+    for source in ["fn caller() { other::target(); }", "fn caller() { super::target(); }"] {
+        let edges = build_lexical_edges(
+            &[
+                rust_file("src/caller.rs", source),
+                lib.clone(),
+                rust_file("src/target.rs", "pub fn target() {}"),
+            ],
+            32,
+            32,
+        );
+        assert!(edges.is_empty(), "{source} produced {edges:?}");
+    }
+
+    // `fs` names std's module here, not src/util/fs.rs.
+    let std_import = rust_file("src/caller.rs", "use std::fs;\nfn caller() { fs::read(\"x\"); }");
+    let util_fs = rust_file("src/util/fs.rs", "pub fn read(path: &str) {}");
+    let edges = build_lexical_edges(&[std_import, util_fs.clone()], 32, 32);
+    assert!(
+        edges
+            .iter()
+            .all(|edge| edge.resolution_reason != LexicalResolutionReason::QualifiedPath),
+        "{edges:?}"
+    );
+
+    // A `use` from inside the crate keeps the qualified-path edge.
+    let crate_import = rust_file(
+        "src/caller.rs",
+        "use crate::util::fs;\nfn caller() { fs::read(\"x\"); }",
+    );
+    let edges = build_lexical_edges(&[crate_import, util_fs], 32, 32);
+    assert!(
+        edges.iter().any(|edge| edge.target == "src/util/fs.rs"
+            && edge.resolution_reason == LexicalResolutionReason::QualifiedPath
+            && edge.confidence == ConfidenceTier::High),
+        "{edges:?}"
+    );
+}
+
+fn qualified_edges(files: &[SourceFile]) -> Vec<(String, ConfidenceTier)> {
+    build_lexical_edges(files, 32, 32)
+        .into_iter()
+        .filter(|edge| edge.resolution_reason == LexicalResolutionReason::QualifiedPath)
+        .map(|edge| (edge.target, edge.confidence))
+        .collect()
+}
+
+#[test]
+fn qualified_paths_resolve_to_mod_rs() {
+    let edges = qualified_edges(&[
+        rust_file("src/lib.rs", "mod map;"),
+        rust_file("src/caller.rs", "fn caller() { map::target(); }"),
+        rust_file("src/map/mod.rs", "pub fn target() {}"),
+    ]);
+    assert_eq!(edges, [("src/map/mod.rs".to_owned(), ConfidenceTier::High)]);
+}
+
+#[test]
+fn qualified_paths_stay_inside_the_callers_crate() {
+    let edges = qualified_edges(&[
+        rust_file("crates/a/src/lib.rs", "mod caller;\nmod util;"),
+        rust_file("crates/a/src/caller.rs", "fn caller() { util::helper(); }"),
+        rust_file("crates/b/src/lib.rs", "mod util;"),
+        rust_file("crates/b/src/util.rs", "pub fn helper() {}"),
+    ]);
+    assert!(edges.is_empty(), "{edges:?}");
+
+    let edges = qualified_edges(&[
+        rust_file("crates/a/src/lib.rs", "mod caller;\nmod util;"),
+        rust_file("crates/a/src/caller.rs", "fn caller() { util::helper(); }"),
+        rust_file("crates/a/src/util.rs", "pub fn helper() {}"),
+        rust_file("crates/b/src/lib.rs", "mod util;"),
+        rust_file("crates/b/src/util.rs", "pub fn helper() {}"),
+    ]);
+    assert_eq!(edges, [("crates/a/src/util.rs".to_owned(), ConfidenceTier::High)]);
+}
+
+#[test]
+fn extern_crate_paths_without_a_module_declaration_do_not_resolve() {
+    let edges = qualified_edges(&[
+        rust_file("src/caller.rs", "fn caller() { serde_json::from_str(\"{}\"); }"),
+        rust_file("src/serde_json.rs", "pub fn from_str(value: &str) {}"),
+    ]);
+    assert!(edges.is_empty(), "{edges:?}");
+}
+
+#[test]
+fn crate_source_roots() {
+    assert_eq!(graph::crate_source_root("crates/a/src/map/mod.rs"), "crates/a/src/");
+    assert_eq!(graph::crate_source_root("src/caller.rs"), "src/");
+    assert_eq!(graph::crate_source_root("tests/cli/main.rs"), "tests/");
+    assert_eq!(graph::crate_source_root("build.rs"), "");
+}
+
+#[test]
+fn repeated_references_do_not_use_up_the_edge_limit() {
+    let caller = rust_file(
+        "src/caller.rs",
+        "fn caller() { target::first(); target::first(); target::first(); target::first(); target::second(); }",
+    );
+    let target = rust_file("src/target.rs", "pub fn first() {}\npub fn second() {}");
+    let lib = rust_file("src/lib.rs", "mod target;");
+    let edges = build_lexical_edges(&[caller, lib, target], 32, 2);
+    let symbols = edges.iter().map(|edge| edge.symbol.as_str()).collect::<Vec<_>>();
+    assert_eq!(symbols, ["first", "second"]);
+}
+
+#[test]
+fn definitions_and_calls_survive_the_per_file_symbol_limit() {
+    let mut source = String::from("fn filler(value: usize) {\n");
+    for _ in 0..200 {
+        source.push_str("    let _ = value;\n");
+    }
+    source.push_str("}\npub fn late() { target::late_call(); late_bare; }\n");
+    let mut analyzer = LanguageAnalyzer::new(&RUST_SUPPORT);
+    let parsed = parse_source_with_analyzer(
+        source.as_bytes(),
+        &mut analyzer,
+        &ReportLimits::for_profile(AnalysisProfile::Compact),
+    );
+
+    assert!(parsed.symbols.len() > 128);
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|symbol| symbol.name == "late" && symbol.role == SymbolRole::Definition)
+    );
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|symbol| symbol.name == "late_call" && symbol.evidence == SymbolEvidence::Call)
+    );
+    assert!(!parsed.symbols.iter().any(|symbol| symbol.name == "late_bare"));
+    assert!(
+        parsed
+            .limitations
+            .iter()
+            .any(|limitation| limitation.contains("per-file symbol limit (128)"))
+    );
+}
+
+#[test]
+fn definitions_and_calls_stop_at_the_exempt_per_file_cap() {
+    let mut source = String::from("fn caller() {\n");
+    for index in 0..200 {
+        source.push_str(&format!("    callee_{index}();\n"));
+    }
+    source.push_str("}\n");
+    let limits = ReportLimits { max_symbols_per_file: 4, ..ReportLimits::for_profile(AnalysisProfile::Evidence) };
+    let mut analyzer = LanguageAnalyzer::new(&RUST_SUPPORT);
+    let parsed = parse_source_with_analyzer(source.as_bytes(), &mut analyzer, &limits);
+
+    assert_eq!(parsed.symbols.len(), parser::exempt_symbol_limit(4));
+    assert_eq!(parsed.symbols.len(), 64);
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|symbol| symbol.name == "caller" && symbol.role == SymbolRole::Definition)
+    );
+    assert!(
+        parsed
+            .limitations
+            .iter()
+            .any(|limitation| limitation.contains("limit for definitions and calls (64)")),
+        "{:?}",
+        parsed.limitations
+    );
+}
+
+#[test]
+fn the_total_symbol_budget_drops_bare_references_and_keeps_definitions_and_calls() {
+    let mut symbols = rust_file(
+        "src/lib.rs",
+        "fn first(value: usize) { let _ = value; }\nfn late() { target::late_call(); late_bare; }",
+    )
+    .symbols;
+    let bare_references = symbols
+        .iter()
+        .filter(|symbol| !parser::retained_past_symbol_limits(symbol))
+        .count();
+    assert!(bare_references > 1);
+
+    analysis::retain_within_symbol_budget(&mut symbols, 1);
+
+    assert_eq!(
+        symbols
+            .iter()
+            .filter(|symbol| !parser::retained_past_symbol_limits(symbol))
+            .count(),
+        1
+    );
+    assert!(
+        symbols
+            .iter()
+            .any(|symbol| symbol.name == "late" && symbol.role == SymbolRole::Definition)
+    );
+    assert!(
+        symbols
+            .iter()
+            .any(|symbol| symbol.name == "late_call" && symbol.evidence == SymbolEvidence::Call)
+    );
+    assert!(!symbols.iter().any(|symbol| symbol.name == "late_bare"));
+}
+
+fn cache_fixture(name: &str) -> (PathBuf, CacheStore) {
+    let root = std::env::temp_dir().join(format!("dalil-cache-{name}-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).expect("create cache fixture");
+    let repository_root = "/repository".to_owned();
+    let store =
+        CacheStore { root: Some(root.clone()), repository_id: digest_hex(repository_root.as_bytes()), repository_root };
+    (root, store)
+}
+
+fn cache_index_identity() -> IndexIdentity {
+    IndexIdentity {
+        scope_path: String::new(),
+        head: None,
+        worktree_state: String::new(),
+        manifest_state: String::new(),
+        profile: AnalysisProfile::Compact,
+        map_tokens: DEFAULT_MAP_TOKENS,
+        analysis_options: String::new(),
+        content_state: String::new(),
+        language_pack_identity: BTreeMap::new(),
+    }
+}
+
+/// Rewrites the `tool_version` of every cache file under `root`.
+fn restamp_cache_files(root: &Path, tool_version: &str) {
+    for entry in WalkBuilder::new(root).hidden(false).build().flatten() {
+        if !entry.path().is_file() {
+            continue;
+        }
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(entry.path()).expect("read cache file")).expect("cache JSON");
+        value["tool_version"] = serde_json::Value::String(tool_version.to_owned());
+        fs::write(entry.path(), serde_json::to_vec(&value).expect("cache JSON")).expect("write cache file");
+    }
+}
+
+#[test]
+fn cache_written_by_the_previous_tool_version_is_rejected() {
+    // Version 10 stored edges without qualified-path resolution; reusing them
+    // would hide callers, so this version must not read that cache.
+    assert_ne!(CACHE_TOOL_VERSION, "dalil-map-v10");
+    let (root, store) = cache_fixture("tool-version");
+    let identity = cache_index_identity();
+    let parsed = parse_source(b"pub fn target() {}", &RUST_SUPPORT);
+    assert!(
+        store
+            .write("src/lib.rs", &RUST_SUPPORT, "fingerprint", 128, &parsed)
+            .is_none()
+    );
+    assert!(
+        store
+            .write_index(
+                &identity,
+                BTreeMap::new(),
+                Vec::new(),
+                Vec::new(),
+                BTreeMap::new(),
+                TrigramIndex::default()
+            )
+            .is_none()
+    );
+    assert_eq!(store.load_index(&identity).status, PersistentIndexStatus::Hit);
+    assert!(
+        store
+            .load("src/lib.rs", &RUST_SUPPORT, "fingerprint", 128, CacheMode::Auto)
+            .is_some()
+    );
+
+    restamp_cache_files(&root, "dalil-map-v10");
+    assert_eq!(store.load_index(&identity).status, PersistentIndexStatus::Incompatible);
+    assert!(
+        store
+            .load("src/lib.rs", &RUST_SUPPORT, "fingerprint", 128, CacheMode::Auto)
+            .is_none()
+    );
+    fs::remove_dir_all(root).expect("remove cache fixture");
+}
+
+#[test]
+fn manual_cache_mode_skips_records_parsed_under_another_symbol_limit() {
+    let (root, store) = cache_fixture("manual-limit");
+    let parsed = parse_source(b"pub fn target() {}", &RUST_SUPPORT);
+    assert!(store.write("src/lib.rs", &RUST_SUPPORT, "old", 128, &parsed).is_none());
+
+    let same_limit = store
+        .load("src/lib.rs", &RUST_SUPPORT, "new", 128, CacheMode::Manual)
+        .expect("record under the same limit");
+    assert!(same_limit.stale);
+    assert!(
+        store
+            .load("src/lib.rs", &RUST_SUPPORT, "new", 2_048, CacheMode::Manual)
+            .is_none()
+    );
+    assert!(
+        store
+            .load("src/lib.rs", &RUST_SUPPORT, "old", 2_048, CacheMode::Manual)
+            .is_none()
+    );
+    fs::remove_dir_all(root).expect("remove cache fixture");
+}

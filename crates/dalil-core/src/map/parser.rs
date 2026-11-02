@@ -88,6 +88,7 @@ pub fn parse_source_with_analyzer(
     let mut cursor = QueryCursor::new();
     let mut query_failed = false;
     let mut symbols_truncated = false;
+    let mut exempt_truncated = false;
     if let Some(error) = &analyzer.definition_error {
         findings.push(MapFinding {
             kind: MapFindingKind::QueryError,
@@ -111,8 +112,13 @@ pub fn parse_source_with_analyzer(
                 let node = capture.node;
                 definition_nodes.insert(node.id());
                 let symbol = symbol_from_capture(node, capture_name, SymbolRole::Definition, source, support);
-                if !insert_symbol(&mut symbols, symbol, support.language, limits.max_symbols_per_file) {
-                    symbols_truncated = true;
+                match insert_symbol(&mut symbols, symbol, support.language, limits.max_symbols_per_file) {
+                    Insertion::Kept => {}
+                    Insertion::Dropped => symbols_truncated = true,
+                    Insertion::DroppedPastExemptCap => {
+                        symbols_truncated = true;
+                        exempt_truncated = true;
+                    }
                 }
             }
         }
@@ -144,8 +150,13 @@ pub fn parse_source_with_analyzer(
                     continue;
                 }
                 let symbol = symbol_from_capture(node, capture_name, SymbolRole::Reference, source, support);
-                if !insert_symbol(&mut symbols, symbol, support.language, limits.max_symbols_per_file) {
-                    symbols_truncated = true;
+                match insert_symbol(&mut symbols, symbol, support.language, limits.max_symbols_per_file) {
+                    Insertion::Kept => {}
+                    Insertion::Dropped => symbols_truncated = true,
+                    Insertion::DroppedPastExemptCap => {
+                        symbols_truncated = true;
+                        exempt_truncated = true;
+                    }
                 }
             }
         }
@@ -198,6 +209,12 @@ pub fn parse_source_with_analyzer(
             limits.max_symbols_per_file
         ));
     }
+    if exempt_truncated {
+        limitations.push(format!(
+            "The per-file limit for definitions and calls ({}) was reached; additional definitions and calls were omitted.",
+            exempt_symbol_limit(limits.max_symbols_per_file)
+        ));
+    }
     if syntax_truncated {
         limitations.push(format!(
             "Syntax traversal reached the depth limit ({}); deeper nodes were omitted.",
@@ -224,21 +241,39 @@ pub fn parse_source_with_analyzer(
 
 type SymbolKey = (usize, usize, usize, usize, String, u8, &'static str);
 
+/// How many symbols a file may hold when definitions and calls go past the
+/// per-file limit. Call-heavy files, such as minified bundles, mark most
+/// identifiers as calls, so the exemption needs a ceiling of its own.
+pub(crate) const fn exempt_symbol_limit(limit: usize) -> usize {
+    limit.saturating_mul(16)
+}
+
+enum Insertion {
+    Kept,
+    Dropped,
+    DroppedPastExemptCap,
+}
+
 fn insert_symbol(
     symbols: &mut BTreeMap<SymbolKey, SourceSymbol>, symbol: SourceSymbol, language: SourceLanguage, limit: usize,
-) -> bool {
+) -> Insertion {
     let key = symbol_key(&symbol, language);
     if let Some(existing) = symbols.get_mut(&key) {
         if language == SourceLanguage::Zig && symbol_specificity(&symbol) > symbol_specificity(existing) {
             *existing = symbol;
         }
-        return true;
+        return Insertion::Kept;
     }
     if symbols.len() >= limit {
-        return false;
+        if !retained_past_symbol_limits(&symbol) {
+            return Insertion::Dropped;
+        }
+        if symbols.len() >= exempt_symbol_limit(limit) {
+            return Insertion::DroppedPastExemptCap;
+        }
     }
     symbols.insert(key, symbol);
-    true
+    Insertion::Kept
 }
 
 fn symbol_key(symbol: &SourceSymbol, language: SourceLanguage) -> SymbolKey {
@@ -291,7 +326,28 @@ pub fn symbol_from_capture(
         context: context_snippet(node, source, support.declaration_kinds),
         visibility: visibility_for_node(declaration, role, source, support.language, kind, &name),
         evidence: evidence_for_node(node, capture_name, role, kind),
+        qualifier: reference_qualifier(node, role, source, support.language),
     }
+}
+
+/// Returns the path before a Rust reference's name, such as `map` in `map::f`.
+fn reference_qualifier(node: Node<'_>, role: SymbolRole, source: &[u8], language: SourceLanguage) -> Option<String> {
+    if role != SymbolRole::Reference || language != SourceLanguage::Rust {
+        return None;
+    }
+    let parent = node.parent()?;
+    if parent.kind() != "scoped_identifier" || parent.child_by_field_name("name")?.id() != node.id() {
+        return None;
+    }
+    let path = text_for_node(parent.child_by_field_name("path")?, source);
+    (!path.is_empty()).then_some(path)
+}
+
+/// Definitions and calls are kept past the per-file and total symbol limits,
+/// since relationship queries cannot find a caller or callee without them.
+/// `exempt_symbol_limit` still bounds them per file.
+pub(crate) fn retained_past_symbol_limits(symbol: &SourceSymbol) -> bool {
+    symbol.role == SymbolRole::Definition || symbol.evidence == SymbolEvidence::Call
 }
 
 fn symbol_name(node: Node<'_>, declaration: Node<'_>, source: &[u8], support: &LanguageSupport) -> String {

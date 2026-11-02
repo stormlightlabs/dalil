@@ -45,6 +45,10 @@ pub fn build_lexical_edges(files: &[SourceFile], max_candidates: usize, max_edge
         .collect::<BTreeMap<_, _>>();
 
     let mut edges = Vec::new();
+    // Every occurrence of a reference proposes the same edges again. Counting
+    // only unseen (candidate group, target) pairs keeps `max_edges` a limit on
+    // distinct edges, so repeated calls early in the file list cannot use it up.
+    let mut seen = BTreeSet::new();
     'files: for file in files {
         for symbol in &file.symbols {
             if edges.len() >= max_edges {
@@ -76,6 +80,14 @@ pub fn build_lexical_edges(files: &[SourceFile], max_candidates: usize, max_edge
                 } else {
                     continue;
                 }
+            } else if let Some(qualified_candidates) =
+                qualified_path_candidates(file, symbol, &all_candidates, &modules)
+            {
+                (
+                    qualified_candidates,
+                    LexicalResolutionReason::QualifiedPath,
+                    ConfidenceTier::High,
+                )
             } else if let Some(module_candidates) = same_module_candidates(file, &all_candidates, &modules) {
                 (
                     module_candidates,
@@ -120,6 +132,9 @@ pub fn build_lexical_edges(files: &[SourceFile], max_candidates: usize, max_edge
             );
             let ambiguous = candidates.len() > 1;
             for (target, target_visibility) in &candidates {
+                if !seen.insert((candidate_group.clone(), target.clone())) {
+                    continue;
+                }
                 if edges.len() >= max_edges {
                     break 'files;
                 }
@@ -874,6 +889,135 @@ fn import_module_hints(context: &str, language: SourceLanguage) -> Vec<String> {
     hints.sort();
     hints.dedup();
     hints
+}
+
+/// Keeps the candidates whose module path ends with the reference's qualifier,
+/// so `map::language_capabilities()` resolves to `map.rs` or `map/mod.rs`.
+/// `crate`, `self` and `super` segments are dropped; a qualifier made only of
+/// them names no module and yields no candidates. Only candidates in the
+/// caller's crate count, as `crate_source_root` gives it.
+///
+/// A qualifier with no `crate`, `self` or `super` segment, such as `map::f`,
+/// resolves only when its first segment is a module declared in the crate
+/// (`mod map;`) or a `use` binding from inside the crate. A name the file
+/// imports from another crate, such as `fs` after `use std::fs;`, and an extern
+/// crate path such as `serde_json::from_str` yield no candidates.
+fn qualified_path_candidates(
+    file: &SourceFile, symbol: &SourceSymbol, candidates: &[(String, SymbolVisibility)],
+    modules: &BTreeMap<String, BTreeSet<String>>,
+) -> Option<Vec<(String, SymbolVisibility)>> {
+    let qualifier = symbol.qualifier.as_deref()?;
+    let segments = qualifier
+        .split("::")
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+    let anchored = segments
+        .iter()
+        .any(|segment| matches!(*segment, "crate" | "self" | "super"));
+    if !anchored {
+        let head = segments.first()?;
+        let declared = modules
+            .iter()
+            .any(|(path, names)| same_crate(&file.path, path) && names.contains(*head));
+        if !declared && !use_binding_root(file, head).is_some_and(is_crate_relative_root) {
+            return None;
+        }
+    } else if qualifier_names_external_import(file, &segments) {
+        return None;
+    }
+    let module = segments
+        .iter()
+        .filter(|segment| !matches!(**segment, "crate" | "self" | "super"))
+        .copied()
+        .collect::<Vec<_>>()
+        .join("/")
+        .to_ascii_lowercase();
+    if module.is_empty() {
+        return None;
+    }
+    let matching = candidates
+        .iter()
+        .filter(|(path, _)| {
+            let normalized = normalize_module_hint(path);
+            // `normalize_module_hint` strips `.rs` after `/mod`, so `map/mod.rs`
+            // arrives here as `map/mod`.
+            let normalized = normalized.strip_suffix("/mod").unwrap_or(&normalized);
+            same_crate(&file.path, path) && (normalized == module || normalized.ends_with(&format!("/{module}")))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    (!matching.is_empty()).then_some(matching)
+}
+
+/// Whether the qualifier's first segment after `self` is bound by a `use`
+/// whose path starts outside the crate. Paths anchored at `crate::` or
+/// `super::` do not read `use` bindings, so they never match.
+fn qualifier_names_external_import(file: &SourceFile, segments: &[&str]) -> bool {
+    if segments.iter().any(|segment| matches!(*segment, "crate" | "super")) {
+        return false;
+    }
+    let Some(head) = segments.iter().find(|segment| **segment != "self") else {
+        return false;
+    };
+    use_binding_root(file, head).is_some_and(|root| !is_crate_relative_root(root))
+}
+
+/// The root of the `use` path that binds `name` in the file, such as `std`
+/// for `fs` after `use std::fs;`.
+fn use_binding_root<'a>(file: &'a SourceFile, name: &str) -> Option<&'a str> {
+    file.symbols
+        .iter()
+        .filter(|import| {
+            import.role == SymbolRole::Definition && import.evidence == SymbolEvidence::Import && import.name == name
+        })
+        .find_map(|import| use_path_root(&import.context))
+}
+
+fn is_crate_relative_root(root: &str) -> bool {
+    matches!(root, "crate" | "self" | "super")
+}
+
+/// Whether `candidate` is in the same crate as `source`: under the source's
+/// path up to and including its last `src` directory, or, for a source with
+/// no `src` directory, under the same top-level directory. A source at the
+/// repository root matches only other files at the root.
+fn same_crate(source: &str, candidate: &str) -> bool {
+    let root = crate_source_root(source);
+    if root.is_empty() { !candidate.contains('/') } else { candidate.starts_with(root) }
+}
+
+/// The prefix that marks a file's crate, ending in `/`: `crates/a/src/` for
+/// `crates/a/src/map/mod.rs`, `tests/` for `tests/cli.rs`, and empty for a
+/// file at the repository root.
+pub(super) fn crate_source_root(path: &str) -> &str {
+    let parent = repository_parent(path);
+    let mut src_end = None;
+    let mut offset = 0;
+    for segment in parent.split('/') {
+        offset += segment.len();
+        if segment == "src" {
+            src_end = Some(offset + 1);
+        }
+        offset += 1;
+    }
+    if let Some(end) = src_end {
+        return &path[..end];
+    }
+    parent.split_once('/').map_or_else(
+        || if parent.is_empty() { "" } else { &path[..parent.len() + 1] },
+        |(top, _)| &path[..top.len() + 1],
+    )
+}
+
+/// Returns the first segment of a Rust `use` path, such as `std` in
+/// `pub use std::fs;`.
+fn use_path_root(context: &str) -> Option<&str> {
+    let (_, path) = context.split_once("use ")?;
+    path.trim_start()
+        .trim_start_matches("::")
+        .split(|character: char| character == ':' || character == ';' || character == '{' || character.is_whitespace())
+        .next()
+        .filter(|root| !root.is_empty())
 }
 
 fn normalize_module_hint(value: &str) -> String {

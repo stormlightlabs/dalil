@@ -1,6 +1,34 @@
 use super::*;
 
 pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option<&HistoryReport>) -> Result<MapReport> {
+    let mut report = analyze_unbounded(path, settings, history)?;
+    bound_map_report(
+        &mut report,
+        settings.profile,
+        &ReportLimits::for_profile(settings.profile),
+    );
+    Ok(report)
+}
+
+/// Keeps the first `available` symbols the limits do not exempt, and every
+/// definition and call. The parser already bounds exempt symbols per file.
+pub(crate) fn retain_within_symbol_budget(symbols: &mut Vec<SourceSymbol>, available: usize) {
+    let mut remaining = available;
+    symbols.retain(|symbol| {
+        if parser::retained_past_symbol_limits(symbol) {
+            return true;
+        }
+        let keep = remaining > 0;
+        remaining = remaining.saturating_sub(1);
+        keep
+    });
+}
+
+/// Analyze the repository without the output limits `bound_map_report` applies.
+///
+/// Graph operations build on this report, so a symbol the output projection would
+/// drop still contributes its definitions, references and calls.
+pub fn analyze_unbounded(path: &Path, settings: &MapSettings, history: Option<&HistoryReport>) -> Result<MapReport> {
     let selected_path = absolute_path(path)?;
     let repository = security::discover_repository(&selected_path)
         .map_err(|source| MapError::Discovery { path: selected_path.clone(), source })?;
@@ -265,6 +293,7 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
     let mut findings = Vec::new();
     let mut total_source_bytes = 0usize;
     let mut total_symbols = 0usize;
+    let mut symbol_budget_reached = false;
     let mut work_limit_reached = false;
     let mut trigram_index = TrigramIndex::default();
     let mut analyzers = BTreeMap::<SourceLanguage, LanguageAnalyzer>::new();
@@ -422,6 +451,9 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
         total_source_bytes = total_source_bytes.saturating_add(source.len());
         trigram_index.insert(path.clone(), &source);
         let fingerprint = source_fingerprint(&source);
+        // Parsed records depend on the symbol limit as well as the source, so a
+        // record parsed under one profile's limit is not reused under another's.
+        let symbol_limit = limits.max_symbols_per_file;
         let requested = requested_cache_files.contains(&path);
         let forced_refresh =
             matches!(settings.cache_mode, CacheMode::Always) || (settings.cache_mode == CacheMode::Files && requested);
@@ -431,7 +463,7 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
                 .or_insert_with(|| LanguageAnalyzer::new(support));
             let parsed = parse_source_with_analyzer(&source, analyzer, &limits);
             if settings.cache_mode != CacheMode::Disabled {
-                if let Some(error) = cache.write(&path, support, &fingerprint, &parsed) {
+                if let Some(error) = cache.write(&path, support, &fingerprint, symbol_limit, &parsed) {
                     cache_limitations.push(error);
                 }
                 cache_stats.refreshed.push(path.clone());
@@ -440,7 +472,7 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
         } else {
             let lookup_mode =
                 if settings.cache_mode == CacheMode::Files { CacheMode::Auto } else { settings.cache_mode };
-            match cache.load(&path, support, &fingerprint, lookup_mode) {
+            match cache.load(&path, support, &fingerprint, symbol_limit, lookup_mode) {
                 Some(lookup) => {
                     cache_stats.hits += 1;
                     if !lookup.stale {
@@ -473,7 +505,7 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
                         .entry(support.language)
                         .or_insert_with(|| LanguageAnalyzer::new(support));
                     let parsed = parse_source_with_analyzer(&source, analyzer, &limits);
-                    if let Some(error) = cache.write(&path, support, &fingerprint, &parsed) {
+                    if let Some(error) = cache.write(&path, support, &fingerprint, symbol_limit, &parsed) {
                         cache_limitations.push(error);
                     }
                     cache_stats.refreshed.push(path.clone());
@@ -484,7 +516,8 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
         let ParsedSource { mut symbols, findings: file_findings, status, mut limitations } = parsed;
         let available_symbols = limits.max_symbols.saturating_sub(total_symbols);
         if symbols.len() > available_symbols {
-            symbols.truncate(available_symbols);
+            symbol_budget_reached = true;
+            retain_within_symbol_budget(&mut symbols, available_symbols);
             limitations.push(format!(
                 "The symbol resource limit ({}) was reached; additional symbols were omitted from this report.",
                 limits.max_symbols
@@ -616,6 +649,8 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
     } else {
         build_lexical_edges(&files, limits.max_candidates_per_reference, limits.max_edges)
     };
+    // Edge building stops at `max_edges`, so reaching it means edges may be missing.
+    let edge_limit_reached = edges.len() >= limits.max_edges;
     add_ambiguity_findings(&edges, &mut findings, limits.max_findings);
     findings.sort_by(|left, right| {
         left.path
@@ -743,7 +778,7 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
         .filter(|omission| omission.reason == OmissionReason::CacheUnavailable)
         .map(|omission| omission.path.clone())
         .collect::<Vec<_>>();
-    let mut report = MapReport {
+    let report = MapReport {
         profile: settings.profile,
         repository_root: repository_root.to_string_lossy().into_owned(),
         scope_path: scope.relative_path,
@@ -802,20 +837,24 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
         },
         landmarks: topology.landmarks,
         project_roots,
-        collections: MapCollections {
-            files: CollectionSummary::complete(0),
-            symbols: CollectionSummary::complete(0),
-            omissions: CollectionSummary::complete(0),
-            findings: CollectionSummary::complete(0),
-            edges: CollectionSummary::complete(0),
-            ranking: CollectionSummary::complete(0),
-            snippets: CollectionSummary::complete(0),
-            landmarks: CollectionSummary::complete(0),
-            project_roots: CollectionSummary::complete(0),
-        },
+        collections: MapCollections::default(),
         reading_evidence,
     };
-    bound_map_report(&mut report, settings.profile, &limits);
+    let collections = MapCollections {
+        files: CollectionSummary::complete(report.files.len()),
+        symbols: analysis_summary(
+            report.files.iter().map(|file| file.symbols.len()).sum(),
+            symbol_budget_reached,
+        ),
+        omissions: CollectionSummary::complete(report.omissions.len()),
+        findings: CollectionSummary::complete(report.findings.len()),
+        edges: analysis_summary(report.edges.len(), edge_limit_reached),
+        ranking: CollectionSummary::complete(report.ranking.len()),
+        snippets: CollectionSummary::complete(report.selection.snippets.len()),
+        landmarks: CollectionSummary::complete(report.landmarks.len()),
+        project_roots: CollectionSummary::complete(report.project_roots.len()),
+    };
+    let report = MapReport { collections, ..report };
     Ok(report)
 }
 
@@ -869,7 +908,28 @@ fn history_ranking_weights(history: Option<&HistoryReport>) -> BTreeMap<String, 
     weights
 }
 
+/// Summarizes a collection as analysis produced it: everything is returned,
+/// and it is truncated only when a resource limit stopped analysis early.
+fn analysis_summary(total: usize, limit_reached: bool) -> CollectionSummary {
+    CollectionSummary {
+        total,
+        returned: total,
+        truncated: limit_reached,
+        reason: limit_reached.then_some(TruncationReason::ResourceLimit),
+    }
+}
+
+/// Keeps a resource-limit truncation from analysis when the projection would
+/// otherwise report the collection as complete or only projected.
+fn keep_resource_limit(summary: &mut CollectionSummary, analysis: &CollectionSummary) {
+    if analysis.reason == Some(TruncationReason::ResourceLimit) {
+        summary.truncated = true;
+        summary.reason = Some(TruncationReason::ResourceLimit);
+    }
+}
+
 pub fn bound_map_report(report: &mut MapReport, profile: AnalysisProfile, limits: &ReportLimits) {
+    let analysis_collections = report.collections.clone();
     let files_total = report.files.len();
     let symbols_total = report.files.iter().map(|file| file.symbols.len()).sum::<usize>();
     let omissions_total = report.omissions.len();
@@ -1069,6 +1129,8 @@ pub fn bound_map_report(report: &mut MapReport, profile: AnalysisProfile, limits
     if profile == AnalysisProfile::Evidence {
         bound_evidence_output(report, 4 * 1_024 * 1_024);
     }
+    keep_resource_limit(&mut report.collections.symbols, &analysis_collections.symbols);
+    keep_resource_limit(&mut report.collections.edges, &analysis_collections.edges);
     if [
         report.collections.files.truncated,
         report.collections.symbols.truncated,
