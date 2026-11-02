@@ -861,3 +861,31 @@ fn context_teaching_scaffold_is_opt_in_and_cites_selected_evidence() {
     assert!(markdown.contains("Teaching scaffold"));
     assert!(markdown.contains("Observed file:"));
 }
+
+#[test]
+fn impact_lists_only_changed_definitions_for_a_body_full_of_calls() {
+    let fixture = MapFixtureRepository::new();
+    write_file(
+        fixture.root.join("src/lib.rs"),
+        b"pub fn parse() {\n    helper();\n    writeln!(out, \"{}\", value).expect(\"write\");\n    other(helper(), value);\n    helper();\n}\n",
+    );
+
+    let output = fixture.run(&["impact", "--dirty-worktree", "--no-cache", "--json"]);
+    assert!(
+        output.status.success(),
+        "impact failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: Value = serde_json::from_str(&stdout(&output)).expect("valid impact JSON");
+    let changes = json["impact"]["change_resolution"]["changes"]
+        .as_array()
+        .expect("impact changes");
+    let lib = changes
+        .iter()
+        .find(|change| change["path"] == "src/lib.rs")
+        .expect("src/lib.rs change");
+    let symbols = lib["symbols"].as_array().expect("changed symbols");
+    assert_eq!(symbols.len(), 1, "changed symbols: {symbols:?}");
+    assert_eq!(symbols[0]["name"], "parse");
+    assert_eq!(symbols[0]["role"], "definition");
+}

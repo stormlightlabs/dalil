@@ -1785,3 +1785,37 @@ fn manual_cache_mode_skips_records_parsed_under_another_symbol_limit() {
     );
     fs::remove_dir_all(root).expect("remove cache fixture");
 }
+
+#[test]
+fn changed_definitions_map_body_edits_to_their_enclosing_definition() {
+    let source = "use std::fmt::Write;\n\
+struct First;\n\
+impl First {\n\
+    fn new() -> Self {\n\
+        helper(); helper(); writeln!(out, \"x\").expect(\"write\");\n\
+        Self\n\
+    }\n\
+}\n\
+struct Second;\n\
+impl Second {\n\
+    fn new() -> Self {\n\
+        other(1, 2);\n\
+        Self\n\
+    }\n\
+}\n";
+    let symbols = parse_source(source.as_bytes(), &RUST_SUPPORT).symbols;
+    let changed = |start: usize, end: usize| {
+        changes::changed_definitions(&symbols, &[ChangedLineRange { start, end }])
+            .into_iter()
+            .map(|symbol| (symbol.name, symbol.location.start.line))
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(changed(5, 5), [("new".to_owned(), 4)]);
+    assert_eq!(changed(12, 12), [("new".to_owned(), 11)]);
+    assert_eq!(
+        changed(5, 12),
+        [("new".to_owned(), 4), ("Second".to_owned(), 9), ("new".to_owned(), 11)]
+    );
+    assert!(changed(1, 1).is_empty(), "imports are not changed definitions");
+}

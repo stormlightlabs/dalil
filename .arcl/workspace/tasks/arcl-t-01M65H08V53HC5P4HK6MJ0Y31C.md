@@ -2,7 +2,7 @@
 id = "arcl-t-01M65H08V53HC5P4HK6MJ0Y31C"
 phase = "arcl-ph-01M65H08QHQG2WE9TPFPAR1JTJ"
 title = "List only definitions as impact's changed symbols"
-status = "pending"
+status = "in_progress"
 priority = "normal"
 position = 2
 +++

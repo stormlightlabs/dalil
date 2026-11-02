@@ -143,17 +143,7 @@ pub fn enrich_change_symbols(resolution: &mut ChangeResolution, map: &MapReport)
         if change.changed_lines.is_empty() {
             continue;
         }
-        change.symbols = source
-            .symbols
-            .iter()
-            .filter(|symbol| line_ranges_overlap(&symbol.location, &change.changed_lines))
-            .map(|symbol| ChangedSymbol {
-                name: symbol.name.clone(),
-                kind: symbol.kind,
-                role: symbol.role,
-                location: symbol.location.clone(),
-            })
-            .collect();
+        change.symbols = changed_definitions(&source.symbols, &change.changed_lines);
     }
     if !resolution.uncertainty.is_empty() && resolution.status == ChangeResolutionStatus::Resolved {
         resolution.status = ChangeResolutionStatus::Partial;
@@ -489,6 +479,60 @@ fn changed_lines(before: Option<&[u8]>, after: Option<&[u8]>) -> Vec<ChangedLine
     let start = prefix.saturating_add(1);
     let end = after.len().saturating_sub(suffix).max(start);
     vec![ChangedLineRange { start, end }]
+}
+
+/// Returns the definitions a change touches, each once, in source order.
+///
+/// A definition's location is its name, so an edit inside a function body
+/// overlaps only the references there. Each reference on a changed line maps
+/// to the definition its scope names; definitions on changed lines count
+/// directly. Imports are not definitions of this file's own code and are left out.
+pub(crate) fn changed_definitions(symbols: &[SourceSymbol], ranges: &[ChangedLineRange]) -> Vec<ChangedSymbol> {
+    let definitions = symbols
+        .iter()
+        .filter(|symbol| symbol.role == SymbolRole::Definition && symbol.evidence != SymbolEvidence::Import)
+        .collect::<Vec<_>>();
+    let mut changed = BTreeMap::new();
+    for symbol in symbols
+        .iter()
+        .filter(|symbol| line_ranges_overlap(&symbol.location, ranges))
+    {
+        let definition = if symbol.role == SymbolRole::Definition {
+            (symbol.evidence != SymbolEvidence::Import).then_some(symbol)
+        } else {
+            enclosing_definition(symbol, &definitions)
+        };
+        if let Some(definition) = definition {
+            changed
+                .entry(location_key(Some(&definition.location)))
+                .or_insert_with(|| ChangedSymbol {
+                    name: definition.name.clone(),
+                    kind: definition.kind,
+                    role: definition.role,
+                    location: definition.location.clone(),
+                });
+        }
+    }
+    changed.into_values().collect()
+}
+
+/// Finds the innermost definition whose name and parent scope match the
+/// reference's scope chain, taking the nearest one before the reference when
+/// several share a name.
+fn enclosing_definition<'a>(reference: &SourceSymbol, definitions: &[&'a SourceSymbol]) -> Option<&'a SourceSymbol> {
+    (1..=reference.scope.len()).rev().find_map(|depth| {
+        let name = &reference.scope[depth - 1];
+        let parents = &reference.scope[..depth - 1];
+        definitions
+            .iter()
+            .filter(|definition| {
+                &definition.name == name
+                    && definition.scope == parents
+                    && definition.location.start.line <= reference.location.start.line
+            })
+            .max_by_key(|definition| (definition.location.start.line, definition.location.start.column))
+            .copied()
+    })
 }
 
 fn line_ranges_overlap(location: &SourceLocation, ranges: &[ChangedLineRange]) -> bool {
