@@ -1483,6 +1483,30 @@ fn qualified_paths_resolve_cross_file_calls_without_imports() {
         );
         assert!(edges.is_empty(), "{source} produced {edges:?}");
     }
+
+    // `fs` names std's module here, not src/util/fs.rs.
+    let std_import = rust_file("src/caller.rs", "use std::fs;\nfn caller() { fs::read(\"x\"); }");
+    let util_fs = rust_file("src/util/fs.rs", "pub fn read(path: &str) {}");
+    let edges = build_lexical_edges(&[std_import, util_fs.clone()], 32, 32);
+    assert!(
+        edges
+            .iter()
+            .all(|edge| edge.resolution_reason != LexicalResolutionReason::QualifiedPath),
+        "{edges:?}"
+    );
+
+    // A `use` from inside the crate keeps the qualified-path edge.
+    let crate_import = rust_file(
+        "src/caller.rs",
+        "use crate::util::fs;\nfn caller() { fs::read(\"x\"); }",
+    );
+    let edges = build_lexical_edges(&[crate_import, util_fs], 32, 32);
+    assert!(
+        edges.iter().any(|edge| edge.target == "src/util/fs.rs"
+            && edge.resolution_reason == LexicalResolutionReason::QualifiedPath
+            && edge.confidence == ConfidenceTier::High),
+        "{edges:?}"
+    );
 }
 
 #[test]
@@ -1531,4 +1555,170 @@ fn definitions_and_calls_survive_the_per_file_symbol_limit() {
             .iter()
             .any(|limitation| limitation.contains("per-file symbol limit (128)"))
     );
+}
+
+#[test]
+fn definitions_and_calls_stop_at_the_exempt_per_file_cap() {
+    let mut source = String::from("fn caller() {\n");
+    for index in 0..200 {
+        source.push_str(&format!("    callee_{index}();\n"));
+    }
+    source.push_str("}\n");
+    let limits = ReportLimits { max_symbols_per_file: 4, ..ReportLimits::for_profile(AnalysisProfile::Evidence) };
+    let mut analyzer = LanguageAnalyzer::new(&RUST_SUPPORT);
+    let parsed = parse_source_with_analyzer(source.as_bytes(), &mut analyzer, &limits);
+
+    assert_eq!(parsed.symbols.len(), parser::exempt_symbol_limit(4));
+    assert_eq!(parsed.symbols.len(), 64);
+    assert!(
+        parsed
+            .symbols
+            .iter()
+            .any(|symbol| symbol.name == "caller" && symbol.role == SymbolRole::Definition)
+    );
+    assert!(
+        parsed
+            .limitations
+            .iter()
+            .any(|limitation| limitation.contains("limit for definitions and calls (64)")),
+        "{:?}",
+        parsed.limitations
+    );
+}
+
+#[test]
+fn the_total_symbol_budget_drops_bare_references_and_keeps_definitions_and_calls() {
+    let mut symbols = rust_file(
+        "src/lib.rs",
+        "fn first(value: usize) { let _ = value; }\nfn late() { target::late_call(); late_bare; }",
+    )
+    .symbols;
+    let bare_references = symbols
+        .iter()
+        .filter(|symbol| !parser::retained_past_symbol_limits(symbol))
+        .count();
+    assert!(bare_references > 1);
+
+    analysis::retain_within_symbol_budget(&mut symbols, 1);
+
+    assert_eq!(
+        symbols
+            .iter()
+            .filter(|symbol| !parser::retained_past_symbol_limits(symbol))
+            .count(),
+        1
+    );
+    assert!(
+        symbols
+            .iter()
+            .any(|symbol| symbol.name == "late" && symbol.role == SymbolRole::Definition)
+    );
+    assert!(
+        symbols
+            .iter()
+            .any(|symbol| symbol.name == "late_call" && symbol.evidence == SymbolEvidence::Call)
+    );
+    assert!(!symbols.iter().any(|symbol| symbol.name == "late_bare"));
+}
+
+fn cache_fixture(name: &str) -> (PathBuf, CacheStore) {
+    let root = std::env::temp_dir().join(format!("dalil-cache-{name}-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).expect("create cache fixture");
+    let repository_root = "/repository".to_owned();
+    let store =
+        CacheStore { root: Some(root.clone()), repository_id: digest_hex(repository_root.as_bytes()), repository_root };
+    (root, store)
+}
+
+fn cache_index_identity() -> IndexIdentity {
+    IndexIdentity {
+        scope_path: String::new(),
+        head: None,
+        worktree_state: String::new(),
+        manifest_state: String::new(),
+        profile: AnalysisProfile::Compact,
+        map_tokens: DEFAULT_MAP_TOKENS,
+        analysis_options: String::new(),
+        content_state: String::new(),
+        language_pack_identity: BTreeMap::new(),
+    }
+}
+
+/// Rewrites the `tool_version` of every cache file under `root`.
+fn restamp_cache_files(root: &Path, tool_version: &str) {
+    for entry in WalkBuilder::new(root).hidden(false).build().flatten() {
+        if !entry.path().is_file() {
+            continue;
+        }
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(entry.path()).expect("read cache file")).expect("cache JSON");
+        value["tool_version"] = serde_json::Value::String(tool_version.to_owned());
+        fs::write(entry.path(), serde_json::to_vec(&value).expect("cache JSON")).expect("write cache file");
+    }
+}
+
+#[test]
+fn cache_written_by_the_previous_tool_version_is_rejected() {
+    // Version 10 stored edges without qualified-path resolution; reusing them
+    // would hide callers, so this version must not read that cache.
+    assert_ne!(CACHE_TOOL_VERSION, "dalil-map-v10");
+    let (root, store) = cache_fixture("tool-version");
+    let identity = cache_index_identity();
+    let parsed = parse_source(b"pub fn target() {}", &RUST_SUPPORT);
+    assert!(
+        store
+            .write("src/lib.rs", &RUST_SUPPORT, "fingerprint", 128, &parsed)
+            .is_none()
+    );
+    assert!(
+        store
+            .write_index(
+                &identity,
+                BTreeMap::new(),
+                Vec::new(),
+                Vec::new(),
+                BTreeMap::new(),
+                TrigramIndex::default()
+            )
+            .is_none()
+    );
+    assert_eq!(store.load_index(&identity).status, PersistentIndexStatus::Hit);
+    assert!(
+        store
+            .load("src/lib.rs", &RUST_SUPPORT, "fingerprint", 128, CacheMode::Auto)
+            .is_some()
+    );
+
+    restamp_cache_files(&root, "dalil-map-v10");
+    assert_eq!(store.load_index(&identity).status, PersistentIndexStatus::Incompatible);
+    assert!(
+        store
+            .load("src/lib.rs", &RUST_SUPPORT, "fingerprint", 128, CacheMode::Auto)
+            .is_none()
+    );
+    fs::remove_dir_all(root).expect("remove cache fixture");
+}
+
+#[test]
+fn manual_cache_mode_skips_records_parsed_under_another_symbol_limit() {
+    let (root, store) = cache_fixture("manual-limit");
+    let parsed = parse_source(b"pub fn target() {}", &RUST_SUPPORT);
+    assert!(store.write("src/lib.rs", &RUST_SUPPORT, "old", 128, &parsed).is_none());
+
+    let same_limit = store
+        .load("src/lib.rs", &RUST_SUPPORT, "new", 128, CacheMode::Manual)
+        .expect("record under the same limit");
+    assert!(same_limit.stale);
+    assert!(
+        store
+            .load("src/lib.rs", &RUST_SUPPORT, "new", 2_048, CacheMode::Manual)
+            .is_none()
+    );
+    assert!(
+        store
+            .load("src/lib.rs", &RUST_SUPPORT, "old", 2_048, CacheMode::Manual)
+            .is_none()
+    );
+    fs::remove_dir_all(root).expect("remove cache fixture");
 }

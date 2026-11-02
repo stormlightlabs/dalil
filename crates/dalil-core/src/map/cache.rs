@@ -10,6 +10,8 @@ struct CacheRecord {
     query_pack: String,
     query_digest: String,
     fingerprint: String,
+    /// The per-file symbol limit the source was parsed under.
+    symbol_limit: usize,
     created_at: u128,
     parsed: ParsedSource,
 }
@@ -249,15 +251,20 @@ impl CacheStore {
         )
     }
 
-    fn record_path(&self, path: &str, support: &LanguageSupport, fingerprint: &str) -> Option<PathBuf> {
+    fn record_path(
+        &self, path: &str, support: &LanguageSupport, fingerprint: &str, symbol_limit: usize,
+    ) -> Option<PathBuf> {
         Some(
             self.record_directory(path, support)?
-                .join(format!("{fingerprint}.json")),
+                .join(format!("{fingerprint}-s{symbol_limit}.json")),
         )
     }
 
+    /// Loads the record for this source and symbol limit. Manual mode falls
+    /// back to the newest record for an older source, but only one parsed under
+    /// the same symbol limit.
     pub fn load(
-        &self, path: &str, support: &LanguageSupport, fingerprint: &str, mode: CacheMode,
+        &self, path: &str, support: &LanguageSupport, fingerprint: &str, symbol_limit: usize, mode: CacheMode,
     ) -> Option<CacheLookup> {
         let directory = self.record_directory(path, support)?;
         let root = self.root.as_ref()?;
@@ -266,8 +273,8 @@ impl CacheStore {
         }
 
         if mode != CacheMode::Manual {
-            let current = self.record_path(path, support, fingerprint)?;
-            let record = self.read_record(current, path, support)?;
+            let current = self.record_path(path, support, fingerprint, symbol_limit)?;
+            let record = self.read_record(current, path, support, symbol_limit)?;
             return (record.fingerprint == fingerprint).then_some(CacheLookup { parsed: record.parsed, stale: false });
         }
 
@@ -286,12 +293,14 @@ impl CacheStore {
             .into_iter()
             .filter(|candidate| security::cache_path_is_safe(root, candidate).is_ok())
             .find_map(|candidate| {
-                let record = self.read_record(candidate, path, support)?;
+                let record = self.read_record(candidate, path, support, symbol_limit)?;
                 Some(CacheLookup { parsed: record.parsed, stale: record.fingerprint != fingerprint })
             })
     }
 
-    fn read_record(&self, path: PathBuf, expected_path: &str, support: &LanguageSupport) -> Option<CacheRecord> {
+    fn read_record(
+        &self, path: PathBuf, expected_path: &str, support: &LanguageSupport, symbol_limit: usize,
+    ) -> Option<CacheRecord> {
         let bytes = self
             .root
             .as_ref()
@@ -301,6 +310,7 @@ impl CacheStore {
             || record.tool_version != CACHE_TOOL_VERSION
             || record.repository_root != self.repository_root
             || record.path != expected_path
+            || record.symbol_limit != symbol_limit
             || record.language != support.language
             || record.query_pack != support.query_pack
             || record.query_digest != query_digest(support)
@@ -320,9 +330,9 @@ impl CacheStore {
     }
 
     pub fn write(
-        &self, path: &str, support: &LanguageSupport, fingerprint: &str, parsed: &ParsedSource,
+        &self, path: &str, support: &LanguageSupport, fingerprint: &str, symbol_limit: usize, parsed: &ParsedSource,
     ) -> Option<String> {
-        let record_path = self.record_path(path, support, fingerprint)?;
+        let record_path = self.record_path(path, support, fingerprint, symbol_limit)?;
         let record = CacheRecord {
             schema_version: CACHE_SCHEMA_VERSION,
             tool_version: CACHE_TOOL_VERSION.to_owned(),
@@ -332,6 +342,7 @@ impl CacheStore {
             query_pack: support.query_pack.to_owned(),
             query_digest: query_digest(support),
             fingerprint: fingerprint.to_owned(),
+            symbol_limit,
             created_at: unix_timestamp(),
             parsed: parsed.clone(),
         };

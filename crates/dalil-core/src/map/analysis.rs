@@ -10,6 +10,20 @@ pub fn analyze_with_history(path: &Path, settings: &MapSettings, history: Option
     Ok(report)
 }
 
+/// Keeps the first `available` symbols the limits do not exempt, and every
+/// definition and call. The parser already bounds exempt symbols per file.
+pub(crate) fn retain_within_symbol_budget(symbols: &mut Vec<SourceSymbol>, available: usize) {
+    let mut remaining = available;
+    symbols.retain(|symbol| {
+        if parser::retained_past_symbol_limits(symbol) {
+            return true;
+        }
+        let keep = remaining > 0;
+        remaining = remaining.saturating_sub(1);
+        keep
+    });
+}
+
 /// Analyze the repository without the output limits `bound_map_report` applies.
 ///
 /// Graph operations build on this report, so a symbol the output projection would
@@ -438,7 +452,7 @@ pub fn analyze_unbounded(path: &Path, settings: &MapSettings, history: Option<&H
         let fingerprint = source_fingerprint(&source);
         // Parsed records depend on the symbol limit as well as the source, so a
         // record parsed under one profile's limit is not reused under another's.
-        let record_key = format!("{fingerprint}-s{}", limits.max_symbols_per_file);
+        let symbol_limit = limits.max_symbols_per_file;
         let requested = requested_cache_files.contains(&path);
         let forced_refresh =
             matches!(settings.cache_mode, CacheMode::Always) || (settings.cache_mode == CacheMode::Files && requested);
@@ -448,7 +462,7 @@ pub fn analyze_unbounded(path: &Path, settings: &MapSettings, history: Option<&H
                 .or_insert_with(|| LanguageAnalyzer::new(support));
             let parsed = parse_source_with_analyzer(&source, analyzer, &limits);
             if settings.cache_mode != CacheMode::Disabled {
-                if let Some(error) = cache.write(&path, support, &record_key, &parsed) {
+                if let Some(error) = cache.write(&path, support, &fingerprint, symbol_limit, &parsed) {
                     cache_limitations.push(error);
                 }
                 cache_stats.refreshed.push(path.clone());
@@ -457,7 +471,7 @@ pub fn analyze_unbounded(path: &Path, settings: &MapSettings, history: Option<&H
         } else {
             let lookup_mode =
                 if settings.cache_mode == CacheMode::Files { CacheMode::Auto } else { settings.cache_mode };
-            match cache.load(&path, support, &record_key, lookup_mode) {
+            match cache.load(&path, support, &fingerprint, symbol_limit, lookup_mode) {
                 Some(lookup) => {
                     cache_stats.hits += 1;
                     if !lookup.stale {
@@ -490,7 +504,7 @@ pub fn analyze_unbounded(path: &Path, settings: &MapSettings, history: Option<&H
                         .entry(support.language)
                         .or_insert_with(|| LanguageAnalyzer::new(support));
                     let parsed = parse_source_with_analyzer(&source, analyzer, &limits);
-                    if let Some(error) = cache.write(&path, support, &record_key, &parsed) {
+                    if let Some(error) = cache.write(&path, support, &fingerprint, symbol_limit, &parsed) {
                         cache_limitations.push(error);
                     }
                     cache_stats.refreshed.push(path.clone());
@@ -501,15 +515,7 @@ pub fn analyze_unbounded(path: &Path, settings: &MapSettings, history: Option<&H
         let ParsedSource { mut symbols, findings: file_findings, status, mut limitations } = parsed;
         let available_symbols = limits.max_symbols.saturating_sub(total_symbols);
         if symbols.len() > available_symbols {
-            let mut remaining = available_symbols;
-            symbols.retain(|symbol| {
-                if parser::retained_past_symbol_limits(symbol) {
-                    return true;
-                }
-                let keep = remaining > 0;
-                remaining = remaining.saturating_sub(1);
-                keep
-            });
+            retain_within_symbol_budget(&mut symbols, available_symbols);
             limitations.push(format!(
                 "The symbol resource limit ({}) was reached; additional symbols were omitted from this report.",
                 limits.max_symbols

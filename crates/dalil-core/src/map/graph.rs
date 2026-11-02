@@ -80,7 +80,7 @@ pub fn build_lexical_edges(files: &[SourceFile], max_candidates: usize, max_edge
                 } else {
                     continue;
                 }
-            } else if let Some(qualified_candidates) = qualified_path_candidates(symbol, &all_candidates) {
+            } else if let Some(qualified_candidates) = qualified_path_candidates(file, symbol, &all_candidates) {
                 (
                     qualified_candidates,
                     LexicalResolutionReason::QualifiedPath,
@@ -892,11 +892,16 @@ fn import_module_hints(context: &str, language: SourceLanguage) -> Vec<String> {
 /// Keeps the candidates whose module path ends with the reference's qualifier,
 /// so `map::language_capabilities()` resolves to `map.rs` or `map/mod.rs`.
 /// `crate`, `self` and `super` segments are dropped; a qualifier made only of
-/// them names no module and yields no candidates.
+/// them names no module and yields no candidates. A qualifier that starts with
+/// a name the file imports from another crate, such as `fs` after
+/// `use std::fs;`, names that crate's module and yields no candidates.
 fn qualified_path_candidates(
-    symbol: &SourceSymbol, candidates: &[(String, SymbolVisibility)],
+    file: &SourceFile, symbol: &SourceSymbol, candidates: &[(String, SymbolVisibility)],
 ) -> Option<Vec<(String, SymbolVisibility)>> {
     let qualifier = symbol.qualifier.as_deref()?;
+    if qualifier_names_external_import(file, qualifier) {
+        return None;
+    }
     let module = qualifier
         .split("::")
         .filter(|segment| !matches!(*segment, "crate" | "self" | "super"))
@@ -915,6 +920,39 @@ fn qualified_path_candidates(
         .cloned()
         .collect::<Vec<_>>();
     (!matching.is_empty()).then_some(matching)
+}
+
+/// Whether the qualifier's first segment is bound by a `use` whose path starts
+/// outside the crate. Paths anchored at `crate::` or `super::` do not read
+/// `use` bindings, so they never match.
+fn qualifier_names_external_import(file: &SourceFile, qualifier: &str) -> bool {
+    let segments = qualifier
+        .split("::")
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+    if segments.iter().any(|segment| matches!(*segment, "crate" | "super")) {
+        return false;
+    }
+    let Some(head) = segments.into_iter().find(|segment| *segment != "self") else {
+        return false;
+    };
+    file.symbols.iter().any(|import| {
+        import.role == SymbolRole::Definition
+            && import.evidence == SymbolEvidence::Import
+            && import.name == head
+            && use_path_root(&import.context).is_some_and(|root| !matches!(root, "crate" | "self" | "super"))
+    })
+}
+
+/// Returns the first segment of a Rust `use` path, such as `std` in
+/// `pub use std::fs;`.
+fn use_path_root(context: &str) -> Option<&str> {
+    let (_, path) = context.split_once("use ")?;
+    path.trim_start()
+        .trim_start_matches("::")
+        .split(|character: char| character == ':' || character == ';' || character == '{' || character.is_whitespace())
+        .next()
+        .filter(|root| !root.is_empty())
 }
 
 fn normalize_module_hint(value: &str) -> String {
