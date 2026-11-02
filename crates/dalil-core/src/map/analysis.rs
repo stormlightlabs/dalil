@@ -293,6 +293,7 @@ pub fn analyze_unbounded(path: &Path, settings: &MapSettings, history: Option<&H
     let mut findings = Vec::new();
     let mut total_source_bytes = 0usize;
     let mut total_symbols = 0usize;
+    let mut symbol_budget_reached = false;
     let mut work_limit_reached = false;
     let mut trigram_index = TrigramIndex::default();
     let mut analyzers = BTreeMap::<SourceLanguage, LanguageAnalyzer>::new();
@@ -515,6 +516,7 @@ pub fn analyze_unbounded(path: &Path, settings: &MapSettings, history: Option<&H
         let ParsedSource { mut symbols, findings: file_findings, status, mut limitations } = parsed;
         let available_symbols = limits.max_symbols.saturating_sub(total_symbols);
         if symbols.len() > available_symbols {
+            symbol_budget_reached = true;
             retain_within_symbol_budget(&mut symbols, available_symbols);
             limitations.push(format!(
                 "The symbol resource limit ({}) was reached; additional symbols were omitted from this report.",
@@ -647,6 +649,8 @@ pub fn analyze_unbounded(path: &Path, settings: &MapSettings, history: Option<&H
     } else {
         build_lexical_edges(&files, limits.max_candidates_per_reference, limits.max_edges)
     };
+    // Edge building stops at `max_edges`, so reaching it means edges may be missing.
+    let edge_limit_reached = edges.len() >= limits.max_edges;
     add_ambiguity_findings(&edges, &mut findings, limits.max_findings);
     findings.sort_by(|left, right| {
         left.path
@@ -833,19 +837,24 @@ pub fn analyze_unbounded(path: &Path, settings: &MapSettings, history: Option<&H
         },
         landmarks: topology.landmarks,
         project_roots,
-        collections: MapCollections {
-            files: CollectionSummary::complete(0),
-            symbols: CollectionSummary::complete(0),
-            omissions: CollectionSummary::complete(0),
-            findings: CollectionSummary::complete(0),
-            edges: CollectionSummary::complete(0),
-            ranking: CollectionSummary::complete(0),
-            snippets: CollectionSummary::complete(0),
-            landmarks: CollectionSummary::complete(0),
-            project_roots: CollectionSummary::complete(0),
-        },
+        collections: MapCollections::default(),
         reading_evidence,
     };
+    let collections = MapCollections {
+        files: CollectionSummary::complete(report.files.len()),
+        symbols: analysis_summary(
+            report.files.iter().map(|file| file.symbols.len()).sum(),
+            symbol_budget_reached,
+        ),
+        omissions: CollectionSummary::complete(report.omissions.len()),
+        findings: CollectionSummary::complete(report.findings.len()),
+        edges: analysis_summary(report.edges.len(), edge_limit_reached),
+        ranking: CollectionSummary::complete(report.ranking.len()),
+        snippets: CollectionSummary::complete(report.selection.snippets.len()),
+        landmarks: CollectionSummary::complete(report.landmarks.len()),
+        project_roots: CollectionSummary::complete(report.project_roots.len()),
+    };
+    let report = MapReport { collections, ..report };
     Ok(report)
 }
 
@@ -899,7 +908,28 @@ fn history_ranking_weights(history: Option<&HistoryReport>) -> BTreeMap<String, 
     weights
 }
 
+/// Summarizes a collection as analysis produced it: everything is returned,
+/// and it is truncated only when a resource limit stopped analysis early.
+fn analysis_summary(total: usize, limit_reached: bool) -> CollectionSummary {
+    CollectionSummary {
+        total,
+        returned: total,
+        truncated: limit_reached,
+        reason: limit_reached.then_some(TruncationReason::ResourceLimit),
+    }
+}
+
+/// Keeps a resource-limit truncation from analysis when the projection would
+/// otherwise report the collection as complete or only projected.
+fn keep_resource_limit(summary: &mut CollectionSummary, analysis: &CollectionSummary) {
+    if analysis.reason == Some(TruncationReason::ResourceLimit) {
+        summary.truncated = true;
+        summary.reason = Some(TruncationReason::ResourceLimit);
+    }
+}
+
 pub fn bound_map_report(report: &mut MapReport, profile: AnalysisProfile, limits: &ReportLimits) {
+    let analysis_collections = report.collections.clone();
     let files_total = report.files.len();
     let symbols_total = report.files.iter().map(|file| file.symbols.len()).sum::<usize>();
     let omissions_total = report.omissions.len();
@@ -1099,6 +1129,8 @@ pub fn bound_map_report(report: &mut MapReport, profile: AnalysisProfile, limits
     if profile == AnalysisProfile::Evidence {
         bound_evidence_output(report, 4 * 1_024 * 1_024);
     }
+    keep_resource_limit(&mut report.collections.symbols, &analysis_collections.symbols);
+    keep_resource_limit(&mut report.collections.edges, &analysis_collections.edges);
     if [
         report.collections.files.truncated,
         report.collections.symbols.truncated,

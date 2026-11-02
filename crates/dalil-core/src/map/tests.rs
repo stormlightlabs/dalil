@@ -1458,7 +1458,13 @@ fn qualified_paths_resolve_cross_file_calls_without_imports() {
     assert_eq!(call.evidence, SymbolEvidence::Call);
     assert_eq!(call.qualifier.as_deref(), Some("target"));
 
-    let edges = build_lexical_edges(&[caller, rust_file("src/target.rs", "pub fn target() {}")], 32, 32);
+    // An unanchored `target::` needs a `mod target;` in the crate.
+    let lib = rust_file("src/lib.rs", "mod target;");
+    let edges = build_lexical_edges(
+        &[caller, lib.clone(), rust_file("src/target.rs", "pub fn target() {}")],
+        32,
+        32,
+    );
     let edge = edges.first().expect("qualified-path edge");
     assert_eq!(edge.target, "src/target.rs");
     assert_eq!(edge.resolution_reason, LexicalResolutionReason::QualifiedPath);
@@ -1476,6 +1482,7 @@ fn qualified_paths_resolve_cross_file_calls_without_imports() {
         let edges = build_lexical_edges(
             &[
                 rust_file("src/caller.rs", source),
+                lib.clone(),
                 rust_file("src/target.rs", "pub fn target() {}"),
             ],
             32,
@@ -1509,6 +1516,61 @@ fn qualified_paths_resolve_cross_file_calls_without_imports() {
     );
 }
 
+fn qualified_edges(files: &[SourceFile]) -> Vec<(String, ConfidenceTier)> {
+    build_lexical_edges(files, 32, 32)
+        .into_iter()
+        .filter(|edge| edge.resolution_reason == LexicalResolutionReason::QualifiedPath)
+        .map(|edge| (edge.target, edge.confidence))
+        .collect()
+}
+
+#[test]
+fn qualified_paths_resolve_to_mod_rs() {
+    let edges = qualified_edges(&[
+        rust_file("src/lib.rs", "mod map;"),
+        rust_file("src/caller.rs", "fn caller() { map::target(); }"),
+        rust_file("src/map/mod.rs", "pub fn target() {}"),
+    ]);
+    assert_eq!(edges, [("src/map/mod.rs".to_owned(), ConfidenceTier::High)]);
+}
+
+#[test]
+fn qualified_paths_stay_inside_the_callers_crate() {
+    let edges = qualified_edges(&[
+        rust_file("crates/a/src/lib.rs", "mod caller;\nmod util;"),
+        rust_file("crates/a/src/caller.rs", "fn caller() { util::helper(); }"),
+        rust_file("crates/b/src/lib.rs", "mod util;"),
+        rust_file("crates/b/src/util.rs", "pub fn helper() {}"),
+    ]);
+    assert!(edges.is_empty(), "{edges:?}");
+
+    let edges = qualified_edges(&[
+        rust_file("crates/a/src/lib.rs", "mod caller;\nmod util;"),
+        rust_file("crates/a/src/caller.rs", "fn caller() { util::helper(); }"),
+        rust_file("crates/a/src/util.rs", "pub fn helper() {}"),
+        rust_file("crates/b/src/lib.rs", "mod util;"),
+        rust_file("crates/b/src/util.rs", "pub fn helper() {}"),
+    ]);
+    assert_eq!(edges, [("crates/a/src/util.rs".to_owned(), ConfidenceTier::High)]);
+}
+
+#[test]
+fn extern_crate_paths_without_a_module_declaration_do_not_resolve() {
+    let edges = qualified_edges(&[
+        rust_file("src/caller.rs", "fn caller() { serde_json::from_str(\"{}\"); }"),
+        rust_file("src/serde_json.rs", "pub fn from_str(value: &str) {}"),
+    ]);
+    assert!(edges.is_empty(), "{edges:?}");
+}
+
+#[test]
+fn crate_source_roots() {
+    assert_eq!(graph::crate_source_root("crates/a/src/map/mod.rs"), "crates/a/src/");
+    assert_eq!(graph::crate_source_root("src/caller.rs"), "src/");
+    assert_eq!(graph::crate_source_root("tests/cli/main.rs"), "tests/");
+    assert_eq!(graph::crate_source_root("build.rs"), "");
+}
+
 #[test]
 fn repeated_references_do_not_use_up_the_edge_limit() {
     let caller = rust_file(
@@ -1516,7 +1578,8 @@ fn repeated_references_do_not_use_up_the_edge_limit() {
         "fn caller() { target::first(); target::first(); target::first(); target::first(); target::second(); }",
     );
     let target = rust_file("src/target.rs", "pub fn first() {}\npub fn second() {}");
-    let edges = build_lexical_edges(&[caller, target], 32, 2);
+    let lib = rust_file("src/lib.rs", "mod target;");
+    let edges = build_lexical_edges(&[caller, lib, target], 32, 2);
     let symbols = edges.iter().map(|edge| edge.symbol.as_str()).collect::<Vec<_>>();
     assert_eq!(symbols, ["first", "second"]);
 }

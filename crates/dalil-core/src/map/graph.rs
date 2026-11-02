@@ -80,7 +80,9 @@ pub fn build_lexical_edges(files: &[SourceFile], max_candidates: usize, max_edge
                 } else {
                     continue;
                 }
-            } else if let Some(qualified_candidates) = qualified_path_candidates(file, symbol, &all_candidates) {
+            } else if let Some(qualified_candidates) =
+                qualified_path_candidates(file, symbol, &all_candidates, &modules)
+            {
                 (
                     qualified_candidates,
                     LexicalResolutionReason::QualifiedPath,
@@ -892,19 +894,41 @@ fn import_module_hints(context: &str, language: SourceLanguage) -> Vec<String> {
 /// Keeps the candidates whose module path ends with the reference's qualifier,
 /// so `map::language_capabilities()` resolves to `map.rs` or `map/mod.rs`.
 /// `crate`, `self` and `super` segments are dropped; a qualifier made only of
-/// them names no module and yields no candidates. A qualifier that starts with
-/// a name the file imports from another crate, such as `fs` after
-/// `use std::fs;`, names that crate's module and yields no candidates.
+/// them names no module and yields no candidates. Only candidates in the
+/// caller's crate count, as `crate_source_root` gives it.
+///
+/// A qualifier with no `crate`, `self` or `super` segment, such as `map::f`,
+/// resolves only when its first segment is a module declared in the crate
+/// (`mod map;`) or a `use` binding from inside the crate. A name the file
+/// imports from another crate, such as `fs` after `use std::fs;`, and an extern
+/// crate path such as `serde_json::from_str` yield no candidates.
 fn qualified_path_candidates(
     file: &SourceFile, symbol: &SourceSymbol, candidates: &[(String, SymbolVisibility)],
+    modules: &BTreeMap<String, BTreeSet<String>>,
 ) -> Option<Vec<(String, SymbolVisibility)>> {
     let qualifier = symbol.qualifier.as_deref()?;
-    if qualifier_names_external_import(file, qualifier) {
+    let segments = qualifier
+        .split("::")
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+    let anchored = segments
+        .iter()
+        .any(|segment| matches!(*segment, "crate" | "self" | "super"));
+    if !anchored {
+        let head = segments.first()?;
+        let declared = modules
+            .iter()
+            .any(|(path, names)| same_crate(&file.path, path) && names.contains(*head));
+        if !declared && !use_binding_root(file, head).is_some_and(is_crate_relative_root) {
+            return None;
+        }
+    } else if qualifier_names_external_import(file, &segments) {
         return None;
     }
-    let module = qualifier
-        .split("::")
-        .filter(|segment| !matches!(*segment, "crate" | "self" | "super"))
+    let module = segments
+        .iter()
+        .filter(|segment| !matches!(**segment, "crate" | "self" | "super"))
+        .copied()
         .collect::<Vec<_>>()
         .join("/")
         .to_ascii_lowercase();
@@ -915,33 +939,74 @@ fn qualified_path_candidates(
         .iter()
         .filter(|(path, _)| {
             let normalized = normalize_module_hint(path);
-            normalized == module || normalized.ends_with(&format!("/{module}"))
+            // `normalize_module_hint` strips `.rs` after `/mod`, so `map/mod.rs`
+            // arrives here as `map/mod`.
+            let normalized = normalized.strip_suffix("/mod").unwrap_or(&normalized);
+            same_crate(&file.path, path) && (normalized == module || normalized.ends_with(&format!("/{module}")))
         })
         .cloned()
         .collect::<Vec<_>>();
     (!matching.is_empty()).then_some(matching)
 }
 
-/// Whether the qualifier's first segment is bound by a `use` whose path starts
-/// outside the crate. Paths anchored at `crate::` or `super::` do not read
-/// `use` bindings, so they never match.
-fn qualifier_names_external_import(file: &SourceFile, qualifier: &str) -> bool {
-    let segments = qualifier
-        .split("::")
-        .filter(|segment| !segment.is_empty())
-        .collect::<Vec<_>>();
+/// Whether the qualifier's first segment after `self` is bound by a `use`
+/// whose path starts outside the crate. Paths anchored at `crate::` or
+/// `super::` do not read `use` bindings, so they never match.
+fn qualifier_names_external_import(file: &SourceFile, segments: &[&str]) -> bool {
     if segments.iter().any(|segment| matches!(*segment, "crate" | "super")) {
         return false;
     }
-    let Some(head) = segments.into_iter().find(|segment| *segment != "self") else {
+    let Some(head) = segments.iter().find(|segment| **segment != "self") else {
         return false;
     };
-    file.symbols.iter().any(|import| {
-        import.role == SymbolRole::Definition
-            && import.evidence == SymbolEvidence::Import
-            && import.name == head
-            && use_path_root(&import.context).is_some_and(|root| !matches!(root, "crate" | "self" | "super"))
-    })
+    use_binding_root(file, head).is_some_and(|root| !is_crate_relative_root(root))
+}
+
+/// The root of the `use` path that binds `name` in the file, such as `std`
+/// for `fs` after `use std::fs;`.
+fn use_binding_root<'a>(file: &'a SourceFile, name: &str) -> Option<&'a str> {
+    file.symbols
+        .iter()
+        .filter(|import| {
+            import.role == SymbolRole::Definition && import.evidence == SymbolEvidence::Import && import.name == name
+        })
+        .find_map(|import| use_path_root(&import.context))
+}
+
+fn is_crate_relative_root(root: &str) -> bool {
+    matches!(root, "crate" | "self" | "super")
+}
+
+/// Whether `candidate` is in the same crate as `source`: under the source's
+/// path up to and including its last `src` directory, or, for a source with
+/// no `src` directory, under the same top-level directory. A source at the
+/// repository root matches only other files at the root.
+fn same_crate(source: &str, candidate: &str) -> bool {
+    let root = crate_source_root(source);
+    if root.is_empty() { !candidate.contains('/') } else { candidate.starts_with(root) }
+}
+
+/// The prefix that marks a file's crate, ending in `/`: `crates/a/src/` for
+/// `crates/a/src/map/mod.rs`, `tests/` for `tests/cli.rs`, and empty for a
+/// file at the repository root.
+pub(super) fn crate_source_root(path: &str) -> &str {
+    let parent = repository_parent(path);
+    let mut src_end = None;
+    let mut offset = 0;
+    for segment in parent.split('/') {
+        offset += segment.len();
+        if segment == "src" {
+            src_end = Some(offset + 1);
+        }
+        offset += 1;
+    }
+    if let Some(end) = src_end {
+        return &path[..end];
+    }
+    parent.split_once('/').map_or_else(
+        || if parent.is_empty() { "" } else { &path[..parent.len() + 1] },
+        |(top, _)| &path[..top.len() + 1],
+    )
 }
 
 /// Returns the first segment of a Rust `use` path, such as `std` in

@@ -99,6 +99,8 @@ fn callers_are_found_past_output_and_symbol_limits_through_qualified_paths() {
     }
     registry.push_str("}\npub fn late_target() { late_bare; }\n");
     write_file(fixture.root.join("src/registry.rs"), registry.as_bytes());
+    // An unanchored `registry::` path resolves only to a module the crate declares.
+    write_file(fixture.root.join("src/lib.rs"), b"pub fn parse() {}\nmod registry;\n");
     write_file(
         fixture.root.join("src/zz_caller.rs"),
         b"use super::*;\npub fn caller() { registry::late_target(); }\n",
