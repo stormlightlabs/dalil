@@ -148,3 +148,61 @@ fn callers_are_found_past_output_and_symbol_limits_through_qualified_paths() {
     let value: Value = serde_json::from_str(&stdout(&output)).expect("relationship JSON");
     assert_eq!(value["bounds"]["total"], 1, "references: {value}");
 }
+
+#[test]
+fn human_output_leaves_out_method_limitations_that_json_keeps() {
+    let fixture = MapFixtureRepository::new();
+    let method = "Relationship targets are derived from retained Tree-sitter symbols";
+    let note = "Method limitations that hold for every run are left out here";
+
+    let human = stdout(&fixture.run(&["relationships", "callers", "parse", ".", "--no-cache"]));
+    assert!(!human.contains(method), "human output: {human}");
+    assert!(human.contains(note), "human output: {human}");
+
+    let json = stdout(&fixture.run(&["relationships", "callers", "parse", ".", "--no-cache", "--json"]));
+    assert!(json.contains(method));
+    assert!(!json.contains(note));
+
+    let explain = stdout(&fixture.run(&["explain", "parse", "--profile", "evidence", "--no-cache"]));
+    assert!(explain.contains("Method limitations:"), "explain output: {explain}");
+    assert!(explain.contains("references are extracted lexically"));
+}
+
+#[test]
+fn compact_explain_keeps_method_limitations_inside_the_budget() {
+    let fixture = MapFixtureRepository::new();
+    let notice = "_Report truncated at the compact Markdown token budget; use `--json` for complete typed collections or `--profile evidence` for verbose Markdown._\n";
+    let full = stdout(&fixture.run(&["explain", "parse", "--budget", "100000", "--no-cache"]));
+    let section = &full[full.find("\nMethod limitations:").expect("method limitations section")..];
+
+    for budget in [60_usize, 120, 200, 400] {
+        let explain = stdout(&fixture.run(&["explain", "parse", "--budget", &budget.to_string(), "--no-cache"]));
+        let characters = explain.chars().count();
+        assert!(
+            characters <= budget * 4,
+            "budget {budget}: {characters} characters\n{explain}"
+        );
+        if characters < full.chars().count() {
+            assert!(explain.ends_with(notice), "budget {budget}: {explain}");
+        }
+        // The section fits beside the notice and a separating newline.
+        if section.chars().count() + notice.chars().count() + 3 < budget * 4 {
+            assert!(explain.contains(section.trim_end()), "budget {budget}: {explain}");
+        }
+    }
+}
+
+#[test]
+fn html_cards_and_notices_leave_out_method_limitations() {
+    let fixture = MapFixtureRepository::new();
+    let html = stdout(&fixture.run(&["map", "--html", "--no-cache"]));
+    let visible = &html[..html.find("Complete report data").expect("raw report section")];
+
+    assert!(!visible.contains("extracted lexically"), "{visible}");
+    assert!(!visible.contains("Tree-sitter queries"), "{visible}");
+    assert!(visible.contains("Method limitations that hold for every run are left out here"));
+    assert!(
+        html.contains("extracted lexically"),
+        "the raw JSON keeps every limitation"
+    );
+}

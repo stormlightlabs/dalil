@@ -580,31 +580,21 @@ pub fn analyze_unbounded(path: &Path, settings: &MapSettings, history: Option<&H
     let has_non_rust_files = files.iter().any(|file| file.language != SourceLanguage::Rust);
     let mut limitations = if has_non_rust_files {
         vec![
-            "Definitions and references are extracted lexically with language-specific Tree-sitter queries; only explicit import/module evidence contributes cross-file edges, and types, macros, and runtime behavior are not semantically resolved."
-                .to_owned(),
-            "Reference names can have multiple lexical definition candidates; ambiguity is reported rather than treated as a semantic call edge."
-                .to_owned(),
-            "JavaScript/JSX, TypeScript/TSX, Python, Ruby, Java, C#, Go, Lua, and Zig use explicit grammar variants; query-pack provenance is reported per language."
-                .to_owned(),
-            "Tracked files are eligible even when ignore rules match them, except deterministic generated/vendor/minified classifications; exact focus paths can opt in within the safety limits."
-                .to_owned(),
+            crate::limitations::LEXICAL_EXTRACTION.to_owned(),
+            crate::limitations::AMBIGUOUS_REFERENCES.to_owned(),
+            crate::limitations::GRAMMAR_VARIANTS.to_owned(),
+            crate::limitations::TRACKED_FILE_ELIGIBILITY.to_owned(),
         ]
     } else {
         vec![
-            "Rust definitions and references are extracted lexically; only explicit call or import evidence contributes file relationships, and types, macros, and runtime behavior are not semantically resolved."
-                .to_owned(),
-            "Reference names can have multiple lexical definition candidates; ambiguity is reported rather than treated as a semantic call edge."
-                .to_owned(),
-            "Tracked files are eligible even when ignore rules match them, except deterministic generated/vendor/minified classifications; exact focus paths can opt in within the safety limits."
-                .to_owned(),
+            crate::limitations::RUST_LEXICAL_EXTRACTION.to_owned(),
+            crate::limitations::AMBIGUOUS_REFERENCES.to_owned(),
+            crate::limitations::TRACKED_FILE_ELIGIBILITY.to_owned(),
         ]
     };
 
     if !files.is_empty() {
-        limitations.push(
-            "Ranking uses deterministic lexical centrality; generic and underscore-prefixed names are downweighted only for ranking and remain available in the full symbol evidence."
-                .to_owned(),
-        );
+        limitations.push(crate::limitations::LEXICAL_RANKING.to_owned());
     }
     limitations.extend(cache_limitations);
     if work_limit_reached {

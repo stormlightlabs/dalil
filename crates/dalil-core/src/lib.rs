@@ -9,6 +9,7 @@ mod export;
 mod history;
 mod landmarks;
 mod lifecycle;
+pub mod limitations;
 mod manifests;
 mod map;
 mod report;

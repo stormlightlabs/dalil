@@ -603,7 +603,17 @@ fn impact_returns_budgeted_change_evidence_without_breakage_claims() {
     let markdown = stdout(&markdown);
     assert!(markdown.contains("Impact context"));
     assert!(markdown.contains("Evidence relationships"));
-    assert!(markdown.contains("Impact relationships are bounded lexical"));
+    // The evidence-scope caveat is a method limitation: JSON keeps it and
+    // human output prints one line in its place.
+    assert!(!markdown.contains("Impact relationships are bounded lexical"));
+    assert!(markdown.contains("Method limitations that hold for every run are left out here"));
+    assert!(
+        json["impact"]["uncertainty"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item["detail"]
+                .as_str()
+                .is_some_and(|detail| detail.starts_with("Impact relationships are bounded lexical"))))
+    );
 }
 
 #[test]
@@ -1050,6 +1060,25 @@ fn removed_lines_are_reported_without_a_range_or_a_definition() {
                     .as_str()
                     .is_some_and(|detail| detail.contains(&format!("`{path}` {position}")))),
             "{uncertainty:?}"
+        );
+    }
+}
+
+#[test]
+fn impact_keeps_its_evidence_caveat_under_any_budget() {
+    let fixture = MapFixtureRepository::new();
+    write_file(fixture.root.join("src/run.py"), b"run()\n");
+
+    for budget in ["1", "50", "200", "1000"] {
+        let output = fixture.run(&["impact", "--dirty-worktree", "--budget", budget, "--no-cache", "--json"]);
+        assert!(output.status.success(), "impact failed: {:?}", output.stderr);
+        let json: Value = serde_json::from_str(&stdout(&output)).expect("valid impact JSON");
+        let uncertainty = json["impact"]["uncertainty"].as_array().expect("uncertainty");
+        assert!(
+            uncertainty
+                .iter()
+                .any(|item| item["detail"] == dalil_core::limitations::IMPACT_EVIDENCE),
+            "budget {budget}: {uncertainty:?}"
         );
     }
 }

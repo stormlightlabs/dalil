@@ -957,15 +957,10 @@ fn query_limitations(
         limitations.push("the query source index did not retain every analyzed source path".to_owned());
     }
     if request.filters.text.is_some() {
-        limitations.push(
-            "text matching uses the private trigram index for retained source content, plus paths, symbol names, and syntax contexts"
-                .to_owned(),
-        );
+        limitations.push(crate::limitations::TEXT_MATCHING.to_owned());
     }
     if request.filters.symbol.is_some() || request.filters.symbol_kind.is_some() {
-        limitations.push(
-            "symbol matching uses retained syntax evidence and does not establish compiler-level resolution".to_owned(),
-        );
+        limitations.push(crate::limitations::SYMBOL_MATCHING.to_owned());
     }
     if request.filters.changed_path.is_some() && resolution.status == ChangeResolutionStatus::NotRequested {
         limitations

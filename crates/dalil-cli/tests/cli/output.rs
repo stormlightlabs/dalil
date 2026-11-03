@@ -161,11 +161,7 @@ fn markdown_snapshot_is_direct_and_readable() {
          Query pack: `rust-v1`\n\
          Inventory: 0 tracked (0 modified), 0 untracked, 0 analyzed, 0 omitted, 0 classified\n\
          \n\
-         ### Map limitations\n\
-         \n\
-         - Rust definitions and references are extracted lexically; only explicit call or import evidence contributes file relationships, and types, macros, and runtime behavior are not semantically resolved.\n\
-         - Reference names can have multiple lexical definition candidates; ambiguity is reported rather than treated as a semantic call edge.\n\
-         - Tracked files are eligible even when ignore rules match them, except deterministic generated/vendor/minified classifications; exact focus paths can opt in within the safety limits.\n\
+         Method limitations that hold for every run are left out here; `--json` lists them in full.\n\
          \n\
          ### Rust files\n\
          \n\

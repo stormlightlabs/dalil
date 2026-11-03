@@ -605,3 +605,47 @@ fn every_history_operation_renders_in_markdown_and_json() {
         assert_eq!(value["status"], "analyzed");
     }
 }
+
+#[test]
+fn human_history_leaves_out_method_caveats_and_keeps_result_caveats() {
+    let fixture = HistoryFixtureRepository::new();
+    let note = "Method limitations that hold for every run are left out here";
+
+    for arguments in [["history"].as_slice(), ["history", "--profile", "evidence"].as_slice()] {
+        let markdown = stdout(&fixture.run(arguments));
+        assert!(!markdown.contains("Squash merges"), "{arguments:?}: {markdown}");
+        assert!(
+            !markdown.contains("commit-message discipline"),
+            "{arguments:?}: {markdown}"
+        );
+        assert!(markdown.contains(note), "{arguments:?}: {markdown}");
+    }
+
+    // A caveat that describes this result stays in human output.
+    let keyword_miss = stdout(&fixture.run(&["history", "bugs", "--bug-keyword", "not-a-keyword"]));
+    assert!(
+        keyword_miss.contains("No bug-related commits matched"),
+        "{keyword_miss}"
+    );
+    assert!(!keyword_miss.contains("commit-message discipline"), "{keyword_miss}");
+}
+
+#[test]
+fn history_html_notes_the_method_caveats_its_cards_leave_out() {
+    let fixture = HistoryFixtureRepository::new();
+    let note = "Method limitations that hold for every run are left out here";
+
+    for arguments in [
+        ["history", "--html"].as_slice(),
+        ["history", "--html", "--profile", "evidence"].as_slice(),
+    ] {
+        let html = stdout(&fixture.run(arguments));
+        let visible = &html[..html.find("Complete report data").expect("raw report section")];
+        assert!(!visible.contains("Squash merges"), "{arguments:?}: {visible}");
+        assert!(
+            !visible.contains("commit-message discipline"),
+            "{arguments:?}: {visible}"
+        );
+        assert_eq!(visible.matches(note).count(), 1, "{arguments:?}: {visible}");
+    }
+}

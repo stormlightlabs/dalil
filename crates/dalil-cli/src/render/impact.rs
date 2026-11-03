@@ -180,13 +180,12 @@ impl Render {
                 .expect("writing to a string cannot fail");
             }
         }
-        if !impact.uncertainty.is_empty() {
-            Render::section_heading(output, "Uncertainty");
-            for uncertainty in &impact.uncertainty {
-                writeln!(output, "- {}", utils::sanitize_text(&uncertainty.detail))
-                    .expect("writing to a string cannot fail");
-            }
-        }
+        Render::result_uncertainty(
+            output,
+            "Uncertainty",
+            impact.uncertainty.iter().map(|uncertainty| uncertainty.detail.as_str()),
+            0,
+        );
         Render::section_heading(output, "Impact budget");
         writeln!(
             output,

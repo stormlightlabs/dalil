@@ -130,17 +130,32 @@ impl Render {
         Self::orientation_recommendations(output, "Runtime entry points", &orientation.runtime_entry_points);
         Self::orientation_recommendations(output, "Tests", &orientation.tests);
 
+        let mut omitted = 0;
         if !orientation.history.is_empty() {
             Self::section_heading(output, "Useful history");
             for observation in &orientation.history {
-                Self::history_observation(output, observation);
+                omitted += usize::from(Self::history_observation(output, observation));
             }
         }
 
         Self::orientation_recommendations(output, "Next reads", &orientation.next_reads);
-        if !orientation.uncertainty.is_empty() {
+        omitted += orientation
+            .uncertainty
+            .iter()
+            .filter(|uncertainty| dalil_core::limitations::is_method_limitation(&uncertainty.detail))
+            .count();
+        let kept = orientation
+            .uncertainty
+            .iter()
+            .filter(|uncertainty| !dalil_core::limitations::is_method_limitation(&uncertainty.detail))
+            .collect::<Vec<_>>();
+        if kept.is_empty() {
+            if omitted > 0 {
+                writeln!(output, "\n{}", utils::METHOD_LIMITATIONS_NOTE).expect("writing to a string cannot fail");
+            }
+        } else {
             Self::section_heading(output, "Limitations");
-            for uncertainty in &orientation.uncertainty {
+            for uncertainty in kept {
                 writeln!(
                     output,
                     "- `{}`: {}",
@@ -148,6 +163,9 @@ impl Render {
                     utils::sanitize_text(&uncertainty.detail)
                 )
                 .expect("writing to a string cannot fail");
+            }
+            if omitted > 0 {
+                writeln!(output, "- {}", utils::METHOD_LIMITATIONS_NOTE).expect("writing to a string cannot fail");
             }
         }
         writeln!(
@@ -237,7 +255,7 @@ impl Render {
             search.budget.total_candidates,
         )
         .expect("writing to a string cannot fail");
-        Render::caveats(output, &search.limitations);
+        Render::result_caveats(output, &search.limitations);
     }
 
     fn orientation_recommendations(

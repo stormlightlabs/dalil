@@ -11,18 +11,6 @@ use crate::report::*;
 use crate::security;
 use crate::utils;
 
-const CHURN_CAVEAT: &str =
-    "Absolute churn is not normalized by file size & active development is not automatically risky.";
-
-const CONTRIBUTOR_CAVEAT: &str =
-    "Squash merges can credit a merger rather than the original author so commit count is only a knowledge proxy.";
-
-const BUG_CAVEAT: &str = "Bug clusters depend on commit-message discipline and do not prove a defect rate.";
-const ACTIVITY_CAVEAT: &str = "Cadence reflects team and release habits.";
-
-const FIREFIGHTING_CAVEAT: &str =
-    "Firefighting matches are keyword evidence and not a complete measure of release health.";
-
 const MAX_CHANGED_PATHS_PER_COMMIT: usize = 10_000;
 const MAX_TREE_NODES_PER_COMMIT: usize = 100_000;
 const MAX_TREE_ENTRIES_PER_DIRECTORY: usize = 4_096;
@@ -457,8 +445,8 @@ fn analyze_churn(records: &[CommitRecord], scope: &str, settings: &HistorySettin
         },
         paths: path_counts(counts),
         caveats: vec![
-            CHURN_CAVEAT.to_owned(),
-            "Normalized churn uses the current HEAD blob size. Empty, binary, deleted, oversized, and resource-limited paths have no normalized rate; generated files are retained and labelled.".to_owned(),
+            crate::limitations::CHURN_SIZE.to_owned(),
+            crate::limitations::CHURN_NORMALIZATION.to_owned(),
         ],
     }
 }
@@ -481,7 +469,7 @@ fn analyze_contributors(
         identity_mappings: identity_mappings(&non_merge, settings.include_emails),
         overall: contributor_counts(non_merge, settings.include_emails),
         recent: contributor_counts(recent, settings.include_emails),
-        caveats: vec![CONTRIBUTOR_CAVEAT.to_owned()],
+        caveats: vec![crate::limitations::CONTRIBUTOR_ATTRIBUTION.to_owned()],
     }
 }
 
@@ -518,7 +506,7 @@ fn analyze_bugs(
         .filter(|path| churn_paths.contains(path.path.as_str()))
         .cloned()
         .collect();
-    let mut caveats = vec![BUG_CAVEAT.to_owned()];
+    let mut caveats = vec![crate::limitations::BUG_KEYWORDS.to_owned()];
     if commits.is_empty() {
         caveats.push(
             "No bug-related commits matched; this can mean stability or vague commit messages, not proof of quality."
@@ -548,7 +536,7 @@ fn analyze_activity(records: &[CommitRecord], scope: &str) -> ActivityReport {
             .into_iter()
             .map(|(month, commits)| MonthlyActivity { month, commits })
             .collect(),
-        caveats: vec![ACTIVITY_CAVEAT.to_owned()],
+        caveats: vec![crate::limitations::ACTIVITY_CADENCE.to_owned()],
     }
 }
 
@@ -571,7 +559,7 @@ fn analyze_firefighting(
             (!paths.is_empty()).then(|| record.evidence(paths, matched_terms))
         })
         .collect::<Vec<_>>();
-    let mut caveats = vec![FIREFIGHTING_CAVEAT.to_owned()];
+    let mut caveats = vec![crate::limitations::FIREFIGHTING_KEYWORDS.to_owned()];
     if commits.is_empty() {
         caveats.push(
             "No firefighting-language commits matched; this can mean stability or vague commit messages, not proof of quality."

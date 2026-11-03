@@ -348,6 +348,12 @@ pub fn compile(
         seeds: impact_seeds,
         traversal: walk.bounds,
         budget: ContextBudget { token_budget: budget, estimated_tokens: 0, truncated: false },
+        // The breakage disclaimer goes in first, outside the uncertainty
+        // limit, so the budget trims other evidence instead of it.
+        uncertainty: vec![ContextUncertainty {
+            kind: "evidence_scope".to_owned(),
+            detail: crate::limitations::IMPACT_EVIDENCE.to_owned(),
+        }],
         ..ImpactReport::default()
     };
 
@@ -1152,10 +1158,6 @@ fn uncertainty(
             ),
         });
     }
-    uncertainty.push(ContextUncertainty {
-        kind: "evidence_scope".to_owned(),
-        detail: "Impact relationships are bounded lexical, graph, structural, manifest, and history evidence. They do not establish semantic callers, callees, ownership matches, or breakage.".to_owned(),
-    });
     if map.collections.edges.truncated || map.collections.ranking.truncated {
         uncertainty.push(ContextUncertainty {
             kind: "bounded_evidence".to_owned(),
