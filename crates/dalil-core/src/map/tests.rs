@@ -1973,46 +1973,41 @@ fn changed_lines_ignore_line_terminators() {
 
 #[test]
 fn only_callee_positions_are_tagged_as_calls() {
+    // Each case lists the names that must be calls and the captured names that
+    // must not be. Java's and C#'s queries capture only declarations and
+    // callees, and Go's only callees, fields and types, so their arguments and
+    // receivers are left out: there is nothing to check.
     let cases: [(&str, &str, &[&str], &[&str]); 10] = [
         (
             "a.rs",
-            "fn f() { m::g(x); o.h(y); println!(\"{}\", k(w), q); }",
+            "fn f() { m::g(x); o.h(y); println!(\"{}\", k(w), q); }\n\
+             macro_rules! d { () => { fn helper(a: u8) {} } }\n\
+             fn e() { quote! { fn helper2() {} }; }",
             &["g", "h", "k"],
-            &["m", "x", "o", "y", "w", "q"],
+            &["m", "x", "o", "y", "w", "q", "helper", "helper2"],
         ),
         (
             "a.js",
-            "g(x); o.h(y); new C(z);",
-            &["g", "h", "C"],
+            "g(x); o.h(y); new C(z); (o.p)();",
+            &["g", "h", "C", "p"],
             &["x", "o", "y", "z"],
         ),
         (
             "a.ts",
-            "g(x); o.h(y); new C(z);",
-            &["g", "h", "C"],
+            "g(x); o.h(y); new C(z); o.f!(); (o.p)();",
+            &["g", "h", "C", "f", "p"],
             &["x", "o", "y", "z"],
         ),
         ("a.py", "g(x)\no.h(y)\n", &["g", "h"], &["x", "o", "y"]),
-        // Go's query captures only callees, fields and types.
         (
             "a.go",
-            "package p\nfunc f() { g(x); o.H(y); v := o.K; _ = v }",
-            &["g", "H"],
+            "package p\nfunc f() { g(x); o.H(y); v := o.K; _ = v; pkg.F[int](); x.M[int]() }",
+            &["g", "H", "F", "M"],
             &["K"],
         ),
         ("a.rb", "g(x)\no.h(y)\n", &["g", "h"], &["x", "o", "y"]),
-        (
-            "a.java",
-            "class A { void f() { g(x); o.h(y); } }",
-            &["g", "h"],
-            &["x", "o", "y"],
-        ),
-        (
-            "a.cs",
-            "class A { void F() { G(x); o.H(y); } }",
-            &["G", "H"],
-            &["x", "o", "y"],
-        ),
+        ("a.java", "class A { void f() { g(x); o.h(y); } }", &["g", "h"], &[]),
+        ("a.cs", "class A { void F() { G(x); o.H(y); } }", &["G", "H"], &[]),
         (
             "a.lua",
             "g(x)\no.h(y)\no:m(z)\nlocal v = o.k\n",
@@ -2044,16 +2039,46 @@ fn only_callee_positions_are_tagged_as_calls() {
             );
         }
         for name in not_calls {
+            let found = references(name);
+            assert!(!found.is_empty(), "{path}: `{name}` was not captured: {symbols:?}");
             assert!(
-                references(name)
-                    .iter()
-                    .all(|symbol| symbol.evidence != SymbolEvidence::Call),
+                found.iter().all(|symbol| symbol.evidence != SymbolEvidence::Call),
                 "{path}: `{name}` should not be a call: {symbols:?}"
             );
         }
-        // These queries capture every identifier, so arguments are present to check.
-        if ["a.rs", "a.js", "a.ts", "a.py", "a.rb"].contains(&path) {
-            assert!(!references("x").is_empty(), "{path}: argument `x` was not captured");
-        }
+    }
+}
+
+#[test]
+fn called_members_are_methods() {
+    // Python and Ruby capture `h` as an identifier, not a field, so they have
+    // no field to promote; their call evidence is checked above.
+    let cases = [
+        ("a.rs", "fn f() { o.h(y); }"),
+        ("a.js", "o.h(y);"),
+        ("a.ts", "o.h(y);"),
+        ("a.go", "package p\nfunc f() { o.h(y) }"),
+        ("a.java", "class A { void f() { o.h(y); } }"),
+        ("a.cs", "class A { void F() { o.h(y); } }"),
+        ("a.lua", "o.h(y)\no:h(y)\n"),
+        ("a.zig", "fn f() void { o.h(y); }"),
+    ];
+    for (path, source) in cases {
+        let support = support_for_path(Path::new(path)).expect("supported language");
+        let symbols = parse_source(source.as_bytes(), support).symbols;
+        let callee = symbols
+            .iter()
+            .filter(|symbol| symbol.name == "h" && symbol.role == SymbolRole::Reference)
+            .collect::<Vec<_>>();
+        assert!(
+            callee.iter().any(|symbol| symbol.kind == SymbolKind::Method),
+            "{path}: `h` should be a method: {symbols:?}"
+        );
+        assert!(
+            callee
+                .iter()
+                .all(|symbol| symbol.kind != SymbolKind::Field && symbol.evidence == SymbolEvidence::Call),
+            "{path}: `h` should be a call and never a field: {symbols:?}"
+        );
     }
 }

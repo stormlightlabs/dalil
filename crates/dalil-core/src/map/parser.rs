@@ -377,21 +377,16 @@ fn language_symbol_kind(
     node: Node<'_>, declaration: Node<'_>, capture_name: &str, language: SourceLanguage,
 ) -> SymbolKind {
     let kind = symbol_kind(capture_name);
-    match language {
-        SourceLanguage::Go => {
-            if kind == SymbolKind::Type {
-                return match declaration.child_by_field_name("type").map(|node| node.kind()) {
-                    Some("struct_type") => SymbolKind::Struct,
-                    Some("interface_type") => SymbolKind::Interface,
-                    _ => SymbolKind::Type,
-                };
-            }
-            if kind == SymbolKind::Field && is_callee(node) {
-                return SymbolKind::Method;
-            }
-        }
-        SourceLanguage::Zig if kind == SymbolKind::Field && is_callee(node) => return SymbolKind::Method,
-        _ => {}
+    // A member that is called, such as `h` in `o.h()`, is a method in every language.
+    if kind == SymbolKind::Field && is_callee(node) {
+        return SymbolKind::Method;
+    }
+    if language == SourceLanguage::Go && kind == SymbolKind::Type {
+        return match declaration.child_by_field_name("type").map(|node| node.kind()) {
+            Some("struct_type") => SymbolKind::Struct,
+            Some("interface_type") => SymbolKind::Interface,
+            _ => SymbolKind::Type,
+        };
     }
     kind
 }
@@ -543,22 +538,19 @@ pub fn is_callee(node: Node<'_>) -> bool {
     while let Some(parent) = current.parent() {
         // A Rust macro body is a flat token tree with no call nodes; there a
         // name followed directly by a `( … )` group is a call.
+        // `fn helper(` there declares `helper` rather than calling it.
         if parent.kind() == "token_tree" {
-            return current.next_sibling().is_some_and(|next| {
-                next.kind() == "token_tree" && next.child(0).is_some_and(|open| open.kind() == "(")
-            });
+            let declared = current.prev_sibling().is_some_and(|previous| previous.kind() == "fn");
+            return !declared
+                && current.next_sibling().is_some_and(|next| {
+                    next.kind() == "token_tree" && next.child(0).is_some_and(|open| open.kind() == "(")
+                });
         }
         let field = field_of_child(parent, current);
         if let Some(callee_fields) = callee_fields(parent.kind()) {
             return field.is_some_and(|field| callee_fields.contains(&field));
         }
-        let names_last_segment = field.is_some_and(|field| {
-            matches!(
-                field,
-                "name" | "field" | "property" | "attribute" | "member" | "method" | "function"
-            )
-        });
-        if !names_last_segment || !is_callee_wrapper(parent.kind()) {
+        if !wraps_callee(parent, field) {
             return false;
         }
         current = parent;
@@ -577,6 +569,26 @@ fn callee_fields(kind: &str) -> Option<&'static [&'static str]> {
         "object_creation_expression" | "class_instance_creation_expression" => &["type"],
         _ => return None,
     })
+}
+
+/// Whether `parent` passes on the callee status of the child in `field`: the child is the
+/// last name of a member or path chain, the operand of a generic
+/// instantiation such as Go's `F[int]`, or the only child of a TypeScript
+/// non-null assertion `f!` or parenthesized expression `(o.f)`.
+fn wraps_callee(parent: Node<'_>, field: Option<&str>) -> bool {
+    match parent.kind() {
+        "index_expression" => field == Some("operand"),
+        "non_null_expression" | "parenthesized_expression" => parent.named_child_count() == 1,
+        kind => {
+            is_callee_wrapper(kind)
+                && field.is_some_and(|field| {
+                    matches!(
+                        field,
+                        "name" | "field" | "property" | "attribute" | "member" | "method" | "function"
+                    )
+                })
+        }
+    }
 }
 
 /// Member and path nodes a callee can be nested in.
