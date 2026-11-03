@@ -164,11 +164,19 @@ impl Render {
                 .expect("writing to a string cannot fail");
             }
         }
+        let mut omitted_caveats = 0;
         if !context.history.is_empty() {
             Render::section_heading(output, "History");
             for observation in &context.history {
-                writeln!(output, "- {}", Self::context_history_observation(observation))
-                    .expect("writing to a string cannot fail");
+                let (text, caveat) = Self::context_history_observation(observation);
+                match caveat {
+                    Some(caveat) => writeln!(output, "- {text}; {caveat}"),
+                    None => {
+                        omitted_caveats += 1;
+                        writeln!(output, "- {text}")
+                    }
+                }
+                .expect("writing to a string cannot fail");
             }
         }
         if !context.risks.is_empty() {
@@ -190,16 +198,15 @@ impl Render {
                     .expect("writing to a string cannot fail");
             }
         }
-        if !context.uncertainty.is_empty() {
-            Render::section_heading(output, "Uncertainty");
-            Render::result_uncertainty(
-                output,
-                context
-                    .uncertainty
-                    .iter()
-                    .map(|uncertainty| uncertainty.detail.as_str()),
-            );
-        }
+        Render::result_uncertainty(
+            output,
+            "Uncertainty",
+            context
+                .uncertainty
+                .iter()
+                .map(|uncertainty| uncertainty.detail.as_str()),
+            omitted_caveats,
+        );
         if !context.omissions.is_empty() {
             Render::section_heading(output, "Omissions");
             for omission in &context.omissions {
@@ -236,46 +243,54 @@ impl Render {
         .expect("writing to a string cannot fail");
     }
 
-    fn context_history_observation(observation: &dalil_core::HistoryObservation) -> String {
-        match observation {
-            dalil_core::HistoryObservation::Churn { paths, window_days, caveat } => format!(
-                "{} churn path(s) over {window_days} days: {}; {}",
-                paths.len(),
-                paths
-                    .iter()
-                    .map(|path| format!("`{}`", utils::escape_inline_code(&path.path)))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                utils::sanitize_text(caveat),
+    fn context_history_observation(observation: &dalil_core::HistoryObservation) -> (String, Option<String>) {
+        let (text, caveat) = match observation {
+            dalil_core::HistoryObservation::Churn { paths, window_days, caveat } => (
+                format!(
+                    "{} churn path(s) over {window_days} days: {}",
+                    paths.len(),
+                    paths
+                        .iter()
+                        .map(|path| format!("`{}`", utils::escape_inline_code(&path.path)))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                ),
+                caveat,
             ),
-            dalil_core::HistoryObservation::Contributors { contributor, total_commits, caveat, .. } => format!(
-                "{} has {} of {total_commits} commits; {}",
-                utils::sanitize_text(&contributor.name),
-                contributor.commits,
-                utils::sanitize_text(caveat),
+            dalil_core::HistoryObservation::Contributors { contributor, total_commits, caveat, .. } => (
+                format!(
+                    "{} has {} of {total_commits} commits",
+                    utils::sanitize_text(&contributor.name),
+                    contributor.commits,
+                ),
+                caveat,
             ),
-            dalil_core::HistoryObservation::BugOverlap { paths, bug_commits, caveat, .. } => format!(
-                "{bug_commits} bug-keyword commit(s) overlap {}; {}",
-                paths
-                    .iter()
-                    .map(|path| format!("`{}`", utils::escape_inline_code(&path.path)))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                utils::sanitize_text(caveat),
+            dalil_core::HistoryObservation::BugOverlap { paths, bug_commits, caveat, .. } => (
+                format!(
+                    "{bug_commits} bug-keyword commit(s) overlap {}",
+                    paths
+                        .iter()
+                        .map(|path| format!("`{}`", utils::escape_inline_code(&path.path)))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                ),
+                caveat,
             ),
-            dalil_core::HistoryObservation::Activity { month, commits, caveat, .. } => format!(
-                "{month} has {commits} observed commit(s); {}",
-                utils::sanitize_text(caveat),
+            dalil_core::HistoryObservation::Activity { month, commits, caveat, .. } => {
+                (format!("{month} has {commits} observed commit(s)",), caveat)
+            }
+            dalil_core::HistoryObservation::Firefighting { commits, paths, caveat, .. } => (
+                format!(
+                    "{commits} firefighting-keyword commit(s) touch {}",
+                    paths
+                        .iter()
+                        .map(|path| format!("`{}`", utils::escape_inline_code(&path.path)))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                ),
+                caveat,
             ),
-            dalil_core::HistoryObservation::Firefighting { commits, paths, caveat, .. } => format!(
-                "{commits} firefighting-keyword commit(s) touch {}; {}",
-                paths
-                    .iter()
-                    .map(|path| format!("`{}`", utils::escape_inline_code(&path.path)))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                utils::sanitize_text(caveat),
-            ),
-        }
+        };
+        (text, Render::observation_caveat(caveat))
     }
 }

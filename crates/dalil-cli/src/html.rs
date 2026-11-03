@@ -154,7 +154,7 @@ pub(super) fn render_report(report: &Report) -> anyhow::Result<String> {
                     )
                 })
                 .collect(),
-            caveat: explain.limitations.first().cloned(),
+            caveat: result_caveat(&explain.limitations),
         });
     }
 
@@ -195,7 +195,16 @@ pub(super) fn render_report(report: &Report) -> anyhow::Result<String> {
         .iter()
         .map(|finding| format!("{}: {}", finding.title, finding.detail))
         .collect();
-    notices.extend(report.limitations.iter().map(|limitation| limitation.detail.clone()));
+    let (limitations, omitted) =
+        crate::utils::result_limitations(report.limitations.iter().map(|limitation| limitation.detail.as_str()));
+    notices.extend(limitations.into_iter().map(str::to_owned));
+    // The map card leaves out the map's method limitations, so they count too.
+    let map_omitted = report.map.as_ref().map_or(0, |map| {
+        crate::utils::result_limitations(map.limitations.iter().map(String::as_str)).1
+    });
+    if omitted + map_omitted > 0 {
+        notices.push(crate::utils::METHOD_LIMITATIONS_NOTE.to_owned());
+    }
     if report.quality.projection {
         notices.push(
             "This report is a bounded projection. JSON retains collection totals and truncation reasons.".to_owned(),
@@ -453,7 +462,7 @@ fn map_files_card(map: &MapReport) -> Card {
             .iter()
             .map(|file| CardItem::new(&file.path, file.language.display_label(), 100))
             .collect(),
-        caveat: map.limitations.first().cloned(),
+        caveat: result_caveat(&map.limitations),
     }
 }
 
@@ -467,7 +476,7 @@ fn history_cards(history: &HistoryReport) -> Vec<Card> {
             "Churn hotspots",
             format!("{}-day window", churn.window_days),
             &churn.paths,
-            churn.caveats.first().cloned(),
+            result_caveat(&churn.caveats),
         ));
     }
     if let Some(contributors) = &history.contributors {
@@ -480,7 +489,7 @@ fn history_cards(history: &HistoryReport) -> Vec<Card> {
                 .iter()
                 .map(|contributor| CardItem::new(&contributor.name, contributor.commits, contributor.share_percent))
                 .collect(),
-            caveat: contributors.caveats.first().cloned(),
+            caveat: result_caveat(&contributors.caveats),
         });
     }
     if let Some(bugs) = &history.bugs {
@@ -489,7 +498,7 @@ fn history_cards(history: &HistoryReport) -> Vec<Card> {
             "Bug-history overlap",
             format!("{} matching commits", bugs.commits.len()),
             source,
-            bugs.caveats.first().cloned(),
+            result_caveat(&bugs.caveats),
         ));
     }
     if let Some(activity) = &history.activity {
@@ -509,7 +518,7 @@ fn history_cards(history: &HistoryReport) -> Vec<Card> {
                     )
                 })
                 .collect(),
-            caveat: activity.caveats.first().cloned(),
+            caveat: result_caveat(&activity.caveats),
         });
     }
     if let Some(firefighting) = &history.firefighting {
@@ -522,7 +531,7 @@ fn history_cards(history: &HistoryReport) -> Vec<Card> {
                 .iter()
                 .map(|commit| CardItem::new(&commit.subject, &commit.id, 100))
                 .collect(),
-            caveat: firefighting.caveats.first().cloned(),
+            caveat: result_caveat(&firefighting.caveats),
         });
     }
     cards
@@ -534,7 +543,7 @@ fn observation_card(observation: &HistoryObservation) -> Card {
             "Frequently changed paths",
             format!("{window_days}-day window"),
             paths,
-            Some(caveat.clone()),
+            result_caveat(std::slice::from_ref(caveat)),
         ),
         HistoryObservation::Contributors { contributor, total_commits, window_days, caveat } => Card {
             title: "Contributor concentration".to_owned(),
@@ -544,28 +553,36 @@ fn observation_card(observation: &HistoryObservation) -> Card {
                 contributor.name, contributor.commits, total_commits, contributor.share_percent
             )),
             items: Vec::new(),
-            caveat: Some(caveat.clone()),
+            caveat: result_caveat(std::slice::from_ref(caveat)),
         },
         HistoryObservation::BugOverlap { paths, bug_commits, window_days, caveat } => counts_card(
             "Bug-history overlap",
             format!("{bug_commits} matching commit(s) / {window_days} days"),
             paths,
-            Some(caveat.clone()),
+            result_caveat(std::slice::from_ref(caveat)),
         ),
         HistoryObservation::Activity { month, commits, observed_months, caveat, .. } => Card {
             title: "Recent activity".to_owned(),
             meta: format!("{observed_months} observed months"),
             headline: Some(format!("{commits} commits in {month}")),
             items: Vec::new(),
-            caveat: Some(caveat.clone()),
+            caveat: result_caveat(std::slice::from_ref(caveat)),
         },
         HistoryObservation::Firefighting { commits, paths, window_days, caveat } => counts_card(
             "Firefighting language",
             format!("{commits} matching commit(s) / {window_days} days"),
             paths,
-            Some(caveat.clone()),
+            result_caveat(std::slice::from_ref(caveat)),
         ),
     }
+}
+
+/// The first caveat a result reached; method limitations are left out.
+fn result_caveat(caveats: &[String]) -> Option<String> {
+    crate::utils::result_limitations(caveats.iter().map(String::as_str))
+        .0
+        .first()
+        .map(|caveat| (*caveat).to_owned())
 }
 
 fn counts_card(title: &str, meta: String, paths: &[dalil_core::PathCount], caveat: Option<String>) -> Card {

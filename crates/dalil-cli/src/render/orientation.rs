@@ -130,26 +130,32 @@ impl Render {
         Self::orientation_recommendations(output, "Runtime entry points", &orientation.runtime_entry_points);
         Self::orientation_recommendations(output, "Tests", &orientation.tests);
 
+        let mut omitted = 0;
         if !orientation.history.is_empty() {
             Self::section_heading(output, "Useful history");
             for observation in &orientation.history {
-                Self::history_observation(output, observation);
+                omitted += usize::from(Self::history_observation(output, observation));
             }
         }
 
         Self::orientation_recommendations(output, "Next reads", &orientation.next_reads);
-        let omitted = orientation
+        omitted += orientation
             .uncertainty
             .iter()
             .filter(|uncertainty| dalil_core::limitations::is_method_limitation(&uncertainty.detail))
             .count();
-        if !orientation.uncertainty.is_empty() {
+        let kept = orientation
+            .uncertainty
+            .iter()
+            .filter(|uncertainty| !dalil_core::limitations::is_method_limitation(&uncertainty.detail))
+            .collect::<Vec<_>>();
+        if kept.is_empty() {
+            if omitted > 0 {
+                writeln!(output, "\n{}", utils::METHOD_LIMITATIONS_NOTE).expect("writing to a string cannot fail");
+            }
+        } else {
             Self::section_heading(output, "Limitations");
-            for uncertainty in orientation
-                .uncertainty
-                .iter()
-                .filter(|uncertainty| !dalil_core::limitations::is_method_limitation(&uncertainty.detail))
-            {
+            for uncertainty in kept {
                 writeln!(
                     output,
                     "- `{}`: {}",

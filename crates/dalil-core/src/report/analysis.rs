@@ -931,9 +931,7 @@ pub fn explain_report(target: &str, map: &MapReport, history: &HistoryReport) ->
         .find(|recommendation| !matched_paths.contains(&recommendation.path))
         .cloned();
     let walkthrough = explain_walkthrough(&matched_paths, &edges, &reading_plan);
-    let mut limitations = vec![
-        "This explanation describes bounded lexical evidence and ranking heuristics; it is not a semantic call graph or access check.".to_owned(),
-    ];
+    let mut limitations = vec![crate::limitations::EXPLANATION_SCOPE.to_owned()];
     if target_kind == ExplainTargetKind::Unmatched {
         limitations.push(
             "The target did not match an analyzed path or symbol; omitted alternatives are shown when available."

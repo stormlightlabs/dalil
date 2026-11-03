@@ -167,3 +167,34 @@ fn human_output_leaves_out_method_limitations_that_json_keeps() {
     assert!(explain.contains("Method limitations:"), "explain output: {explain}");
     assert!(explain.contains("references are extracted lexically"));
 }
+
+#[test]
+fn compact_explain_ends_with_method_limitations_past_the_budget() {
+    let fixture = MapFixtureRepository::new();
+    let explain = stdout(&fixture.run(&["explain", "parse", "--budget", "120", "--no-cache"]));
+
+    assert!(
+        explain.contains("Report truncated at the compact Markdown token budget"),
+        "{explain}"
+    );
+    let truncated = explain.find("Report truncated").expect("truncation notice");
+    let section = explain.find("Method limitations:").expect("method limitations section");
+    assert!(section > truncated, "{explain}");
+    assert!(explain[section..].contains("This explanation describes bounded lexical evidence"));
+    assert!(explain[section..].contains("references are extracted lexically"));
+}
+
+#[test]
+fn html_cards_and_notices_leave_out_method_limitations() {
+    let fixture = MapFixtureRepository::new();
+    let html = stdout(&fixture.run(&["map", "--html", "--no-cache"]));
+    let visible = &html[..html.find("Complete report data").expect("raw report section")];
+
+    assert!(!visible.contains("extracted lexically"), "{visible}");
+    assert!(!visible.contains("Tree-sitter queries"), "{visible}");
+    assert!(visible.contains("Method limitations that hold for every run are left out here"));
+    assert!(
+        html.contains("extracted lexically"),
+        "the raw JSON keeps every limitation"
+    );
+}

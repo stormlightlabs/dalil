@@ -1154,7 +1154,7 @@ fn uncertainty(
     }
     uncertainty.push(ContextUncertainty {
         kind: "evidence_scope".to_owned(),
-        detail: "Impact relationships are bounded lexical, graph, structural, manifest, and history evidence. They do not establish semantic callers, callees, ownership matches, or breakage.".to_owned(),
+        detail: crate::limitations::IMPACT_EVIDENCE.to_owned(),
     });
     if map.collections.edges.truncated || map.collections.ranking.truncated {
         uncertainty.push(ContextUncertainty {

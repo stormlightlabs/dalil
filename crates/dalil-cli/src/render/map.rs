@@ -117,8 +117,7 @@ impl Render {
             }
         }
 
-        Render::section_heading(output, "Map limitations");
-        Render::result_uncertainty(output, map.limitations.iter().map(String::as_str));
+        Render::result_uncertainty(output, "Map limitations", map.limitations.iter().map(String::as_str), 0);
 
         let mut files_by_language: BTreeMap<dalil_core::SourceLanguage, Vec<&dalil_core::SourceFile>> = BTreeMap::new();
         for file in &map.files {

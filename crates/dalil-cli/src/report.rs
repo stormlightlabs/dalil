@@ -130,16 +130,7 @@ pub fn render_relationships(report: &RelationshipResults, format: OutputFormat) 
                     )?;
                 }
             }
-            let (limitations, omitted) = utils::result_limitations(report.limitations.iter().map(String::as_str));
-            if !limitations.is_empty() || omitted > 0 {
-                writeln!(output, "\n## Limitations\n")?;
-                for limitation in limitations {
-                    writeln!(output, "- {}", utils::sanitize_text(limitation))?;
-                }
-                if omitted > 0 {
-                    writeln!(output, "- {}", utils::METHOD_LIMITATIONS_NOTE)?;
-                }
-            }
+            Render::report_limitations(&mut output, report.limitations.iter().map(String::as_str));
             Ok(output)
         }
     }
@@ -243,16 +234,7 @@ pub fn render_traversal(report: &TraversalResults, format: OutputFormat) -> anyh
                     )?;
                 }
             }
-            let (limitations, omitted) = utils::result_limitations(report.limitations.iter().map(String::as_str));
-            if !limitations.is_empty() || omitted > 0 {
-                writeln!(output, "\n## Limitations\n")?;
-                for limitation in limitations {
-                    writeln!(output, "- {}", utils::sanitize_text(limitation))?;
-                }
-                if omitted > 0 {
-                    writeln!(output, "- {}", utils::METHOD_LIMITATIONS_NOTE)?;
-                }
-            }
+            Render::report_limitations(&mut output, report.limitations.iter().map(String::as_str));
             Ok(output)
         }
     }
@@ -269,15 +251,12 @@ fn format_location(location: &SourceLocation) -> String {
 pub fn render_report(report: &Report, format: OutputFormat) -> anyhow::Result<String> {
     let output = match format {
         OutputFormat::Markdown => {
-            let output = render_markdown(report);
+            let mut output = render_markdown(report);
             if report.profile == AnalysisProfile::Compact && report.command.name != CommandName::Search {
-                Ok(bound_compact_markdown(
-                    output,
-                    report.provenance.effective_options.map.map_tokens,
-                ))
-            } else {
-                Ok(output)
+                output = bound_compact_markdown(output, report.provenance.effective_options.map.map_tokens);
             }
+            explain_method_limitations(&mut output, report);
+            Ok(output)
         }
         OutputFormat::Json => {
             let mut output = serde_json::to_string_pretty(report)?;
@@ -293,6 +272,19 @@ pub fn render_report(report: &Report, format: OutputFormat) -> anyhow::Result<St
         );
     }
     Ok(output)
+}
+
+/// Appends `explain`'s method limitations after any compact truncation, so
+/// the budget never cuts them.
+fn explain_method_limitations(output: &mut String, report: &Report) {
+    let Some(explain) = &report.explain else {
+        return;
+    };
+    let map_limitations = report.map.iter().flat_map(|map| map.limitations.iter());
+    Render::method_limitations(
+        output,
+        explain.limitations.iter().chain(map_limitations).map(String::as_str),
+    );
 }
 
 fn render_markdown(report: &Report) -> String {
@@ -328,9 +320,6 @@ fn render_markdown(report: &Report) -> String {
     }
     if let Some(explain) = &report.explain {
         Render::explain_markdown(&mut output, explain);
-        if let Some(map) = &report.map {
-            Render::method_limitations(&mut output, &map.limitations);
-        }
     }
     if let Some(context) = &report.context {
         Render::context_markdown(&mut output, context);
@@ -395,19 +384,10 @@ fn render_markdown(report: &Report) -> String {
         }
     }
 
-    let (limitations, omitted) =
-        utils::result_limitations(report.limitations.iter().map(|limitation| limitation.detail.as_str()));
-    if !limitations.is_empty() || omitted > 0 {
-        writeln!(output).expect("writing to a string cannot fail");
-        writeln!(output, "## Limitations").expect("writing to a string cannot fail");
-        writeln!(output).expect("writing to a string cannot fail");
-        for limitation in limitations {
-            writeln!(output, "- {}", utils::sanitize_text(limitation)).expect("writing to a string cannot fail");
-        }
-        if omitted > 0 {
-            writeln!(output, "- {}", utils::METHOD_LIMITATIONS_NOTE).expect("writing to a string cannot fail");
-        }
-    }
+    Render::report_limitations(
+        &mut output,
+        report.limitations.iter().map(|limitation| limitation.detail.as_str()),
+    );
 
     output
 }

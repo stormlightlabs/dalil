@@ -35,6 +35,42 @@ pub const CALL_EVIDENCE: &str = "Call relationships require syntax evidence for 
 /// Caller and callee candidates.
 pub const CALL_CANDIDATES: &str = "Callers and callees use syntax tagged as calls; an ambiguous lexical candidate is not a resolved semantic call relationship.";
 
+/// Every traversal operation.
+pub const TRAVERSAL_EDGES: &str =
+    "Traversal follows retained lexical relationship edges; compiler, type, and runtime resolution is not performed.";
+/// Neighbor traversal.
+pub const NEIGHBOR_DEPTH: &str = "Neighbor depth is measured in graph edges from each start node.";
+/// Path traversal.
+pub const SHORTEST_PATH: &str =
+    "The returned path is the shortest path found; confidence and edge ID order break ties.";
+/// Reverse-dependency traversal.
+pub const REVERSE_DEPENDENCY_EDGES: &str =
+    "Reverse dependencies follow incoming file-level dependency and import edges.";
+/// Queries with a text filter.
+pub const TEXT_MATCHING: &str = "text matching uses the private trigram index for retained source content, plus paths, symbol names, and syntax contexts";
+/// Queries with a symbol or symbol-kind filter.
+pub const SYMBOL_MATCHING: &str =
+    "symbol matching uses retained syntax evidence and does not establish compiler-level resolution";
+/// Every explanation.
+pub const EXPLANATION_SCOPE: &str = "This explanation describes bounded lexical evidence and ranking heuristics; it is not a semantic call graph or access check.";
+/// Every impact report.
+pub const IMPACT_EVIDENCE: &str = "Impact relationships are bounded lexical, graph, structural, manifest, and history evidence. They do not establish semantic callers, callees, ownership matches, or breakage.";
+/// Churn counts.
+pub const CHURN_SIZE: &str =
+    "Absolute churn is not normalized by file size & active development is not automatically risky.";
+/// Normalized churn rates.
+pub const CHURN_NORMALIZATION: &str = "Normalized churn uses the current HEAD blob size. Empty, binary, deleted, oversized, and resource-limited paths have no normalized rate; generated files are retained and labelled.";
+/// Contributor counts.
+pub const CONTRIBUTOR_ATTRIBUTION: &str =
+    "Squash merges can credit a merger rather than the original author so commit count is only a knowledge proxy.";
+/// Bug-keyword matches.
+pub const BUG_KEYWORDS: &str = "Bug clusters depend on commit-message discipline and do not prove a defect rate.";
+/// Commit cadence.
+pub const ACTIVITY_CADENCE: &str = "Cadence reflects team and release habits.";
+/// Firefighting-keyword matches.
+pub const FIREFIGHTING_KEYWORDS: &str =
+    "Firefighting matches are keyword evidence and not a complete measure of release health.";
+
 /// Every method limitation, in no particular order.
 pub const METHOD_LIMITATIONS: &[&str] = &[
     LEXICAL_EXTRACTION,
@@ -50,6 +86,20 @@ pub const METHOD_LIMITATIONS: &[&str] = &[
     TEST_EVIDENCE,
     CALL_EVIDENCE,
     CALL_CANDIDATES,
+    TRAVERSAL_EDGES,
+    NEIGHBOR_DEPTH,
+    SHORTEST_PATH,
+    REVERSE_DEPENDENCY_EDGES,
+    TEXT_MATCHING,
+    SYMBOL_MATCHING,
+    EXPLANATION_SCOPE,
+    IMPACT_EVIDENCE,
+    CHURN_SIZE,
+    CHURN_NORMALIZATION,
+    CONTRIBUTOR_ATTRIBUTION,
+    BUG_KEYWORDS,
+    ACTIVITY_CADENCE,
+    FIREFIGHTING_KEYWORDS,
 ];
 
 /// Whether `text` is a method limitation rather than one a result reached.

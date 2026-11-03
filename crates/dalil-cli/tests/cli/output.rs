@@ -161,9 +161,7 @@ fn markdown_snapshot_is_direct_and_readable() {
          Query pack: `rust-v1`\n\
          Inventory: 0 tracked (0 modified), 0 untracked, 0 analyzed, 0 omitted, 0 classified\n\
          \n\
-         ### Map limitations\n\
-         \n\
-         - Method limitations that hold for every run are left out here; `--json` lists them in full.\n\
+         Method limitations that hold for every run are left out here; `--json` lists them in full.\n\
          \n\
          ### Rust files\n\
          \n\

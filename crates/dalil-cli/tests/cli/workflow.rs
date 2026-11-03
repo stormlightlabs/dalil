@@ -603,7 +603,17 @@ fn impact_returns_budgeted_change_evidence_without_breakage_claims() {
     let markdown = stdout(&markdown);
     assert!(markdown.contains("Impact context"));
     assert!(markdown.contains("Evidence relationships"));
-    assert!(markdown.contains("Impact relationships are bounded lexical"));
+    // The evidence-scope caveat is a method limitation: JSON keeps it and
+    // human output prints one line in its place.
+    assert!(!markdown.contains("Impact relationships are bounded lexical"));
+    assert!(markdown.contains("Method limitations that hold for every run are left out here"));
+    assert!(
+        json["impact"]["uncertainty"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item["detail"]
+                .as_str()
+                .is_some_and(|detail| detail.starts_with("Impact relationships are bounded lexical"))))
+    );
 }
 
 #[test]

@@ -244,21 +244,16 @@ pub(crate) fn compile(mut request: TraversalRequest, map: &MapReport) -> Travers
     omissions.sort_by_key(|left| left.reason);
 
     let mut limitations = map.limitations.clone();
-    limitations.push(
-        "Traversal follows retained lexical relationship edges; compiler, type, and runtime resolution is not performed."
-            .to_owned(),
-    );
+    limitations.push(crate::limitations::TRAVERSAL_EDGES.to_owned());
     match request.operation {
         TraversalOperation::Neighbors => {
-            limitations.push("Neighbor depth is measured in graph edges from each start node.".to_owned());
+            limitations.push(crate::limitations::NEIGHBOR_DEPTH.to_owned());
         }
         TraversalOperation::Path => {
-            limitations.push(
-                "The returned path is the shortest path found; confidence and edge ID order break ties.".to_owned(),
-            );
+            limitations.push(crate::limitations::SHORTEST_PATH.to_owned());
         }
         TraversalOperation::ReverseDependencies => {
-            limitations.push("Reverse dependencies follow incoming file-level dependency and import edges.".to_owned());
+            limitations.push(crate::limitations::REVERSE_DEPENDENCY_EDGES.to_owned());
         }
     }
     limitations.sort();
