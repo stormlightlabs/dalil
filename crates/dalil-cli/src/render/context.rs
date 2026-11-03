@@ -192,10 +192,13 @@ impl Render {
         }
         if !context.uncertainty.is_empty() {
             Render::section_heading(output, "Uncertainty");
-            for uncertainty in &context.uncertainty {
-                writeln!(output, "- {}", utils::sanitize_text(&uncertainty.detail))
-                    .expect("writing to a string cannot fail");
-            }
+            Render::result_uncertainty(
+                output,
+                context
+                    .uncertainty
+                    .iter()
+                    .map(|uncertainty| uncertainty.detail.as_str()),
+            );
         }
         if !context.omissions.is_empty() {
             Render::section_heading(output, "Omissions");

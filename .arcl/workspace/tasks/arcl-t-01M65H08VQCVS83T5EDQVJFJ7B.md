@@ -2,7 +2,7 @@
 id = "arcl-t-01M65H08VQCVS83T5EDQVJFJ7B"
 phase = "arcl-ph-01M65H08QHQG2WE9TPFPAR1JTJ"
 title = "Move standard limitations out of human output"
-status = "pending"
+status = "in_progress"
 priority = "normal"
 position = 3
 +++

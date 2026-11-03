@@ -138,9 +138,18 @@ impl Render {
         }
 
         Self::orientation_recommendations(output, "Next reads", &orientation.next_reads);
+        let omitted = orientation
+            .uncertainty
+            .iter()
+            .filter(|uncertainty| dalil_core::limitations::is_method_limitation(&uncertainty.detail))
+            .count();
         if !orientation.uncertainty.is_empty() {
             Self::section_heading(output, "Limitations");
-            for uncertainty in &orientation.uncertainty {
+            for uncertainty in orientation
+                .uncertainty
+                .iter()
+                .filter(|uncertainty| !dalil_core::limitations::is_method_limitation(&uncertainty.detail))
+            {
                 writeln!(
                     output,
                     "- `{}`: {}",
@@ -148,6 +157,9 @@ impl Render {
                     utils::sanitize_text(&uncertainty.detail)
                 )
                 .expect("writing to a string cannot fail");
+            }
+            if omitted > 0 {
+                writeln!(output, "- {}", utils::METHOD_LIMITATIONS_NOTE).expect("writing to a string cannot fail");
             }
         }
         writeln!(
@@ -237,7 +249,7 @@ impl Render {
             search.budget.total_candidates,
         )
         .expect("writing to a string cannot fail");
-        Render::caveats(output, &search.limitations);
+        Render::result_caveats(output, &search.limitations);
     }
 
     fn orientation_recommendations(

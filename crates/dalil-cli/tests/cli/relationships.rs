@@ -148,3 +148,22 @@ fn callers_are_found_past_output_and_symbol_limits_through_qualified_paths() {
     let value: Value = serde_json::from_str(&stdout(&output)).expect("relationship JSON");
     assert_eq!(value["bounds"]["total"], 1, "references: {value}");
 }
+
+#[test]
+fn human_output_leaves_out_method_limitations_that_json_keeps() {
+    let fixture = MapFixtureRepository::new();
+    let method = "Relationship targets are derived from retained Tree-sitter symbols";
+    let note = "Method limitations that hold for every run are left out here";
+
+    let human = stdout(&fixture.run(&["relationships", "callers", "parse", ".", "--no-cache"]));
+    assert!(!human.contains(method), "human output: {human}");
+    assert!(human.contains(note), "human output: {human}");
+
+    let json = stdout(&fixture.run(&["relationships", "callers", "parse", ".", "--no-cache", "--json"]));
+    assert!(json.contains(method));
+    assert!(!json.contains(note));
+
+    let explain = stdout(&fixture.run(&["explain", "parse", "--profile", "evidence", "--no-cache"]));
+    assert!(explain.contains("Method limitations:"), "explain output: {explain}");
+    assert!(explain.contains("references are extracted lexically"));
+}

@@ -163,9 +163,7 @@ fn markdown_snapshot_is_direct_and_readable() {
          \n\
          ### Map limitations\n\
          \n\
-         - Rust definitions and references are extracted lexically; only explicit call or import evidence contributes file relationships, and types, macros, and runtime behavior are not semantically resolved.\n\
-         - Reference names can have multiple lexical definition candidates; ambiguity is reported rather than treated as a semantic call edge.\n\
-         - Tracked files are eligible even when ignore rules match them, except deterministic generated/vendor/minified classifications; exact focus paths can opt in within the safety limits.\n\
+         - Method limitations that hold for every run are left out here; `--json` lists them in full.\n\
          \n\
          ### Rust files\n\
          \n\

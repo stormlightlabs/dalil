@@ -130,10 +130,14 @@ pub fn render_relationships(report: &RelationshipResults, format: OutputFormat) 
                     )?;
                 }
             }
-            if !report.limitations.is_empty() {
+            let (limitations, omitted) = utils::result_limitations(report.limitations.iter().map(String::as_str));
+            if !limitations.is_empty() || omitted > 0 {
                 writeln!(output, "\n## Limitations\n")?;
-                for limitation in &report.limitations {
+                for limitation in limitations {
                     writeln!(output, "- {}", utils::sanitize_text(limitation))?;
+                }
+                if omitted > 0 {
+                    writeln!(output, "- {}", utils::METHOD_LIMITATIONS_NOTE)?;
                 }
             }
             Ok(output)
@@ -239,10 +243,14 @@ pub fn render_traversal(report: &TraversalResults, format: OutputFormat) -> anyh
                     )?;
                 }
             }
-            if !report.limitations.is_empty() {
+            let (limitations, omitted) = utils::result_limitations(report.limitations.iter().map(String::as_str));
+            if !limitations.is_empty() || omitted > 0 {
                 writeln!(output, "\n## Limitations\n")?;
-                for limitation in &report.limitations {
+                for limitation in limitations {
                     writeln!(output, "- {}", utils::sanitize_text(limitation))?;
+                }
+                if omitted > 0 {
+                    writeln!(output, "- {}", utils::METHOD_LIMITATIONS_NOTE)?;
                 }
             }
             Ok(output)
@@ -320,6 +328,9 @@ fn render_markdown(report: &Report) -> String {
     }
     if let Some(explain) = &report.explain {
         Render::explain_markdown(&mut output, explain);
+        if let Some(map) = &report.map {
+            Render::method_limitations(&mut output, &map.limitations);
+        }
     }
     if let Some(context) = &report.context {
         Render::context_markdown(&mut output, context);
@@ -384,13 +395,17 @@ fn render_markdown(report: &Report) -> String {
         }
     }
 
-    if !report.limitations.is_empty() {
+    let (limitations, omitted) =
+        utils::result_limitations(report.limitations.iter().map(|limitation| limitation.detail.as_str()));
+    if !limitations.is_empty() || omitted > 0 {
         writeln!(output).expect("writing to a string cannot fail");
         writeln!(output, "## Limitations").expect("writing to a string cannot fail");
         writeln!(output).expect("writing to a string cannot fail");
-        for limitation in &report.limitations {
-            writeln!(output, "- {}", utils::sanitize_text(&limitation.detail))
-                .expect("writing to a string cannot fail");
+        for limitation in limitations {
+            writeln!(output, "- {}", utils::sanitize_text(limitation)).expect("writing to a string cannot fail");
+        }
+        if omitted > 0 {
+            writeln!(output, "- {}", utils::METHOD_LIMITATIONS_NOTE).expect("writing to a string cannot fail");
         }
     }
 

@@ -51,6 +51,16 @@ bodies, comments, and replies. Keep it short and plain:
 Check a draft against both before committing or posting.
 <!-- fabrial:end -->
 
+## Branch and title conventions
+
+These narrow fabrial's rules above for this repository.
+
+- Work an arcl task on a branch named `storm/<arcl-id>`, such as
+  `storm/arcl-t-01M65H08VQCVS83T5EDQVJFJ7B`.
+- Start the first commit's subject, which becomes the pull request title, with
+  a Conventional Commits type: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`,
+  `build:` or `chore:`. Later commits on the branch keep plain subjects.
+
 ## Tasks
 
 The installed skills read this section for the tracker's commands. Dalil's

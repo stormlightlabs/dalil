@@ -329,7 +329,9 @@ fn map_scope_exclusions_and_markdown_limitations_are_preserved() {
     assert!(markdown.contains("Inventory:"));
     assert!(markdown.contains("Map findings"));
     assert!(markdown.contains("Map limitations"));
-    assert!(markdown.contains("lexically"));
+    // Method limitations stay in JSON; human output prints one line for them.
+    assert!(!markdown.contains("lexically"));
+    assert!(markdown.contains("Method limitations that hold for every run are left out here"));
 }
 
 #[test]

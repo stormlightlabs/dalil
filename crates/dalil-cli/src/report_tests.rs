@@ -321,3 +321,15 @@ fn orientation_markdown_and_json_expose_only_the_typed_orientation() {
     assert!(json.get("history").is_none());
     assert!(json.get("reading_plan").is_none());
 }
+
+#[test]
+fn result_limitations_keep_result_limits_and_count_method_limitations() {
+    let reached = "Source analysis stopped at the 30000 ms elapsed-work limit; the returned map is partial.";
+    let (kept, omitted) = crate::utils::result_limitations([
+        dalil_core::limitations::LEXICAL_EXTRACTION,
+        reached,
+        dalil_core::limitations::RELATIONSHIP_TARGETS,
+    ]);
+    assert_eq!(kept, [reached]);
+    assert_eq!(omitted, 2);
+}

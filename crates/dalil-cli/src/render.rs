@@ -53,6 +53,48 @@ impl Render {
         }
     }
 
+    /// Prints the caveats a result reached and one line in place of any method
+    /// limitations. `explain` prints every caveat with [`Render::caveats`].
+    fn result_caveats(output: &mut String, caveats: &[String]) {
+        let (kept, omitted) = utils::result_limitations(caveats.iter().map(String::as_str));
+        if kept.is_empty() && omitted == 0 {
+            return;
+        }
+        writeln!(output, "Caveats:").expect("writing to a string cannot fail");
+        for caveat in kept {
+            writeln!(output, "- {}", utils::sanitize_text(caveat)).expect("writing to a string cannot fail");
+        }
+        if omitted > 0 {
+            writeln!(output, "- {}", utils::METHOD_LIMITATIONS_NOTE).expect("writing to a string cannot fail");
+        }
+    }
+
+    /// Prints the method limitations among `limitations` under their own heading.
+    pub fn method_limitations(output: &mut String, limitations: &[String]) {
+        let method = limitations
+            .iter()
+            .filter(|limitation| dalil_core::limitations::is_method_limitation(limitation))
+            .collect::<Vec<_>>();
+        if method.is_empty() {
+            return;
+        }
+        writeln!(output, "Method limitations:").expect("writing to a string cannot fail");
+        for limitation in method {
+            writeln!(output, "- {}", utils::sanitize_text(limitation)).expect("writing to a string cannot fail");
+        }
+    }
+
+    /// Prints uncertainty details, leaving out method limitations behind one line.
+    fn result_uncertainty<'a>(output: &mut String, details: impl IntoIterator<Item = &'a str>) {
+        let (kept, omitted) = utils::result_limitations(details);
+        for detail in kept {
+            writeln!(output, "- {}", utils::sanitize_text(detail)).expect("writing to a string cannot fail");
+        }
+        if omitted > 0 {
+            writeln!(output, "- {}", utils::METHOD_LIMITATIONS_NOTE).expect("writing to a string cannot fail");
+        }
+    }
+
     fn format_location(location: &dalil_core::SourceLocation) -> String {
         format!(
             "{}:{}-{}:{}",

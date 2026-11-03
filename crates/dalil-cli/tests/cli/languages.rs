@@ -288,7 +288,9 @@ fn mixed_language_map_is_explicit_deterministic_and_keeps_other_findings() {
     assert!(markdown_stdout.contains("Tree-sitter reported parse errors in this Zig file"));
     assert!(markdown_stdout.contains("dynamic `require`"));
     assert!(markdown_stdout.contains("comptime evaluation"));
-    assert!(markdown_stdout.contains("query-pack provenance"));
+    // The grammar-variant method limitation stays in JSON only.
+    assert!(!markdown_stdout.contains("query-pack provenance"));
+    assert!(markdown_stdout.contains("Method limitations that hold for every run are left out here"));
     assert_plain_report(&markdown_stdout);
 }
 

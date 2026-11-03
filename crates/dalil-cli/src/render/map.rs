@@ -118,9 +118,7 @@ impl Render {
         }
 
         Render::section_heading(output, "Map limitations");
-        for limitation in &map.limitations {
-            writeln!(output, "- {}", utils::sanitize_text(limitation)).expect("writing to a string cannot fail");
-        }
+        Render::result_uncertainty(output, map.limitations.iter().map(String::as_str));
 
         let mut files_by_language: BTreeMap<dalil_core::SourceLanguage, Vec<&dalil_core::SourceFile>> = BTreeMap::new();
         for file in &map.files {

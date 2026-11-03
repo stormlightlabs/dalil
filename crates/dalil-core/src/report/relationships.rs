@@ -96,10 +96,7 @@ pub(crate) fn compile(mut request: RelationshipRequest, map: &MapReport) -> Rela
     let mut limitations = map.limitations.clone();
     limitations.extend(operation_limitations(operation));
     if operation == RelationshipOperation::Callers || operation == RelationshipOperation::Callees {
-        limitations.push(
-            "Callers and callees use syntax tagged as calls; an ambiguous lexical candidate is not a resolved semantic call relationship."
-                .to_owned(),
-        );
+        limitations.push(crate::limitations::CALL_CANDIDATES.to_owned());
     }
     limitations.sort();
     limitations.dedup();
@@ -186,23 +183,17 @@ pub(crate) fn cache_provenance(map: &MapReport) -> CacheProvenance {
 }
 
 fn operation_limitations(operation: RelationshipOperation) -> Vec<String> {
-    let common = "Relationship targets are derived from retained Tree-sitter symbols and lexical file edges; compiler, type, and runtime resolution is not performed.";
+    let common = crate::limitations::RELATIONSHIP_TARGETS;
     let specific = match operation {
         RelationshipOperation::Symbol | RelationshipOperation::Definitions | RelationshipOperation::References => {
-            "Definitions and references preserve syntax evidence, including duplicate names and bare references."
+            crate::limitations::SYMBOL_EVIDENCE
         }
-        RelationshipOperation::Imports => {
-            "Imports are returned only when literal import or module evidence contributed a lexical edge."
-        }
+        RelationshipOperation::Imports => crate::limitations::IMPORT_EVIDENCE,
         RelationshipOperation::Dependencies | RelationshipOperation::ReverseDependencies => {
-            "Dependencies are file-level lexical relationships and can have multiple candidate targets."
+            crate::limitations::DEPENDENCY_EVIDENCE
         }
-        RelationshipOperation::Tests => {
-            "Related tests are test paths with retained lexical relationships to the requested file or symbol."
-        }
-        RelationshipOperation::Callers | RelationshipOperation::Callees => {
-            "Call relationships require syntax evidence for a call expression; dynamic dispatch and unresolved names remain uncertain."
-        }
+        RelationshipOperation::Tests => crate::limitations::TEST_EVIDENCE,
+        RelationshipOperation::Callers | RelationshipOperation::Callees => crate::limitations::CALL_EVIDENCE,
     };
     vec![common.to_owned(), specific.to_owned()]
 }
