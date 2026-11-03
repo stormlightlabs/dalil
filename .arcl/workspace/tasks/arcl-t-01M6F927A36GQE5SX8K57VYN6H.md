@@ -2,9 +2,10 @@
 id = "arcl-t-01M6F927A36GQE5SX8K57VYN6H"
 phase = "arcl-ph-01M65H08QHQG2WE9TPFPAR1JTJ"
 title = "Resolve changed lines per hunk"
-status = "in_progress"
+status = "completed"
 priority = "normal"
 position = 6
+evidence = "Done in #5 at ca2db84: changed lines come from an imara-diff line diff, one range per hunk, capped at 20,000 lines or 1 MiB per file. On d90a55c, map.rs lists only the three constants #3 changed."
 +++
 
 `changed_lines` in `map/changes.rs` trims the common prefix and suffix, so every edit in a file becomes one range from the first change to the last. On Dalil's #3, four one-line edits in `map.rs` became lines 44 to 57 and `cache.rs` became 13 to 345, so impact lists every definition in between as changed.
