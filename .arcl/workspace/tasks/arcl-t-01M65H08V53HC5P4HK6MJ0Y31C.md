@@ -2,9 +2,10 @@
 id = "arcl-t-01M65H08V53HC5P4HK6MJ0Y31C"
 phase = "arcl-ph-01M65H08QHQG2WE9TPFPAR1JTJ"
 title = "List only definitions as impact's changed symbols"
-status = "pending"
+status = "completed"
 priority = "normal"
 position = 2
+evidence = "Done in #4 at 4a8659e: impact lists only definitions as changed symbols, each once; references map to their owner through a helper shared with relationships, and edits outside any definition record a top_level_change uncertainty."
 +++
 
 `dalil impact --revision-range HEAD~1..HEAD` lists identifiers such as

@@ -1785,3 +1785,109 @@ fn manual_cache_mode_skips_records_parsed_under_another_symbol_limit() {
     );
     fs::remove_dir_all(root).expect("remove cache fixture");
 }
+
+#[test]
+fn changed_definitions_map_body_edits_to_their_enclosing_definition() {
+    let source = "use std::fmt::Write;\n\
+struct First;\n\
+impl First {\n\
+    fn new() -> Self {\n\
+        helper(); helper(); writeln!(out, \"x\").expect(\"write\");\n\
+        Self\n\
+    }\n\
+}\n\
+struct Second;\n\
+impl Second {\n\
+    fn new() -> Self {\n\
+        other(1, 2);\n\
+        Self\n\
+    }\n\
+}\n";
+    let symbols = parse_source(source.as_bytes(), &RUST_SUPPORT).symbols;
+    let changed = |start: usize, end: usize| {
+        changes::changed_definitions(&symbols, &[ChangedLineRange { start, end }])
+            .into_iter()
+            .map(|symbol| (symbol.name, symbol.location.start.line))
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(changed(5, 5), [("new".to_owned(), 4)]);
+    assert_eq!(changed(12, 12), [("new".to_owned(), 11)]);
+    assert_eq!(
+        changed(5, 12),
+        [("new".to_owned(), 4), ("Second".to_owned(), 9), ("new".to_owned(), 11)]
+    );
+    assert!(changed(1, 1).is_empty(), "imports are not changed definitions");
+}
+
+fn changed_names(source: &str, support: &LanguageSupport, line: usize) -> Vec<(String, usize)> {
+    let symbols = parse_source(source.as_bytes(), support).symbols;
+    changes::changed_definitions(&symbols, &[ChangedLineRange { start: line, end: line }])
+        .into_iter()
+        .map(|symbol| (symbol.name, symbol.location.start.line))
+        .collect()
+}
+
+#[test]
+fn changed_definitions_map_a_go_method_body_to_the_method() {
+    let source = "package p\ntype R struct{}\nfunc (r R) M() {\n\tx := foo()\n\t_ = x\n}\n";
+    assert_eq!(changed_names(source, &GO_SUPPORT, 4), [("M".to_owned(), 3)]);
+}
+
+#[test]
+fn changed_definitions_map_a_javascript_arrow_body_to_its_binding() {
+    let source = "const f = () => {\n  g();\n};\nconst h = function () {\n  const y = g();\n};\n";
+    for support in [&JAVASCRIPT_SUPPORT, &TYPESCRIPT_SUPPORT] {
+        assert_eq!(changed_names(source, support, 2), [("f".to_owned(), 1)]);
+        assert_eq!(changed_names(source, support, 5), [("h".to_owned(), 4)]);
+    }
+}
+
+#[test]
+fn changed_definitions_map_a_named_function_expression_to_its_binding() {
+    let source = "const f = function g() {\n  a();\n};\nconsole.log(function h() {\n  a();\n});\n";
+    for support in [&JAVASCRIPT_SUPPORT, &TYPESCRIPT_SUPPORT] {
+        assert_eq!(changed_names(source, support, 2), [("f".to_owned(), 1)]);
+        let symbols = parse_source(source.as_bytes(), support).symbols;
+        let unbound = symbols
+            .iter()
+            .find(|symbol| symbol.name == "a" && symbol.location.start.line == 5)
+            .expect("reference inside the unbound expression");
+        assert_eq!(unbound.scope, ["h"], "an unbound named expression keeps its name");
+    }
+}
+
+#[test]
+fn owning_definition_applies_its_filter_after_resolving_the_owner() {
+    let source = "function b() {}\nclass A {\n  run() {}\n}\nconst run = () => {\n  b();\n};\n";
+    let symbols = parse_source(source.as_bytes(), &JAVASCRIPT_SUPPORT).symbols;
+    let call = symbols
+        .iter()
+        .find(|symbol| symbol.name == "b" && symbol.role != SymbolRole::Definition)
+        .expect("call to b");
+    let owner = changes::owning_definition(call, &symbols, |_| true).expect("owner of the call");
+    assert_eq!((owner.name.as_str(), owner.location.start.line), ("run", 5));
+    let not_variable = |symbol: &SourceSymbol| symbol.kind != SymbolKind::Variable;
+    assert!(
+        changes::owning_definition(call, &symbols, not_variable).is_none(),
+        "a rejected owner must not fall back to the method `A.run`"
+    );
+}
+
+#[test]
+fn changed_definitions_map_lua_table_function_bodies_to_the_function() {
+    let source = "local M = {}\nfunction M.foo()\n  g()\nend\nfunction M:bar()\n  g()\nend\nreturn M\n";
+    assert_eq!(changed_names(source, &LUA_SUPPORT, 3), [("foo".to_owned(), 2)]);
+    assert_eq!(changed_names(source, &LUA_SUPPORT, 6), [("bar".to_owned(), 5)]);
+}
+
+#[test]
+fn changed_definitions_map_locals_to_their_function_and_keep_module_constants() {
+    let source = "X = 1\ndef f():\n    x = g()\n    y = 2\n    return x\nclass C:\n    z = 3\n";
+    assert_eq!(changed_names(source, &PYTHON_SUPPORT, 1), [("X".to_owned(), 1)]);
+    assert_eq!(changed_names(source, &PYTHON_SUPPORT, 3), [("f".to_owned(), 2)]);
+    assert_eq!(changed_names(source, &PYTHON_SUPPORT, 4), [("f".to_owned(), 2)]);
+    assert_eq!(changed_names(source, &PYTHON_SUPPORT, 7), [("z".to_owned(), 7)]);
+    let go = "package p\nfunc F() {\n\tx := 1\n\t_ = x\n}\n";
+    assert_eq!(changed_names(go, &GO_SUPPORT, 3), [("F".to_owned(), 2)]);
+}

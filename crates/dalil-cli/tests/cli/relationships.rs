@@ -85,6 +85,24 @@ fn relationship_operations_cover_definitions_references_imports_dependencies_and
 }
 
 #[test]
+fn callers_do_not_borrow_an_owner_of_the_same_name() {
+    let fixture = MapFixtureRepository::new();
+    write_file(
+        fixture.root.join("src/app.js"),
+        b"function b() {}\nclass A {\n  run() {}\n}\nconst run = () => {\n  b();\n};\n",
+    );
+
+    let output = fixture.run(&["relationships", "callers", "b", ".", "--no-cache", "--json"]);
+    assert!(output.status.success(), "callers query failed: {:?}", output.stderr);
+    let value: Value = serde_json::from_str(&stdout(&output)).expect("relationship JSON");
+    let matches = value["matches"].as_array().expect("relationship matches");
+    assert!(
+        matches.iter().all(|item| item["node"]["symbol"]["kind"] != "method"),
+        "the arrow `run` is not the method `A.run`: {matches:?}"
+    );
+}
+
+#[test]
 fn callers_are_found_past_output_and_symbol_limits_through_qualified_paths() {
     let fixture = MapFixtureRepository::new();
     for index in 0..40 {
