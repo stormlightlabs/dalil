@@ -9,8 +9,18 @@ use super::*;
 const MAX_CHANGED_PATHS: usize = 4_096;
 const MAX_CHANGED_TREE_NODES: usize = 100_000;
 /// The uncertainty kind for an edit whose symbols all lie outside any
-/// definition. It does not make the resolution partial.
+/// definition.
 const TOP_LEVEL_CHANGE: &str = "top_level_change";
+/// The uncertainty kind for lines removed from a file that still exists.
+/// Removed code has no current line, so no definition is named for it.
+const REMOVED_LINES: &str = "removed_lines";
+/// Kinds that leave the change itself fully resolved: only the definition to
+/// name is missing. They do not make the resolution partial.
+const ATTRIBUTION_ONLY: [&str; 2] = [TOP_LEVEL_CHANGE, REMOVED_LINES];
+/// The largest side, in lines, that is diffed hunk by hunk. The diff is
+/// quadratic on files made of a few repeated lines: 20,000 such lines take
+/// 0.24 s and 40,000 take 0.9 s in a release build.
+const MAX_DIFF_LINES: usize = 20_000;
 
 #[derive(Clone, Copy)]
 struct TreeFile {
@@ -96,7 +106,7 @@ pub fn resolve_changes(path: &Path, context: &ContextRevisionContext) -> Result<
             format!("Change resolution reached the {MAX_CHANGED_PATHS}-path limit."),
         ));
     }
-    resolution.status = if resolution.uncertainty.is_empty() {
+    resolution.status = if !has_incomplete_uncertainty(&resolution) {
         ChangeResolutionStatus::Resolved
     } else {
         ChangeResolutionStatus::Partial
@@ -170,14 +180,16 @@ pub fn enrich_change_symbols(resolution: &mut ChangeResolution, map: &MapReport)
             }
         }
     }
-    // A top-level edit resolved fully; it only has no definition to name.
-    let incomplete = resolution
-        .uncertainty
-        .iter()
-        .any(|uncertainty| uncertainty.kind != TOP_LEVEL_CHANGE);
-    if incomplete && resolution.status == ChangeResolutionStatus::Resolved {
+    if has_incomplete_uncertainty(resolution) && resolution.status == ChangeResolutionStatus::Resolved {
         resolution.status = ChangeResolutionStatus::Partial;
     }
+}
+
+fn has_incomplete_uncertainty(resolution: &ChangeResolution) -> bool {
+    resolution
+        .uncertainty
+        .iter()
+        .any(|uncertainty| !ATTRIBUTION_ONLY.contains(&uncertainty.kind.as_str()))
 }
 
 fn revision_endpoints(context: &ContextRevisionContext, resolution: &mut ChangeResolution) -> Option<(String, String)> {
@@ -307,13 +319,18 @@ fn compare_trees(
     let paths = before.keys().chain(after.keys()).cloned().collect::<BTreeSet<_>>();
     for path in paths {
         match (before.get(&path), after.get(&path)) {
-            (Some(previous), Some(current)) if previous.id != current.id => changes.push(change_with_lines(
-                ChangeKind::Modified,
-                path,
-                None,
-                blob_data(repository, previous.id, resolution),
-                blob_data(repository, current.id, resolution),
-            )),
+            (Some(previous), Some(current)) if previous.id != current.id => {
+                let before = blob_data(repository, previous.id, resolution);
+                let after = blob_data(repository, current.id, resolution);
+                changes.push(change_with_lines(
+                    ChangeKind::Modified,
+                    path,
+                    None,
+                    before,
+                    after,
+                    resolution,
+                ));
+            }
             (Some(previous), None) => deleted.push((path, *previous)),
             (None, Some(current)) => added.push((path, *current)),
             _ => {}
@@ -327,31 +344,38 @@ fn compare_trees(
             .find(|(index, (_, current))| !consumed_added.contains(index) && current.id == previous.id)
         {
             consumed_added.insert(index);
+            let before = blob_data(repository, previous.id, resolution);
+            let after = blob_data(repository, current.id, resolution);
             changes.push(change_with_lines(
                 ChangeKind::Renamed,
                 path.clone(),
                 Some(previous_path),
-                blob_data(repository, previous.id, resolution),
-                blob_data(repository, current.id, resolution),
+                before,
+                after,
+                resolution,
             ));
         } else {
+            let before = blob_data(repository, previous.id, resolution);
             changes.push(change_with_lines(
                 ChangeKind::Deleted,
                 previous_path,
                 None,
-                blob_data(repository, previous.id, resolution),
+                before,
                 None,
+                resolution,
             ));
         }
     }
     for (index, (path, current)) in added.into_iter().enumerate() {
         if !consumed_added.contains(&index) {
+            let after = blob_data(repository, current.id, resolution);
             changes.push(change_with_lines(
                 ChangeKind::Added,
                 path,
                 None,
                 None,
-                blob_data(repository, current.id, resolution),
+                after,
+                resolution,
             ));
         }
     }
@@ -419,10 +443,11 @@ fn resolve_dirty_worktree(
                 None,
                 previous,
                 Some(current),
+                resolution,
             )),
             Ok(_) => {}
             Err(security::ReadError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => changes.push(
-                change_with_lines(ChangeKind::Deleted, path.to_owned(), None, previous, None),
+                change_with_lines(ChangeKind::Deleted, path.to_owned(), None, previous, None, resolution),
             ),
             Err(error) => resolution.uncertainty.push(change_uncertainty(
                 "worktree_read",
@@ -453,6 +478,7 @@ fn resolve_dirty_worktree(
                 None,
                 None,
                 Some(current),
+                resolution,
             )),
             Err(error) => resolution.uncertainty.push(change_uncertainty(
                 "worktree_read",
@@ -478,38 +504,115 @@ fn blob_data(repository: &gix::Repository, id: gix::ObjectId, resolution: &mut C
 
 fn change_with_lines(
     kind: ChangeKind, path: String, previous_path: Option<String>, before: Option<Vec<u8>>, after: Option<Vec<u8>>,
+    resolution: &mut ChangeResolution,
 ) -> ResolvedChange {
-    let changed_lines = changed_lines(before.as_deref(), after.as_deref());
-    ResolvedChange { kind, path, previous_path, changed_lines, symbols: Vec::new() }
+    let lines = changed_lines(before.as_deref(), after.as_deref());
+    if lines.over_limit {
+        resolution.uncertainty.push(change_uncertainty(
+            "diff_size_limit",
+            format!(
+                "`{path}` is over the {MAX_DIFF_LINES}-line or {}-byte diff limit, so its changed lines are one \
+                 range from the first to the last difference.",
+                ReportLimits::default().max_file_bytes
+            ),
+        ));
+    }
+    if !lines.removed_after.is_empty() {
+        let positions = lines
+            .removed_after
+            .iter()
+            .map(|line| match line {
+                0 => "at the start".to_owned(),
+                line => format!("after line {line}"),
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        resolution.uncertainty.push(change_uncertainty(
+            REMOVED_LINES,
+            format!("Lines were removed from `{path}` {positions}; removed code is not attributed to a definition."),
+        ));
+    }
+    ResolvedChange { kind, path, previous_path, changed_lines: lines.ranges, symbols: Vec::new() }
 }
 
-/// Returns one 1-based line range in `after` per diff hunk. A hunk that only
-/// removes lines is reported at the line before the removal, or line 1.
+/// The lines a change touches in the current file.
+#[derive(Debug, Default)]
+pub(crate) struct LineChanges {
+    /// One 1-based range in `after` per hunk that adds or replaces lines.
+    pub ranges: Vec<ChangedLineRange>,
+    /// For each hunk that only removes lines, the `after` line the removal
+    /// follows, or 0 at the start of the file.
+    pub removed_after: Vec<usize>,
+    /// A side was over the size limit, so `ranges` holds at most one range,
+    /// from the first to the last difference.
+    pub over_limit: bool,
+}
+
+/// Returns the changed lines of `after`, one range per diff hunk.
+///
+/// A hunk that only removes lines has no current line that stands for them,
+/// since the lines around a removal are often a `}` or a neighbouring
+/// definition. It is listed in `removed_after` instead of as a range.
 ///
 /// Lines are compared without their `\n` or `\r\n` terminators, so a change
 /// of line endings, or a newline added after the last line, changes no line.
-pub(crate) fn changed_lines(before: Option<&[u8]>, after: Option<&[u8]>) -> Vec<ChangedLineRange> {
+/// Sides over [`MAX_DIFF_LINES`] lines or the report's file-size limit are not
+/// diffed: one range covers everything from the first to the last difference.
+pub(crate) fn changed_lines(before: Option<&[u8]>, after: Option<&[u8]>) -> LineChanges {
+    changed_lines_limited(before, after, MAX_DIFF_LINES, ReportLimits::default().max_file_bytes)
+}
+
+pub(crate) fn changed_lines_limited(
+    before: Option<&[u8]>, after: Option<&[u8]>, max_lines: usize, max_bytes: usize,
+) -> LineChanges {
     let Some(after) = after.and_then(|after| std::str::from_utf8(after).ok()) else {
-        return Vec::new();
+        return LineChanges::default();
     };
     let before = before
         .and_then(|before| std::str::from_utf8(before).ok())
         .unwrap_or_default();
+    let mut changes = LineChanges::default();
+    let over_limit = |text: &str| text.len() > max_bytes || text.lines().nth(max_lines).is_some();
+    if over_limit(before) || over_limit(after) {
+        changes.over_limit = true;
+        let before = before.lines().collect::<Vec<_>>();
+        let after = after.lines().collect::<Vec<_>>();
+        let prefix = before
+            .iter()
+            .zip(&after)
+            .take_while(|(left, right)| left == right)
+            .count();
+        let suffix = before[prefix..]
+            .iter()
+            .rev()
+            .zip(after[prefix..].iter().rev())
+            .take_while(|(left, right)| left == right)
+            .count();
+        let after_end = after.len() - suffix;
+        if after_end > prefix {
+            changes
+                .ranges
+                .push(ChangedLineRange { start: prefix + 1, end: after_end });
+        } else if before.len() - suffix > prefix {
+            changes.removed_after.push(prefix);
+        }
+        return changes;
+    }
     let mut input = InternedInput::default();
     input.update_before(before.lines());
     input.update_after(after.lines());
     let mut diff = Diff::compute(Algorithm::Histogram, &input);
     diff.postprocess_lines(&input);
-    diff.hunks()
-        .map(|hunk| {
-            if hunk.after.is_empty() {
-                let line = (hunk.after.start as usize).max(1);
-                ChangedLineRange { start: line, end: line }
-            } else {
-                ChangedLineRange { start: hunk.after.start as usize + 1, end: hunk.after.end as usize }
-            }
-        })
-        .collect()
+    for hunk in diff.hunks() {
+        if hunk.after.is_empty() {
+            changes.removed_after.push(hunk.after.start as usize);
+        } else {
+            changes
+                .ranges
+                .push(ChangedLineRange { start: hunk.after.start as usize + 1, end: hunk.after.end as usize });
+        }
+    }
+    changes
 }
 
 /// Returns the definitions a change touches, each once, in source order.

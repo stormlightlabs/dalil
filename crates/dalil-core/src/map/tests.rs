@@ -1892,32 +1892,78 @@ fn changed_definitions_map_locals_to_their_function_and_keep_module_constants() 
     assert_eq!(changed_names(go, &GO_SUPPORT, 3), [("F".to_owned(), 2)]);
 }
 
+fn line_ranges(changes: &changes::LineChanges) -> Vec<(usize, usize)> {
+    changes.ranges.iter().map(|range| (range.start, range.end)).collect()
+}
+
 #[test]
 fn changed_lines_report_one_range_per_hunk() {
     let ranges = |before: Option<&str>, after: Option<&str>| {
-        changes::changed_lines(before.map(str::as_bytes), after.map(str::as_bytes))
-            .into_iter()
-            .map(|range| (range.start, range.end))
-            .collect::<Vec<_>>()
+        line_ranges(&changes::changed_lines(
+            before.map(str::as_bytes),
+            after.map(str::as_bytes),
+        ))
     };
     let before = "a\nb\nc\nd\ne\nf\ng\n";
 
     assert_eq!(ranges(Some(before), Some("A\nb\nc\nd\ne\nf\nG\n")), [(1, 1), (7, 7)]);
     assert_eq!(ranges(Some(before), Some("a\nb\nnew\nc\nd\ne\nf\ng\n")), [(3, 3)]);
-    assert_eq!(ranges(Some(before), Some("a\nb\nc\nf\ng\n")), [(3, 3)]);
-    assert_eq!(ranges(Some(before), Some("b\nc\nd\ne\nf\ng\n")), [(1, 1)]);
     assert_eq!(ranges(None, Some("x\ny\n")), [(1, 2)]);
     assert_eq!(ranges(Some(before), Some(before)), []);
-    assert!(changes::changed_lines(Some(b"a\n"), Some(&[0xff, 0xfe])).is_empty());
+    assert!(
+        changes::changed_lines(Some(b"a\n"), Some(&[0xff, 0xfe]))
+            .ranges
+            .is_empty()
+    );
+}
+
+#[test]
+fn changed_lines_list_pure_removals_without_a_range() {
+    let changes = |before: &str, after: &str| changes::changed_lines(Some(before.as_bytes()), Some(after.as_bytes()));
+    let before = "a\nb\nc\nd\ne\nf\ng\n";
+
+    let middle = changes(before, "a\nb\nc\nf\ng\n");
+    assert_eq!(line_ranges(&middle), []);
+    assert_eq!(middle.removed_after, [3]);
+    let top = changes(before, "b\nc\nd\ne\nf\ng\n");
+    assert_eq!(line_ranges(&top), []);
+    assert_eq!(top.removed_after, [0]);
+    let emptied = changes(before, "");
+    assert_eq!(line_ranges(&emptied), []);
+    assert_eq!(emptied.removed_after, [0]);
+    let mixed = changes(before, "A\nb\nc\nf\ng\n");
+    assert_eq!(line_ranges(&mixed), [(1, 1)]);
+    assert_eq!(mixed.removed_after, [3]);
+    assert!(!mixed.over_limit);
+}
+
+#[test]
+fn changed_lines_over_the_size_limit_report_one_range() {
+    let changes = |before: &str, after: &str, max_lines: usize, max_bytes: usize| {
+        changes::changed_lines_limited(Some(before.as_bytes()), Some(after.as_bytes()), max_lines, max_bytes)
+    };
+    let before = "a\nb\nc\nd\ne\n";
+
+    let by_lines = changes(before, "A\nb\nc\nd\nE\n", 4, 1_000);
+    assert!(by_lines.over_limit);
+    assert_eq!(line_ranges(&by_lines), [(1, 5)]);
+    let by_bytes = changes(before, "a\nB\nc\nD\ne\n", 100, 8);
+    assert!(by_bytes.over_limit);
+    assert_eq!(line_ranges(&by_bytes), [(2, 4)]);
+    let removal = changes(before, "a\nb\ne\n", 2, 1_000);
+    assert_eq!(line_ranges(&removal), []);
+    assert_eq!(removal.removed_after, [2]);
+    let unchanged = changes(before, "a\r\nb\r\nc\r\nd\r\ne\r\n", 2, 1_000);
+    assert_eq!((line_ranges(&unchanged), unchanged.removed_after), (vec![], vec![]));
+    let within = changes(before, "A\nb\nc\nd\nE\n", 5, 1_000);
+    assert!(!within.over_limit);
+    assert_eq!(line_ranges(&within), [(1, 1), (5, 5)]);
 }
 
 #[test]
 fn changed_lines_ignore_line_terminators() {
     let ranges = |before: &str, after: &str| {
-        changes::changed_lines(Some(before.as_bytes()), Some(after.as_bytes()))
-            .into_iter()
-            .map(|range| (range.start, range.end))
-            .collect::<Vec<_>>()
+        line_ranges(&changes::changed_lines(Some(before.as_bytes()), Some(after.as_bytes())))
     };
 
     assert_eq!(ranges("fn a() {}\r\nfn b() {}\r\n", "fn a() {}\nfn b() {}\n"), []);

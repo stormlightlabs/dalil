@@ -987,3 +987,69 @@ fn impact_lists_only_the_definitions_at_each_separate_edit() {
     assert_eq!(names, ["f0", "f7"], "change: {change}");
     assert_eq!(change["changed_lines"].as_array().map(Vec::len), Some(2));
 }
+
+#[test]
+fn removed_lines_are_reported_without_a_range_or_a_definition() {
+    let fixture = MapFixtureRepository::new();
+    let body_before = "pub fn a() {\n    one();\n    two();\n}\n\npub fn b() {}\n";
+    let body_after = "pub fn a() {\n    one();\n}\n\npub fn b() {}\n";
+    let top_before = "pub fn a() {}\npub fn b() {}\n";
+    let top_after = "pub fn b() {}\n";
+
+    let repository = gix::open(&fixture.root).expect("open fixture repository");
+    let parent = repository.head_id().expect("fixture HEAD").detach();
+    let first = write_commit(
+        &repository,
+        write_tree(&repository, &[("src/body.rs", body_before), ("src/top.rs", top_before)]),
+        &[parent],
+        "Map Fixture",
+        "map@example.com",
+        1_700_000_000,
+        "Add functions",
+    );
+    let second = write_commit(
+        &repository,
+        write_tree(&repository, &[("src/body.rs", body_after), ("src/top.rs", top_after)]),
+        &[first],
+        "Map Fixture",
+        "map@example.com",
+        1_700_000_100,
+        "Remove lines",
+    );
+    drop(repository);
+    write_file(
+        fixture.root.join(".git/refs/heads/main"),
+        format!("{second}\n").as_bytes(),
+    );
+    write_file(fixture.root.join("src/body.rs"), body_after.as_bytes());
+    write_file(fixture.root.join("src/top.rs"), top_after.as_bytes());
+
+    let output = fixture.run(&["impact", "--revision-range", "HEAD~1..HEAD", "--no-cache", "--json"]);
+    assert!(
+        output.status.success(),
+        "impact failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: Value = serde_json::from_str(&stdout(&output)).expect("valid impact JSON");
+    let resolution = &json["impact"]["change_resolution"];
+    assert_eq!(resolution["status"], "resolved", "{resolution}");
+    let uncertainty = resolution["uncertainty"].as_array().expect("uncertainty");
+    for (path, position) in [("src/body.rs", "after line 2"), ("src/top.rs", "at the start")] {
+        let change = resolution["changes"]
+            .as_array()
+            .and_then(|changes| changes.iter().find(|change| change["path"] == path))
+            .unwrap_or_else(|| panic!("change for {path}"));
+        assert!(
+            change["changed_lines"].as_array().is_some_and(Vec::is_empty),
+            "{change}"
+        );
+        assert!(change["symbols"].as_array().is_some_and(Vec::is_empty), "{change}");
+        assert!(
+            uncertainty.iter().any(|item| item["kind"] == "removed_lines"
+                && item["detail"]
+                    .as_str()
+                    .is_some_and(|detail| detail.contains(&format!("`{path}` {position}")))),
+            "{uncertainty:?}"
+        );
+    }
+}
