@@ -1910,3 +1910,17 @@ fn changed_lines_report_one_range_per_hunk() {
     assert_eq!(ranges(Some(before), Some(before)), []);
     assert!(changes::changed_lines(Some(b"a\n"), Some(&[0xff, 0xfe])).is_empty());
 }
+
+#[test]
+fn changed_lines_ignore_line_terminators() {
+    let ranges = |before: &str, after: &str| {
+        changes::changed_lines(Some(before.as_bytes()), Some(after.as_bytes()))
+            .into_iter()
+            .map(|range| (range.start, range.end))
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(ranges("fn a() {}\r\nfn b() {}\r\n", "fn a() {}\nfn b() {}\n"), []);
+    assert_eq!(ranges("a\nb", "a\nb\nc\n"), [(3, 3)]);
+    assert_eq!(ranges("a\r\nb\r\nc\r\n", "a\nB\r\nc\n"), [(2, 2)]);
+}

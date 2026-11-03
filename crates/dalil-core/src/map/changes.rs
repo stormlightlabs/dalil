@@ -485,6 +485,9 @@ fn change_with_lines(
 
 /// Returns one 1-based line range in `after` per diff hunk. A hunk that only
 /// removes lines is reported at the line before the removal, or line 1.
+///
+/// Lines are compared without their `\n` or `\r\n` terminators, so a change
+/// of line endings, or a newline added after the last line, changes no line.
 pub(crate) fn changed_lines(before: Option<&[u8]>, after: Option<&[u8]>) -> Vec<ChangedLineRange> {
     let Some(after) = after.and_then(|after| std::str::from_utf8(after).ok()) else {
         return Vec::new();
@@ -492,7 +495,9 @@ pub(crate) fn changed_lines(before: Option<&[u8]>, after: Option<&[u8]>) -> Vec<
     let before = before
         .and_then(|before| std::str::from_utf8(before).ok())
         .unwrap_or_default();
-    let input = InternedInput::new(before, after);
+    let mut input = InternedInput::default();
+    input.update_before(before.lines());
+    input.update_after(after.lines());
     let mut diff = Diff::compute(Algorithm::Histogram, &input);
     diff.postprocess_lines(&input);
     diff.hunks()
