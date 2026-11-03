@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use gix::bstr::ByteSlice;
+use imara_diff::{Algorithm, Diff, InternedInput};
 
 use super::*;
 
@@ -482,32 +483,28 @@ fn change_with_lines(
     ResolvedChange { kind, path, previous_path, changed_lines, symbols: Vec::new() }
 }
 
-fn changed_lines(before: Option<&[u8]>, after: Option<&[u8]>) -> Vec<ChangedLineRange> {
-    let Some(after) = after else {
+/// Returns one 1-based line range in `after` per diff hunk. A hunk that only
+/// removes lines is reported at the line before the removal, or line 1.
+pub(crate) fn changed_lines(before: Option<&[u8]>, after: Option<&[u8]>) -> Vec<ChangedLineRange> {
+    let Some(after) = after.and_then(|after| std::str::from_utf8(after).ok()) else {
         return Vec::new();
     };
-    let Ok(after) = std::str::from_utf8(after) else {
-        return Vec::new();
-    };
-    let after = after.lines().collect::<Vec<_>>();
     let before = before
         .and_then(|before| std::str::from_utf8(before).ok())
-        .map(|before| before.lines().collect::<Vec<_>>())
         .unwrap_or_default();
-    let mut prefix = 0usize;
-    while prefix < before.len() && prefix < after.len() && before[prefix] == after[prefix] {
-        prefix += 1;
-    }
-    let mut suffix = 0usize;
-    while suffix < before.len().saturating_sub(prefix)
-        && suffix < after.len().saturating_sub(prefix)
-        && before[before.len() - 1 - suffix] == after[after.len() - 1 - suffix]
-    {
-        suffix += 1;
-    }
-    let start = prefix.saturating_add(1);
-    let end = after.len().saturating_sub(suffix).max(start);
-    vec![ChangedLineRange { start, end }]
+    let input = InternedInput::new(before, after);
+    let mut diff = Diff::compute(Algorithm::Histogram, &input);
+    diff.postprocess_lines(&input);
+    diff.hunks()
+        .map(|hunk| {
+            if hunk.after.is_empty() {
+                let line = (hunk.after.start as usize).max(1);
+                ChangedLineRange { start: line, end: line }
+            } else {
+                ChangedLineRange { start: hunk.after.start as usize + 1, end: hunk.after.end as usize }
+            }
+        })
+        .collect()
 }
 
 /// Returns the definitions a change touches, each once, in source order.

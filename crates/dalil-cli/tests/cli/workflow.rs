@@ -928,3 +928,62 @@ fn impact_lists_only_changed_definitions_for_a_body_full_of_calls() {
     assert_eq!(symbols[0]["name"], "parse");
     assert_eq!(symbols[0]["role"], "definition");
 }
+
+#[test]
+fn impact_lists_only_the_definitions_at_each_separate_edit() {
+    let fixture = MapFixtureRepository::new();
+    let mut functions = (0..8)
+        .map(|index| format!("pub fn f{index}() {{\n    let value = {index};\n    let _ = value;\n}}\n"))
+        .collect::<Vec<_>>();
+    let before = functions.concat();
+    functions[0] = "pub fn f0() {\n    let value = 100;\n    let _ = value;\n}\n".to_owned();
+    functions[7] = "pub fn f7() {\n    let value = 700;\n    let _ = value;\n}\n".to_owned();
+    let after = functions.concat();
+
+    let repository = gix::open(&fixture.root).expect("open fixture repository");
+    let parent = repository.head_id().expect("fixture HEAD").detach();
+    let first = write_commit(
+        &repository,
+        write_tree(&repository, &[("src/many.rs", before.as_str())]),
+        &[parent],
+        "Map Fixture",
+        "map@example.com",
+        1_700_000_000,
+        "Add many functions",
+    );
+    let second = write_commit(
+        &repository,
+        write_tree(&repository, &[("src/many.rs", after.as_str())]),
+        &[first],
+        "Map Fixture",
+        "map@example.com",
+        1_700_000_100,
+        "Edit the first and last functions",
+    );
+    drop(repository);
+    write_file(
+        fixture.root.join(".git/refs/heads/main"),
+        format!("{second}\n").as_bytes(),
+    );
+    write_file(fixture.root.join("src/many.rs"), after.as_bytes());
+
+    let output = fixture.run(&["impact", "--revision-range", "HEAD~1..HEAD", "--no-cache", "--json"]);
+    assert!(
+        output.status.success(),
+        "impact failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: Value = serde_json::from_str(&stdout(&output)).expect("valid impact JSON");
+    let change = json["impact"]["change_resolution"]["changes"]
+        .as_array()
+        .and_then(|changes| changes.iter().find(|change| change["path"] == "src/many.rs"))
+        .expect("src/many.rs change");
+    let names = change["symbols"]
+        .as_array()
+        .expect("changed symbols")
+        .iter()
+        .map(|symbol| symbol["name"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["f0", "f7"], "change: {change}");
+    assert_eq!(change["changed_lines"].as_array().map(Vec::len), Some(2));
+}

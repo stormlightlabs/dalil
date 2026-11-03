@@ -1891,3 +1891,22 @@ fn changed_definitions_map_locals_to_their_function_and_keep_module_constants() 
     let go = "package p\nfunc F() {\n\tx := 1\n\t_ = x\n}\n";
     assert_eq!(changed_names(go, &GO_SUPPORT, 3), [("F".to_owned(), 2)]);
 }
+
+#[test]
+fn changed_lines_report_one_range_per_hunk() {
+    let ranges = |before: Option<&str>, after: Option<&str>| {
+        changes::changed_lines(before.map(str::as_bytes), after.map(str::as_bytes))
+            .into_iter()
+            .map(|range| (range.start, range.end))
+            .collect::<Vec<_>>()
+    };
+    let before = "a\nb\nc\nd\ne\nf\ng\n";
+
+    assert_eq!(ranges(Some(before), Some("A\nb\nc\nd\ne\nf\nG\n")), [(1, 1), (7, 7)]);
+    assert_eq!(ranges(Some(before), Some("a\nb\nnew\nc\nd\ne\nf\ng\n")), [(3, 3)]);
+    assert_eq!(ranges(Some(before), Some("a\nb\nc\nf\ng\n")), [(3, 3)]);
+    assert_eq!(ranges(Some(before), Some("b\nc\nd\ne\nf\ng\n")), [(1, 1)]);
+    assert_eq!(ranges(None, Some("x\ny\n")), [(1, 2)]);
+    assert_eq!(ranges(Some(before), Some(before)), []);
+    assert!(changes::changed_lines(Some(b"a\n"), Some(&[0xff, 0xfe])).is_empty());
+}

@@ -2,7 +2,7 @@
 id = "arcl-t-01M6F927A36GQE5SX8K57VYN6H"
 phase = "arcl-ph-01M65H08QHQG2WE9TPFPAR1JTJ"
 title = "Resolve changed lines per hunk"
-status = "pending"
+status = "in_progress"
 priority = "normal"
 position = 6
 +++
