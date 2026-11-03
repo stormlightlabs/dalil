@@ -1970,3 +1970,90 @@ fn changed_lines_ignore_line_terminators() {
     assert_eq!(ranges("a\nb", "a\nb\nc\n"), [(3, 3)]);
     assert_eq!(ranges("a\r\nb\r\nc\r\n", "a\nB\r\nc\n"), [(2, 2)]);
 }
+
+#[test]
+fn only_callee_positions_are_tagged_as_calls() {
+    let cases: [(&str, &str, &[&str], &[&str]); 10] = [
+        (
+            "a.rs",
+            "fn f() { m::g(x); o.h(y); println!(\"{}\", k(w), q); }",
+            &["g", "h", "k"],
+            &["m", "x", "o", "y", "w", "q"],
+        ),
+        (
+            "a.js",
+            "g(x); o.h(y); new C(z);",
+            &["g", "h", "C"],
+            &["x", "o", "y", "z"],
+        ),
+        (
+            "a.ts",
+            "g(x); o.h(y); new C(z);",
+            &["g", "h", "C"],
+            &["x", "o", "y", "z"],
+        ),
+        ("a.py", "g(x)\no.h(y)\n", &["g", "h"], &["x", "o", "y"]),
+        // Go's query captures only callees, fields and types.
+        (
+            "a.go",
+            "package p\nfunc f() { g(x); o.H(y); v := o.K; _ = v }",
+            &["g", "H"],
+            &["K"],
+        ),
+        ("a.rb", "g(x)\no.h(y)\n", &["g", "h"], &["x", "o", "y"]),
+        (
+            "a.java",
+            "class A { void f() { g(x); o.h(y); } }",
+            &["g", "h"],
+            &["x", "o", "y"],
+        ),
+        (
+            "a.cs",
+            "class A { void F() { G(x); o.H(y); } }",
+            &["G", "H"],
+            &["x", "o", "y"],
+        ),
+        (
+            "a.lua",
+            "g(x)\no.h(y)\no:m(z)\nlocal v = o.k\n",
+            &["g", "h", "m"],
+            &["x", "o", "y", "z", "k"],
+        ),
+        (
+            "a.zig",
+            "fn f() void { g(x); o.h(y); const v = o.k; _ = v; }",
+            &["g", "h"],
+            &["x", "o", "y", "k"],
+        ),
+    ];
+    for (path, source, calls, not_calls) in cases {
+        let support = support_for_path(Path::new(path)).expect("supported language");
+        let symbols = parse_source(source.as_bytes(), support).symbols;
+        let references = |name: &str| {
+            symbols
+                .iter()
+                .filter(|symbol| symbol.name == name && symbol.role == SymbolRole::Reference)
+                .collect::<Vec<_>>()
+        };
+        for name in calls {
+            assert!(
+                references(name)
+                    .iter()
+                    .any(|symbol| symbol.evidence == SymbolEvidence::Call),
+                "{path}: `{name}` should be a call: {symbols:?}"
+            );
+        }
+        for name in not_calls {
+            assert!(
+                references(name)
+                    .iter()
+                    .all(|symbol| symbol.evidence != SymbolEvidence::Call),
+                "{path}: `{name}` should not be a call: {symbols:?}"
+            );
+        }
+        // These queries capture every identifier, so arguments are present to check.
+        if ["a.rs", "a.js", "a.ts", "a.py", "a.rb"].contains(&path) {
+            assert!(!references("x").is_empty(), "{path}: argument `x` was not captured");
+        }
+    }
+}

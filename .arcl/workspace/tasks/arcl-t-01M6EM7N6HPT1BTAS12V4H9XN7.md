@@ -2,7 +2,7 @@
 id = "arcl-t-01M6EM7N6HPT1BTAS12V4H9XN7"
 phase = "arcl-ph-01M65H08QHQG2WE9TPFPAR1JTJ"
 title = "Tag only callee positions as calls"
-status = "pending"
+status = "in_progress"
 priority = "normal"
 position = 4
 +++

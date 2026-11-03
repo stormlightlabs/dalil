@@ -386,11 +386,11 @@ fn language_symbol_kind(
                     _ => SymbolKind::Type,
                 };
             }
-            if kind == SymbolKind::Field && is_call_like(node) {
+            if kind == SymbolKind::Field && is_callee(node) {
                 return SymbolKind::Method;
             }
         }
-        SourceLanguage::Zig if kind == SymbolKind::Field && is_call_like(node) => return SymbolKind::Method,
+        SourceLanguage::Zig if kind == SymbolKind::Field && is_callee(node) => return SymbolKind::Method,
         _ => {}
     }
     kind
@@ -526,7 +526,7 @@ pub fn evidence_for_node(node: Node<'_>, capture_name: &str, role: SymbolRole, k
     }
     if capture_name.ends_with(".type") || kind == SymbolKind::Type {
         SymbolEvidence::TypeReference
-    } else if capture_name.ends_with(".method") || kind == SymbolKind::Method || is_call_like(node) {
+    } else if capture_name.ends_with(".method") || kind == SymbolKind::Method || is_callee(node) {
         SymbolEvidence::Call
     } else if capture_name.ends_with(".field") || kind == SymbolKind::Field {
         SymbolEvidence::MemberReference
@@ -535,32 +535,82 @@ pub fn evidence_for_node(node: Node<'_>, capture_name: &str, role: SymbolRole, k
     }
 }
 
-pub fn is_call_like(node: Node<'_>) -> bool {
-    let mut current = Some(node);
-    while let Some(candidate) = current {
-        if matches!(
-            candidate.kind(),
-            "call"
-                | "call_expression"
-                | "function_call"
-                | "invocation_expression"
-                | "method_invocation"
-                | "new_expression"
-                | "object_creation_expression"
-                | "class_instance_creation_expression"
-        ) {
-            return true;
+/// Whether `node` names what a call invokes: the callee itself, or the last
+/// name of a member or path chain that is the callee, such as `h` in `o.h()`
+/// and `g` in `m::g()`. Arguments, receivers and path qualifiers are not.
+pub fn is_callee(node: Node<'_>) -> bool {
+    let mut current = node;
+    while let Some(parent) = current.parent() {
+        // A Rust macro body is a flat token tree with no call nodes; there a
+        // name followed directly by a `( … )` group is a call.
+        if parent.kind() == "token_tree" {
+            return current.next_sibling().is_some_and(|next| {
+                next.kind() == "token_tree" && next.child(0).is_some_and(|open| open.kind() == "(")
+            });
         }
-        if candidate.kind() == "source_file"
-            || candidate.kind() == "program"
-            || candidate.kind() == "root"
-            || candidate.kind() == "block"
-        {
-            break;
+        let field = field_of_child(parent, current);
+        if let Some(callee_fields) = callee_fields(parent.kind()) {
+            return field.is_some_and(|field| callee_fields.contains(&field));
         }
-        current = candidate.parent();
+        let names_last_segment = field.is_some_and(|field| {
+            matches!(
+                field,
+                "name" | "field" | "property" | "attribute" | "member" | "method" | "function"
+            )
+        });
+        if !names_last_segment || !is_callee_wrapper(parent.kind()) {
+            return false;
+        }
+        current = parent;
     }
     false
+}
+
+/// The fields of a call node that hold what it invokes, per grammar.
+fn callee_fields(kind: &str) -> Option<&'static [&'static str]> {
+    Some(match kind {
+        "call_expression" | "invocation_expression" => &["function"],
+        // Python names the callee `function`; Ruby names it `method` beside its `receiver`.
+        "call" => &["function", "method"],
+        "function_call" | "method_invocation" => &["name"],
+        "new_expression" => &["constructor"],
+        "object_creation_expression" | "class_instance_creation_expression" => &["type"],
+        _ => return None,
+    })
+}
+
+/// Member and path nodes a callee can be nested in.
+fn is_callee_wrapper(kind: &str) -> bool {
+    matches!(
+        kind,
+        "scoped_identifier"
+            | "scoped_type_identifier"
+            | "field_expression"
+            | "member_expression"
+            | "attribute"
+            | "selector_expression"
+            | "member_access_expression"
+            | "dot_index_expression"
+            | "method_index_expression"
+            | "generic_function"
+            | "generic_name"
+            | "qualified_name"
+    )
+}
+
+fn field_of_child(parent: Node<'_>, child: Node<'_>) -> Option<&'static str> {
+    let mut cursor = parent.walk();
+    if !cursor.goto_first_child() {
+        return None;
+    }
+    loop {
+        if cursor.node().id() == child.id() {
+            return cursor.field_name();
+        }
+        if !cursor.goto_next_sibling() {
+            return None;
+        }
+    }
 }
 
 pub fn visibility_for_node(
