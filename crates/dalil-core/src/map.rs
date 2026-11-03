@@ -33,6 +33,7 @@ use cache::{collect_cache_files, prune_cache_directory};
 
 use cache::{CacheStats, CacheStore, IndexFileInput, IndexIdentity};
 use graph::{build_lexical_edges, rank_files, select_snippets};
+pub(crate) use graph::{has_unknown_receiver, import_bindings, is_member_definition};
 use languages::{
     c_sharp_language, extension_for_path, go_language, is_extensionless_lua_entry_candidate, is_source_like_path,
     java_language, javascript_language, lua_language, lua_support_for_entry_source, python_language, ruby_language,
@@ -52,7 +53,7 @@ const DEFAULT_MAP_TOKENS: usize = 1_000;
 const MIN_SELECTED_FILES: usize = 3;
 const CACHE_SCHEMA_VERSION: u16 = 3;
 const CACHE_INDEX_SCHEMA_VERSION: u16 = 3;
-const CACHE_TOOL_VERSION: &str = "dalil-map-v16";
+const CACHE_TOOL_VERSION: &str = "dalil-map-v17";
 const CACHE_MAX_RECORDS_PER_REPOSITORY: usize = 256;
 const CACHE_MAX_BYTES_PER_REPOSITORY: u64 = 128 * 1024 * 1024;
 const CACHE_MAX_AGE_SECONDS: u64 = 30 * 24 * 60 * 60;

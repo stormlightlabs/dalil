@@ -316,7 +316,8 @@ pub fn symbol_from_capture(
     let declaration = declaration_node(node, support.declaration_kinds);
     let scope_start = if role == SymbolRole::Definition { declaration.parent() } else { node.parent() };
     let name = symbol_name(node, declaration, source, support);
-    let kind = language_symbol_kind(node, declaration, capture_name, support.language);
+    let kind = language_symbol_kind(node, declaration, capture_name, support.language, source);
+    let evidence = evidence_for_node(node, capture_name, role, kind, source);
     SourceSymbol {
         name: name.clone(),
         kind,
@@ -325,9 +326,88 @@ pub fn symbol_from_capture(
         location: SourceLocation::from(node),
         context: context_snippet(node, source, support.declaration_kinds),
         visibility: visibility_for_node(declaration, role, source, support.language, kind, &name),
-        evidence: evidence_for_node(node, capture_name, role, kind),
+        evidence,
         qualifier: reference_qualifier(node, role, source, support.language),
+        receiver: (evidence == SymbolEvidence::Call)
+            .then(|| member_receiver(node, source))
+            .flatten(),
+        member: role == SymbolRole::Definition && is_member_definition_node(declaration, kind),
     }
+}
+
+/// Returns the receiver text of a called member, such as `m` in `m.insert()`.
+/// A Rust macro body has no member nodes, so there `m . insert (` is read
+/// from its tokens.
+fn member_receiver(node: Node<'_>, source: &[u8]) -> Option<String> {
+    let parent = node.parent()?;
+    let receiver = if parent.kind() == "token_tree" {
+        let dot = node.prev_sibling().filter(|previous| previous.kind() == ".")?;
+        dot.prev_sibling()?
+    } else {
+        let receiver_field = match (parent.kind(), field_of_child(parent, node)?) {
+            ("field_expression", "field") => "value",
+            ("field_expression", "member") => "object",
+            ("member_expression", "property") | ("attribute", "attribute") => "object",
+            ("selector_expression", "field") => "operand",
+            ("method_invocation", "name") => "object",
+            ("member_access_expression", "name") => "expression",
+            ("dot_index_expression", "field") | ("method_index_expression", "method") => "table",
+            ("call", "method") => "receiver",
+            _ => return None,
+        };
+        parent.child_by_field_name(receiver_field)?
+    };
+    let text = text_for_node(receiver, source);
+    (!text.is_empty()).then_some(text)
+}
+
+/// Whether a definition belongs to a type: a method, or a function whose
+/// nearest enclosing body is an `impl`, trait, class or container rather than
+/// another function. A Lua `function M.f()` is a member of the table `M`.
+fn is_member_definition_node(declaration: Node<'_>, kind: SymbolKind) -> bool {
+    if kind == SymbolKind::Method {
+        return true;
+    }
+    if kind != SymbolKind::Function {
+        return false;
+    }
+    if declaration.kind() == "function_declaration"
+        && declaration
+            .child_by_field_name("name")
+            .is_some_and(|name| matches!(name.kind(), "dot_index_expression" | "method_index_expression"))
+    {
+        return true;
+    }
+    let mut current = declaration.parent();
+    while let Some(node) = current {
+        match node.kind() {
+            "impl_item"
+            | "trait_item"
+            | "class_definition"
+            | "class_declaration"
+            | "class_body"
+            | "class"
+            | "interface_declaration"
+            | "struct_declaration"
+            | "union_declaration"
+            | "enum_declaration"
+            | "opaque_declaration" => return true,
+            "function_item"
+            | "function_definition"
+            | "function_declaration"
+            | "method_declaration"
+            | "method_definition"
+            | "arrow_function"
+            | "function"
+            | "function_expression"
+            | "method"
+            | "singleton_method"
+            | "closure_expression"
+            | "lambda" => return false,
+            _ => current = node.parent(),
+        }
+    }
+    false
 }
 
 /// Returns the path before a Rust reference's name, such as `map` in `map::f`.
@@ -374,11 +454,11 @@ fn zig_test_name(declaration: Node<'_>, source: &[u8]) -> String {
 }
 
 fn language_symbol_kind(
-    node: Node<'_>, declaration: Node<'_>, capture_name: &str, language: SourceLanguage,
+    node: Node<'_>, declaration: Node<'_>, capture_name: &str, language: SourceLanguage, source: &[u8],
 ) -> SymbolKind {
     let kind = symbol_kind(capture_name);
     // A member that is called, such as `h` in `o.h()`, is a method in every language.
-    if kind == SymbolKind::Field && is_callee(node) {
+    if kind == SymbolKind::Field && is_callee(node, source) {
         return SymbolKind::Method;
     }
     if language == SourceLanguage::Go && kind == SymbolKind::Type {
@@ -515,13 +595,15 @@ fn first_descendant_of_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> 
     None
 }
 
-pub fn evidence_for_node(node: Node<'_>, capture_name: &str, role: SymbolRole, kind: SymbolKind) -> SymbolEvidence {
+pub fn evidence_for_node(
+    node: Node<'_>, capture_name: &str, role: SymbolRole, kind: SymbolKind, source: &[u8],
+) -> SymbolEvidence {
     if role == SymbolRole::Definition {
         return if kind == SymbolKind::Import { SymbolEvidence::Import } else { SymbolEvidence::Declaration };
     }
     if capture_name.ends_with(".type") || kind == SymbolKind::Type {
         SymbolEvidence::TypeReference
-    } else if capture_name.ends_with(".method") || kind == SymbolKind::Method || is_callee(node) {
+    } else if capture_name.ends_with(".method") || kind == SymbolKind::Method || is_callee(node, source) {
         SymbolEvidence::Call
     } else if capture_name.ends_with(".field") || kind == SymbolKind::Field {
         SymbolEvidence::MemberReference
@@ -533,15 +615,23 @@ pub fn evidence_for_node(node: Node<'_>, capture_name: &str, role: SymbolRole, k
 /// Whether `node` names what a call invokes: the callee itself, or the last
 /// name of a member or path chain that is the callee, such as `h` in `o.h()`
 /// and `g` in `m::g()`. Arguments, receivers and path qualifiers are not.
-pub fn is_callee(node: Node<'_>) -> bool {
+pub fn is_callee(node: Node<'_>, source: &[u8]) -> bool {
     let mut current = node;
     while let Some(parent) = current.parent() {
         // A Rust macro body is a flat token tree with no call nodes; there a
-        // name followed directly by a `( … )` group is a call.
-        // `fn helper(` there declares `helper` rather than calling it.
+        // name followed directly by a `( … )` group is a call. It is not one
+        // after `fn`, which declares it; inside an attribute such as
+        // `#[cfg(any(unix))]`; or when the name is capitalized, as in the
+        // tuple-struct pattern or constructor `Wrap(_)`.
         if parent.kind() == "token_tree" {
             let declared = current.prev_sibling().is_some_and(|previous| previous.kind() == "fn");
+            let capitalized = text_for_node(current, source)
+                .chars()
+                .next()
+                .is_some_and(char::is_uppercase);
             return !declared
+                && !capitalized
+                && !ancestor_has_kind(parent, &["attribute_item", "inner_attribute_item"])
                 && current.next_sibling().is_some_and(|next| {
                     next.kind() == "token_tree" && next.child(0).is_some_and(|open| open.kind() == "(")
                 });

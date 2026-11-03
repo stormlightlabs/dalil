@@ -561,6 +561,8 @@ mod tests {
                 visibility: SymbolVisibility::Public,
                 evidence: SymbolEvidence::Declaration,
                 qualifier: None,
+                receiver: None,
+                member: false,
             },
             score: 1,
         }
