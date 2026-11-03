@@ -169,19 +169,27 @@ fn human_output_leaves_out_method_limitations_that_json_keeps() {
 }
 
 #[test]
-fn compact_explain_ends_with_method_limitations_past_the_budget() {
+fn compact_explain_keeps_method_limitations_inside_the_budget() {
     let fixture = MapFixtureRepository::new();
-    let explain = stdout(&fixture.run(&["explain", "parse", "--budget", "120", "--no-cache"]));
+    let notice = "_Report truncated at the compact Markdown token budget; use `--json` for complete typed collections or `--profile evidence` for verbose Markdown._\n";
+    let full = stdout(&fixture.run(&["explain", "parse", "--budget", "100000", "--no-cache"]));
+    let section = &full[full.find("\nMethod limitations:").expect("method limitations section")..];
 
-    assert!(
-        explain.contains("Report truncated at the compact Markdown token budget"),
-        "{explain}"
-    );
-    let truncated = explain.find("Report truncated").expect("truncation notice");
-    let section = explain.find("Method limitations:").expect("method limitations section");
-    assert!(section > truncated, "{explain}");
-    assert!(explain[section..].contains("This explanation describes bounded lexical evidence"));
-    assert!(explain[section..].contains("references are extracted lexically"));
+    for budget in [60_usize, 120, 200, 400] {
+        let explain = stdout(&fixture.run(&["explain", "parse", "--budget", &budget.to_string(), "--no-cache"]));
+        let characters = explain.chars().count();
+        assert!(
+            characters <= budget * 4,
+            "budget {budget}: {characters} characters\n{explain}"
+        );
+        if characters < full.chars().count() {
+            assert!(explain.ends_with(notice), "budget {budget}: {explain}");
+        }
+        // The section fits beside the notice and a separating newline.
+        if section.chars().count() + notice.chars().count() + 3 < budget * 4 {
+            assert!(explain.contains(section.trim_end()), "budget {budget}: {explain}");
+        }
+    }
 }
 
 #[test]

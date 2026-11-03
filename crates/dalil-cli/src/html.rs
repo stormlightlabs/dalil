@@ -120,16 +120,17 @@ pub(super) fn render_report(report: &Report) -> anyhow::Result<String> {
     let mut metrics = Vec::new();
     let mut evidence = Vec::new();
     let mut cards = Vec::new();
+    let mut caveats = CaveatFilter::default();
     if let Some(map) = &report.map {
         metrics.push(Metric::new(map.inventory.analyzed, "source files"));
         metrics.push(Metric::new(map.collections.symbols.total, "symbols observed"));
         metrics.push(Metric::new(map.collections.edges.total, "lexical edges"));
         evidence.extend(map_evidence(map));
-        cards.push(map_files_card(map));
+        cards.push(map_files_card(map, &mut caveats));
     }
     if let Some(history) = &report.history {
         metrics.push(Metric::new(history.commits_seen, "reachable commits"));
-        cards.extend(history_cards(history));
+        cards.extend(history_cards(history, &mut caveats));
     }
     if metrics.is_empty() {
         metrics.push(Metric::new(report.findings.len(), "findings"));
@@ -154,7 +155,7 @@ pub(super) fn render_report(report: &Report) -> anyhow::Result<String> {
                     )
                 })
                 .collect(),
-            caveat: result_caveat(&explain.limitations),
+            caveat: caveats.first(&explain.limitations),
         });
     }
 
@@ -198,11 +199,8 @@ pub(super) fn render_report(report: &Report) -> anyhow::Result<String> {
     let (limitations, omitted) =
         crate::utils::result_limitations(report.limitations.iter().map(|limitation| limitation.detail.as_str()));
     notices.extend(limitations.into_iter().map(str::to_owned));
-    // The map card leaves out the map's method limitations, so they count too.
-    let map_omitted = report.map.as_ref().map_or(0, |map| {
-        crate::utils::result_limitations(map.limitations.iter().map(String::as_str)).1
-    });
-    if omitted + map_omitted > 0 {
+    // Cards leave out method caveats too, so their omissions count as well.
+    if omitted + caveats.omitted > 0 {
         notices.push(crate::utils::METHOD_LIMITATIONS_NOTE.to_owned());
     }
     if report.quality.projection {
@@ -452,7 +450,7 @@ fn map_evidence(map: &MapReport) -> Vec<Evidence> {
     ]
 }
 
-fn map_files_card(map: &MapReport) -> Card {
+fn map_files_card(map: &MapReport, caveats: &mut CaveatFilter) -> Card {
     Card {
         title: "Source map".to_owned(),
         meta: format!("{} analyzed files", map.inventory.analyzed),
@@ -462,13 +460,17 @@ fn map_files_card(map: &MapReport) -> Card {
             .iter()
             .map(|file| CardItem::new(&file.path, file.language.display_label(), 100))
             .collect(),
-        caveat: result_caveat(&map.limitations),
+        caveat: caveats.first(&map.limitations),
     }
 }
 
-fn history_cards(history: &HistoryReport) -> Vec<Card> {
+fn history_cards(history: &HistoryReport, caveats: &mut CaveatFilter) -> Vec<Card> {
     if !history.observations.is_empty() {
-        return history.observations.iter().map(observation_card).collect();
+        return history
+            .observations
+            .iter()
+            .map(|observation| observation_card(observation, caveats))
+            .collect();
     }
     let mut cards = Vec::new();
     if let Some(churn) = &history.churn {
@@ -476,7 +478,7 @@ fn history_cards(history: &HistoryReport) -> Vec<Card> {
             "Churn hotspots",
             format!("{}-day window", churn.window_days),
             &churn.paths,
-            result_caveat(&churn.caveats),
+            caveats.first(&churn.caveats),
         ));
     }
     if let Some(contributors) = &history.contributors {
@@ -489,7 +491,7 @@ fn history_cards(history: &HistoryReport) -> Vec<Card> {
                 .iter()
                 .map(|contributor| CardItem::new(&contributor.name, contributor.commits, contributor.share_percent))
                 .collect(),
-            caveat: result_caveat(&contributors.caveats),
+            caveat: caveats.first(&contributors.caveats),
         });
     }
     if let Some(bugs) = &history.bugs {
@@ -498,7 +500,7 @@ fn history_cards(history: &HistoryReport) -> Vec<Card> {
             "Bug-history overlap",
             format!("{} matching commits", bugs.commits.len()),
             source,
-            result_caveat(&bugs.caveats),
+            caveats.first(&bugs.caveats),
         ));
     }
     if let Some(activity) = &history.activity {
@@ -518,7 +520,7 @@ fn history_cards(history: &HistoryReport) -> Vec<Card> {
                     )
                 })
                 .collect(),
-            caveat: result_caveat(&activity.caveats),
+            caveat: caveats.first(&activity.caveats),
         });
     }
     if let Some(firefighting) = &history.firefighting {
@@ -531,19 +533,19 @@ fn history_cards(history: &HistoryReport) -> Vec<Card> {
                 .iter()
                 .map(|commit| CardItem::new(&commit.subject, &commit.id, 100))
                 .collect(),
-            caveat: result_caveat(&firefighting.caveats),
+            caveat: caveats.first(&firefighting.caveats),
         });
     }
     cards
 }
 
-fn observation_card(observation: &HistoryObservation) -> Card {
+fn observation_card(observation: &HistoryObservation, caveats: &mut CaveatFilter) -> Card {
     match observation {
         HistoryObservation::Churn { paths, window_days, caveat } => counts_card(
             "Frequently changed paths",
             format!("{window_days}-day window"),
             paths,
-            result_caveat(std::slice::from_ref(caveat)),
+            caveats.first(std::slice::from_ref(caveat)),
         ),
         HistoryObservation::Contributors { contributor, total_commits, window_days, caveat } => Card {
             title: "Contributor concentration".to_owned(),
@@ -553,36 +555,44 @@ fn observation_card(observation: &HistoryObservation) -> Card {
                 contributor.name, contributor.commits, total_commits, contributor.share_percent
             )),
             items: Vec::new(),
-            caveat: result_caveat(std::slice::from_ref(caveat)),
+            caveat: caveats.first(std::slice::from_ref(caveat)),
         },
         HistoryObservation::BugOverlap { paths, bug_commits, window_days, caveat } => counts_card(
             "Bug-history overlap",
             format!("{bug_commits} matching commit(s) / {window_days} days"),
             paths,
-            result_caveat(std::slice::from_ref(caveat)),
+            caveats.first(std::slice::from_ref(caveat)),
         ),
         HistoryObservation::Activity { month, commits, observed_months, caveat, .. } => Card {
             title: "Recent activity".to_owned(),
             meta: format!("{observed_months} observed months"),
             headline: Some(format!("{commits} commits in {month}")),
             items: Vec::new(),
-            caveat: result_caveat(std::slice::from_ref(caveat)),
+            caveat: caveats.first(std::slice::from_ref(caveat)),
         },
         HistoryObservation::Firefighting { commits, paths, window_days, caveat } => counts_card(
             "Firefighting language",
             format!("{commits} matching commit(s) / {window_days} days"),
             paths,
-            result_caveat(std::slice::from_ref(caveat)),
+            caveats.first(std::slice::from_ref(caveat)),
         ),
     }
 }
 
-/// The first caveat a result reached; method limitations are left out.
-fn result_caveat(caveats: &[String]) -> Option<String> {
-    crate::utils::result_limitations(caveats.iter().map(String::as_str))
-        .0
-        .first()
-        .map(|caveat| (*caveat).to_owned())
+/// Picks the caveat each card shows and counts the method caveats it leaves
+/// out, so the page can print the note once.
+#[derive(Default)]
+struct CaveatFilter {
+    omitted: usize,
+}
+
+impl CaveatFilter {
+    /// The first caveat a result reached; method limitations are left out.
+    fn first(&mut self, caveats: &[String]) -> Option<String> {
+        let (kept, omitted) = crate::utils::result_limitations(caveats.iter().map(String::as_str));
+        self.omitted += omitted;
+        kept.first().map(|caveat| (*caveat).to_owned())
+    }
 }
 
 fn counts_card(title: &str, meta: String, paths: &[dalil_core::PathCount], caveat: Option<String>) -> Card {

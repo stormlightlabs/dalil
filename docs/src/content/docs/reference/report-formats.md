@@ -124,8 +124,9 @@ profile returns a sample.
 For compact Markdown, `--budget` limits the whole rendered report as well as
 the ranked structural-map selection. Dalil writes the summary and the
 command's priority content first: the reading plan for a briefing and the
-target-specific evidence for `explain`. If the remaining sections do not fit,
-the report ends with a truncation notice. Use JSON for complete typed
+target-specific evidence for `explain`. `explain` saves room for its method
+limitations when the budget can hold them. If the remaining sections do not
+fit, the report ends with a truncation notice. Use JSON for complete typed
 collections or `--profile evidence` for verbose Markdown.
 
 ## Output and exit status

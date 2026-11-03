@@ -53,7 +53,7 @@ pub const SYMBOL_MATCHING: &str =
     "symbol matching uses retained syntax evidence and does not establish compiler-level resolution";
 /// Every explanation.
 pub const EXPLANATION_SCOPE: &str = "This explanation describes bounded lexical evidence and ranking heuristics; it is not a semantic call graph or access check.";
-/// Every impact report.
+/// Every impact report; impact keeps it whatever the budget or uncertainty limit.
 pub const IMPACT_EVIDENCE: &str = "Impact relationships are bounded lexical, graph, structural, manifest, and history evidence. They do not establish semantic callers, callees, ownership matches, or breakage.";
 /// Churn counts.
 pub const CHURN_SIZE: &str =

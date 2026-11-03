@@ -251,12 +251,17 @@ fn format_location(location: &SourceLocation) -> String {
 pub fn render_report(report: &Report, format: OutputFormat) -> anyhow::Result<String> {
     let output = match format {
         OutputFormat::Markdown => {
-            let mut output = render_markdown(report);
+            let output = render_markdown(report);
+            let section = explain_method_limitations(report);
             if report.profile == AnalysisProfile::Compact && report.command.name != CommandName::Search {
-                output = bound_compact_markdown(output, report.provenance.effective_options.map.map_tokens);
+                Ok(bound_compact_markdown(
+                    output,
+                    &section,
+                    report.provenance.effective_options.map.map_tokens,
+                ))
+            } else {
+                Ok(output + &section)
             }
-            explain_method_limitations(&mut output, report);
-            Ok(output)
         }
         OutputFormat::Json => {
             let mut output = serde_json::to_string_pretty(report)?;
@@ -274,17 +279,18 @@ pub fn render_report(report: &Report, format: OutputFormat) -> anyhow::Result<St
     Ok(output)
 }
 
-/// Appends `explain`'s method limitations after any compact truncation, so
-/// the budget never cuts them.
-fn explain_method_limitations(output: &mut String, report: &Report) {
+/// `explain`'s method limitations section, empty for other commands.
+fn explain_method_limitations(report: &Report) -> String {
+    let mut section = String::new();
     let Some(explain) = &report.explain else {
-        return;
+        return section;
     };
     let map_limitations = report.map.iter().flat_map(|map| map.limitations.iter());
     Render::method_limitations(
-        output,
+        &mut section,
         explain.limitations.iter().chain(map_limitations).map(String::as_str),
     );
+    section
 }
 
 fn render_markdown(report: &Report) -> String {
@@ -393,22 +399,43 @@ fn render_markdown(report: &Report) -> String {
 }
 const COMPACT_MARKDOWN_TRUNCATION_NOTICE: &str = "\n\n_Report truncated at the compact Markdown token budget; use `--json` for complete typed collections or `--profile evidence` for verbose Markdown._\n";
 
-fn bound_compact_markdown(output: String, token_budget: usize) -> String {
-    if utils::token_count(&output) <= token_budget {
-        return output;
+/// Bounds `body` followed by `tail` to the token budget. The tail is kept
+/// whole when it fits beside the truncation notice, and the body is cut to
+/// make room; otherwise both are cut as one text. The notice comes last.
+fn bound_compact_markdown(body: String, tail: &str, token_budget: usize) -> String {
+    let full = format!("{body}{tail}");
+    if utils::token_count(&full) <= token_budget {
+        return full;
     }
 
     let character_budget = token_budget.saturating_mul(4);
+
     let notice_characters = COMPACT_MARKDOWN_TRUNCATION_NOTICE.chars().count();
     if character_budget <= notice_characters {
-        return output.chars().take(character_budget).collect();
+        return full.chars().take(character_budget).collect();
     }
 
     let content_budget = character_budget - notice_characters;
-    let mut bounded = output.chars().take(content_budget).collect::<String>();
-    if let Some(last_line_end) = bounded.rfind('\n') {
-        bounded.truncate(last_line_end);
-    }
+    // One newline keeps a blank line between the cut body and the tail.
+    let tail_characters = if tail.is_empty() { 0 } else { tail.chars().count() + 1 };
+    let mut bounded = if tail_characters < content_budget {
+        let mut bounded = cut_at_line(body.chars().take(content_budget - tail_characters).collect());
+        if !tail.is_empty() {
+            bounded.push('\n');
+            bounded.push_str(tail);
+        }
+        bounded
+    } else {
+        cut_at_line(full.chars().take(content_budget).collect())
+    };
     bounded.push_str(COMPACT_MARKDOWN_TRUNCATION_NOTICE);
     bounded
+}
+
+/// Drops the partial line after the last newline.
+fn cut_at_line(mut text: String) -> String {
+    if let Some(last_line_end) = text.rfind('\n') {
+        text.truncate(last_line_end);
+    }
+    text
 }
