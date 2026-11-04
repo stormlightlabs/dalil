@@ -1710,6 +1710,7 @@ fn cache_index_identity() -> IndexIdentity {
         map_tokens: DEFAULT_MAP_TOKENS,
         analysis_options: String::new(),
         content_state: String::new(),
+        project_roots: String::new(),
         language_pack_identity: BTreeMap::new(),
     }
 }
@@ -2502,6 +2503,43 @@ fn python_qualifiers_resolve_through_the_import_that_binds_them() {
             .iter()
             .any(|edge| edge.source == "pkg/caller.py" && edge.target == "pkg/mod.py"),
         "{edges:?}"
+    );
+}
+
+#[test]
+fn python_from_imports_prefer_a_name_the_package_defines() {
+    // `Client` is a class in `pkg/__init__.py`, not the submodule `pkg/client.py`.
+    let files = [
+        source_file(
+            "app/main.py",
+            "from pkg import Client\n\ndef run():\n    Client.create()\n",
+        ),
+        source_file(
+            "pkg/__init__.py",
+            "class Client:\n    def create(self):\n        pass\n",
+        ),
+        source_file("pkg/client.py", "def create():\n    pass\n"),
+    ];
+    assert_eq!(
+        qualified_edges_by_symbol(&files, &[]),
+        BTreeSet::from([edge("create", "pkg/__init__.py", ConfidenceTier::High)])
+    );
+}
+
+#[test]
+fn python_submodules_match_their_exact_case() {
+    let files = [
+        source_file(
+            "app/main.py",
+            "from pkg import client\nfrom pkg import Client\n\ndef run():\n    client.create()\n    Client.close()\n",
+        ),
+        source_file("pkg/client.py", "def create():\n    pass\n\ndef close():\n    pass\n"),
+    ];
+    // `pkg` defines no `Client` and has no `Client.py`, so `Client.close()`
+    // resolves to nothing.
+    assert_eq!(
+        qualified_edges_by_symbol(&files, &[]),
+        BTreeSet::from([edge("create", "pkg/client.py", ConfidenceTier::High)])
     );
 }
 

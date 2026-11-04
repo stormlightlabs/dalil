@@ -73,6 +73,7 @@ pub fn analyze_unbounded(path: &Path, settings: &MapSettings, history: Option<&H
         map_tokens: settings.map_tokens,
         analysis_options: digest_hex(format!("{settings:?}").as_bytes()),
         content_state: String::new(),
+        project_roots: String::new(),
         language_pack_identity: LANGUAGE_SUPPORT
             .iter()
             .map(|support| (support.language.label().to_owned(), query_digest(support)))
@@ -617,6 +618,7 @@ pub fn analyze_unbounded(path: &Path, settings: &MapSettings, history: Option<&H
             .join("\n")
             .as_bytes(),
     );
+    index_identity.project_roots = cache::project_roots_state(&topology.project_roots);
     let index_state = cache.load_index(&index_identity);
     if index_state.status == PersistentIndexStatus::Hit {
         if let Some(cached_trigram_index) = index_state.trigram_index() {

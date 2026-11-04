@@ -57,10 +57,24 @@ pub fn build_lexical_edges(
         })
         .collect::<BTreeMap<_, _>>();
 
+    let mut python_names = BTreeMap::<&str, Vec<&str>>::new();
+    for file in files.iter().filter(|file| file.language == SourceLanguage::Python) {
+        for symbol in file.symbols.iter().filter(|symbol| {
+            symbol.role == SymbolRole::Definition
+                && symbol.evidence != SymbolEvidence::Import
+                && symbol.scope.is_empty()
+        }) {
+            python_names
+                .entry(symbol.name.as_str())
+                .or_default()
+                .push(file.path.as_str());
+        }
+    }
     let scope = QualifierScope {
         files: files.iter().map(|file| (file.path.as_str(), file)).collect(),
         modules: &modules,
         project_roots,
+        python_names,
     };
 
     let mut edges = Vec::new();
@@ -151,11 +165,21 @@ pub fn build_lexical_edges(
                 continue;
             }
             let candidate_paths = candidates.iter().map(|(path, _)| path.clone()).collect::<Vec<_>>();
+            // A qualified-path edge belongs to the qualifier that resolved it,
+            // so two qualifiers reaching the same files give two edges, and
+            // the relationship graph joins each call only to its own.
+            let qualifier = (reason == LexicalResolutionReason::QualifiedPath)
+                .then(|| symbol.qualifier.clone())
+                .flatten();
             let candidate_group = format!(
-                "{}:{}:{}:{}",
+                "{}:{}:{}:{}{}",
                 file.path,
                 symbol.name,
                 reason.label(),
+                qualifier
+                    .as_deref()
+                    .map(|qualifier| format!("{qualifier}:"))
+                    .unwrap_or_default(),
                 digest_hex(candidate_paths.join("\0").as_bytes())
             );
             let ambiguous = unknown_receiver || candidates.len() > 1;
@@ -176,6 +200,7 @@ pub fn build_lexical_edges(
                     resolution_reason: reason,
                     confidence,
                     target_visibility: *target_visibility,
+                    qualifier: qualifier.clone(),
                 });
             }
         }
@@ -968,6 +993,9 @@ struct QualifierScope<'a> {
     files: BTreeMap<&'a str, &'a SourceFile>,
     modules: &'a BTreeMap<String, BTreeSet<String>>,
     project_roots: &'a [ProjectRoot],
+    /// The Python files that define each name at module level, other than
+    /// by importing it.
+    python_names: BTreeMap<&'a str, Vec<&'a str>>,
 }
 
 impl QualifierScope<'_> {
@@ -1003,7 +1031,8 @@ impl QualifierScope<'_> {
 /// - Python: the qualifier's first name must be bound by an import, which
 ///   gives the module path: `pkg.mod.f()` after `import pkg.mod`, or `mod.f()`
 ///   after `from pkg import mod`, resolves to `pkg/mod.py` or
-///   `pkg/mod/__init__.py`.
+///   `pkg/mod/__init__.py`, with case kept. When `pkg` itself defines `mod`,
+///   such as a class, the call resolves to that file instead.
 /// - Java and C#: the file that declares the qualifier's type in the
 ///   qualifier's package or namespace, read from its `package` or `namespace`
 ///   declaration rather than its directory.
@@ -1030,12 +1059,26 @@ fn qualified_candidates(
                 .map(|found| (found, ConfidenceTier::High))
         }
         SourceLanguage::Python => {
-            let module = python_qualifier_module(file, qualifier)?;
+            let qualifier = python_qualifier(file, qualifier)?;
+            // `from pkg import X` binds a name `pkg` defines, such as a class,
+            // before it binds the submodule `pkg/X.py`.
+            if let Some((parent, name)) = &qualifier.member_of {
+                let definers = scope
+                    .python_names
+                    .get(name.as_str())
+                    .into_iter()
+                    .flatten()
+                    .filter(|path| parent.matches(path) && scope.same_project(&file.path, path))
+                    .copied()
+                    .collect::<BTreeSet<_>>();
+                if !definers.is_empty() {
+                    return scope
+                        .filter(file, candidates, |target| definers.contains(target.path.as_str()))
+                        .map(|found| (found, ConfidenceTier::High));
+                }
+            }
             scope
-                .filter(file, candidates, |target| match &module {
-                    PythonModule::Absolute(module) => module_path_ends_with(&target.path, module),
-                    PythonModule::Relative(module) => module_path(&target.path) == *module,
-                })
+                .filter(file, candidates, |target| qualifier.module.matches(&target.path))
                 .map(|found| (found, ConfidenceTier::High))
         }
         SourceLanguage::Java | SourceLanguage::CSharp => {
@@ -1070,11 +1113,15 @@ fn module_path_ends_with(path: &str, module: &str) -> bool {
     !module.is_empty() && (normalized == module || normalized.ends_with(&format!("/{module}")))
 }
 
-/// A file's path without its extension, lowercased, with a Python package's
-/// `/__init__` dropped: `pkg/mod/__init__.py` is `pkg/mod`.
-fn module_path(path: &str) -> String {
-    let normalized = normalize_module_hint(path);
-    normalized.strip_suffix("/__init__").unwrap_or(&normalized).to_owned()
+/// A file's path without its extension, with a Python package's `/__init__`
+/// dropped: `pkg/mod/__init__.py` is `pkg/mod`. Case is kept, since Python
+/// imports and Ruby's file names for constants are case-sensitive.
+fn module_path(path: &str) -> &str {
+    let stem = match path.rfind('.') {
+        Some(dot) if !path[dot..].contains('/') => &path[..dot],
+        _ => path,
+    };
+    stem.strip_suffix("/__init__").unwrap_or(stem)
 }
 
 /// Ruby's file name for a constant: `HTTPClient` is `http_client`.
@@ -1101,11 +1148,56 @@ enum PythonModule {
     Relative(String),
 }
 
+impl PythonModule {
+    /// The module a dotted import path names from `file`: `pkg.mod` is
+    /// `pkg/mod` anywhere, and `..pkg` is `pkg` in the caller's parent package.
+    fn from_import(file: &SourceFile, dotted: &str, rest: &[&str]) -> Self {
+        let dots = dotted.len() - dotted.trim_start_matches('.').len();
+        let mut module = dotted
+            .trim_start_matches('.')
+            .split('.')
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>();
+        module.extend(rest);
+        if dots == 0 {
+            return Self::Absolute(module.join("/"));
+        }
+        let mut directory = repository_parent(&file.path);
+        for _ in 1..dots {
+            directory = repository_parent(directory);
+        }
+        Self::Relative(
+            std::iter::once(directory)
+                .chain(module)
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<_>>()
+                .join("/"),
+        )
+    }
+
+    fn matches(&self, path: &str) -> bool {
+        match self {
+            Self::Absolute(module) => module_path_ends_with(path, module),
+            Self::Relative(module) => module_path(path) == module,
+        }
+    }
+}
+
+/// What a Python qualifier names.
+struct PythonQualifier {
+    /// The qualifier read as a module.
+    module: PythonModule,
+    /// For a qualifier `X` bound by `from pkg import X`, the module `pkg` and
+    /// the name `X`, which may be something `pkg` defines rather than a
+    /// submodule.
+    member_of: Option<(PythonModule, String)>,
+}
+
 /// The module a Python qualifier names, from the import that binds its first
 /// name: `import pkg.mod` binds `pkg`, so `pkg.mod` is `pkg/mod`;
 /// `import pkg.mod as m` makes `m.sub` `pkg/mod/sub`; `from pkg import mod`
 /// makes `mod` `pkg/mod`; and `from . import mod` is `mod` beside the caller.
-fn python_qualifier_module(file: &SourceFile, qualifier: &str) -> Option<PythonModule> {
+fn python_qualifier(file: &SourceFile, qualifier: &str) -> Option<PythonQualifier> {
     let segments = qualifier.split('.').collect::<Vec<_>>();
     let (head, rest) = segments.split_first()?;
     for import in file
@@ -1118,36 +1210,27 @@ fn python_qualifier_module(file: &SourceFile, qualifier: &str) -> Option<PythonM
             .split(|character: char| character.is_whitespace() || matches!(character, ',' | '(' | ')'))
             .filter(|word| !word.is_empty())
             .collect::<Vec<_>>();
-        let Some(base) = python_import_binding(&words, head) else {
+        let Some((dotted, imported)) = python_import_binding(&words, head) else {
             continue;
         };
-        let dots = base.len() - base.trim_start_matches('.').len();
-        let mut module = base
-            .trim_start_matches('.')
-            .split('.')
-            .filter(|part| !part.is_empty())
-            .collect::<Vec<_>>();
-        module.extend(rest);
-        let module = module.join("/").to_ascii_lowercase();
-        if dots == 0 {
-            return Some(PythonModule::Absolute(module));
-        }
-        let mut directory = repository_parent(&file.path);
-        for _ in 1..dots {
-            directory = repository_parent(directory);
-        }
-        return Some(PythonModule::Relative(if directory.is_empty() {
-            module
-        } else {
-            format!("{}/{module}", directory.to_ascii_lowercase())
-        }));
+        let member_of = imported.filter(|_| rest.is_empty()).map(|name| {
+            let parent = dotted.strip_suffix(name.as_str()).unwrap_or(&dotted);
+            let parent = if parent.chars().all(|character| character == '.') {
+                parent
+            } else {
+                parent.strip_suffix('.').unwrap_or(parent)
+            };
+            (PythonModule::from_import(file, parent, &[]), name)
+        });
+        return Some(PythonQualifier { module: PythonModule::from_import(file, &dotted, rest), member_of });
     }
     None
 }
 
 /// The dotted module that `name` stands for in one Python import statement,
-/// split into words, or `None` when the statement does not bind `name`.
-fn python_import_binding(words: &[&str], name: &str) -> Option<String> {
+/// split into words, or `None` when the statement does not bind `name`. For
+/// `from … import X` it also gives `X`, the name imported.
+fn python_import_binding(words: &[&str], name: &str) -> Option<(String, Option<String>)> {
     let alias_of = |index: usize| {
         (words.get(index + 1) == Some(&"as"))
             .then(|| words.get(index + 2).copied())
@@ -1159,9 +1242,9 @@ fn python_import_binding(words: &[&str], name: &str) -> Option<String> {
                 return None;
             }
             match alias_of(index) {
-                Some(alias) => (alias == name).then(|| (*word).to_owned()),
+                Some(alias) => (alias == name).then(|| ((*word).to_owned(), None)),
                 // `import pkg.mod` binds only `pkg`.
-                None => (word.split('.').next() == Some(name)).then(|| name.to_owned()),
+                None => (word.split('.').next() == Some(name)).then(|| (name.to_owned(), None)),
             }
         }),
         "from" => {
@@ -1173,11 +1256,12 @@ fn python_import_binding(words: &[&str], name: &str) -> Option<String> {
                 }
                 let bound = alias_of(index).unwrap_or(word);
                 (bound == name).then(|| {
-                    if from.chars().all(|character| character == '.') {
+                    let dotted = if from.chars().all(|character| character == '.') {
                         format!("{from}{word}")
                     } else {
                         format!("{from}.{word}")
-                    }
+                    };
+                    (dotted, Some((*word).to_owned()))
                 })
             })
         }

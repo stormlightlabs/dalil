@@ -449,6 +449,11 @@ pub struct LexicalEdge {
     pub confidence: ConfidenceTier,
     #[serde(default)]
     pub target_visibility: SymbolVisibility,
+    /// The qualifier that a `qualified_path` edge resolved, such as `Foo::Bar`
+    /// in `Foo::Bar.baz`. Only references written with this qualifier join
+    /// the edge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qualifier: Option<String>,
 }
 
 /// Typed task inputs that can personalize source ranking without interpreting a

@@ -305,3 +305,86 @@ fn callers_follow_ruby_constant_paths_inside_the_project_root() {
     assert!(text.contains("lib/foo/bar.rb"), "{text}");
     assert!(!text.contains("gems/gem/lib/foo/bar.rb"), "{text}");
 }
+
+/// The (caller, resolution reason, confidence) of each caller edge.
+fn caller_edges(value: &Value) -> Vec<(String, String, String)> {
+    let mut edges = value["relationships"]
+        .as_array()
+        .expect("relationship edges")
+        .iter()
+        .map(|edge| {
+            let source = edge["source"].as_str().unwrap_or_default();
+            (
+                source.rsplit(':').next().unwrap_or_default().to_owned(),
+                edge["resolution_reason"].as_str().unwrap_or_default().to_owned(),
+                edge["confidence"].as_str().unwrap_or_default().to_owned(),
+            )
+        })
+        .collect::<Vec<_>>();
+    edges.sort();
+    edges.dedup();
+    edges
+}
+
+fn caller_edge(caller: &str, reason: &str, confidence: &str) -> (String, String, String) {
+    (caller.to_owned(), reason.to_owned(), confidence.to_owned())
+}
+
+#[test]
+fn an_unresolved_ruby_qualifier_does_not_join_a_resolved_ones_edge() {
+    let fixture = MapFixtureRepository::new();
+    for directory in ["app", "lib/foo"] {
+        std::fs::create_dir_all(fixture.root.join(directory)).expect("create fixture directory");
+    }
+    write_file(fixture.root.join("Gemfile"), b"source 'https://rubygems.org'\n");
+    write_file(
+        fixture.root.join("app/c.rb"),
+        b"def run3\n  Nope::Thing.baz\nend\n\ndef run4\n  Foo::Bar.baz\nend\n\ndef run5\n  ::Foo::Bar.baz\nend\n",
+    );
+    write_file(
+        fixture.root.join("lib/foo/bar.rb"),
+        b"module Foo\n  class Bar\n    def self.baz; end\n  end\nend\n",
+    );
+
+    let output = fixture.run(&["relationships", "callers", "baz", ".", "--no-cache", "--json"]);
+    assert!(output.status.success(), "callers query failed: {:?}", output.stderr);
+    let value: Value = serde_json::from_str(&stdout(&output)).expect("relationship JSON");
+    assert_eq!(
+        caller_edges(&value),
+        // Two qualifiers that reach the same file each keep their caller.
+        [
+            caller_edge("run4", "qualified_path", "high"),
+            caller_edge("run5", "qualified_path", "high"),
+        ],
+        "{value:#}"
+    );
+}
+
+#[test]
+fn a_java_variable_receiver_does_not_join_a_qualified_edge() {
+    let fixture = MapFixtureRepository::new();
+    std::fs::create_dir_all(fixture.root.join("src/app")).expect("create fixture directory");
+    write_file(
+        fixture.root.join("src/Main.java"),
+        b"package main;\nimport app.Foo;\nimport app.Util;\nclass Main {\n  void run1(Foo x) { x.baz(); }\n  void run2() { Util.baz(); }\n}\n",
+    );
+    write_file(
+        fixture.root.join("src/app/Util.java"),
+        b"package app;\nclass Util {\n  static void baz() {}\n}\n",
+    );
+    write_file(
+        fixture.root.join("src/app/Foo.java"),
+        b"package app;\nclass Foo {\n  void baz() {}\n}\n",
+    );
+
+    let output = fixture.run(&["relationships", "callers", "baz", ".", "--no-cache", "--json"]);
+    assert!(output.status.success(), "callers query failed: {:?}", output.stderr);
+    let value: Value = serde_json::from_str(&stdout(&output)).expect("relationship JSON");
+    // `x.baz()` also has a qualifier, `x`, but it resolves to no type, so the
+    // edge `Util` resolved is `run2`'s alone.
+    assert_eq!(
+        caller_edges(&value),
+        [caller_edge("run2", "qualified_path", "high")],
+        "{value:#}"
+    );
+}
