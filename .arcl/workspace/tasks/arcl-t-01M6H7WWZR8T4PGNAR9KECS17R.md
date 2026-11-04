@@ -3,7 +3,7 @@ id = "arcl-t-01M6H7WWZR8T4PGNAR9KECS17R"
 phase = "arcl-ph-01M65H08QHQG2WE9TPFPAR1JTJ"
 title = "Resolve member calls by receiver type"
 status = "pending"
-priority = "normal"
+priority = "high"
 position = 8
 +++
 

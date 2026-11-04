@@ -147,6 +147,49 @@ fn incremental_index_reuses_unchanged_work_and_matches_cold_analysis() {
 }
 
 #[test]
+fn incremental_edges_follow_a_new_project_root() {
+    let fixture = MapFixtureRepository::new();
+    for directory in ["app", "gems/gem/lib/foo"] {
+        fs::create_dir_all(fixture.root.join(directory)).expect("create fixture directory");
+    }
+    write_file(fixture.root.join("Gemfile"), b"source 'https://rubygems.org'\n");
+    write_file(fixture.root.join("app/caller.rb"), b"def run\n  Foo::Bar.baz\nend\n");
+    write_file(
+        fixture.root.join("gems/gem/lib/foo/bar.rb"),
+        b"module Foo\n  class Bar\n    def self.baz; end\n  end\nend\n",
+    );
+    let edges = |args: &[&str]| {
+        let output = fixture.run(args);
+        assert!(output.status.success(), "map failed: {:?}", output.stderr);
+        let json: Value = serde_json::from_slice(&output.stdout).expect("valid map JSON");
+        json["map"]["edges"].clone()
+    };
+    let first = edges(&["map", "--json"]);
+    assert!(
+        first
+            .as_array()
+            .is_some_and(|edges| edges.iter().any(|edge| edge["target"] == "gems/gem/lib/foo/bar.rb")),
+        "{first:#}"
+    );
+
+    // The gemspec makes the gem its own project root, which the call may not
+    // cross, so the cached edges must not survive it or a later source edit.
+    write_file(fixture.root.join("gems/gem/gem.gemspec"), b"Gem::Specification.new\n");
+    let cold = edges(&["map", "--no-cache", "--json"]);
+    assert!(
+        cold.as_array()
+            .is_some_and(|edges| edges.iter().all(|edge| edge["target"] != "gems/gem/lib/foo/bar.rb")),
+        "{cold:#}"
+    );
+    assert_eq!(edges(&["map", "--json"]), cold);
+    write_file(
+        fixture.root.join("app/caller.rb"),
+        b"def run\n  Foo::Bar.baz\n  Foo::Bar.baz\nend\n",
+    );
+    assert_eq!(edges(&["map", "--json"]), edges(&["map", "--no-cache", "--json"]));
+}
+
+#[test]
 fn files_cache_mode_refreshes_only_exact_requested_paths_and_reports_unavailable_files() {
     let fixture = MapFixtureRepository::new();
     let output = fixture.run(&[

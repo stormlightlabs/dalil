@@ -1289,6 +1289,7 @@ mod tests {
             resolution_reason: LexicalResolutionReason::SameModule,
             confidence: ConfidenceTier::Low,
             target_visibility: SymbolVisibility::Unknown,
+            qualifiers: Vec::new(),
         });
         let request = QueryRequest {
             filters: QueryFilters {

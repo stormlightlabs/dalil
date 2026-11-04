@@ -3,7 +3,7 @@ id = "arcl-t-01M65H08WSSXHF235P87CJGX41"
 phase = "arcl-ph-01M65H08QZ0AWDGX26SNY66VYZ"
 title = "Gate recall and output size in CI"
 status = "pending"
-priority = "normal"
+priority = "high"
 position = 2
 blocked-by = ["arcl-t-01M65H08W8HBCF0NZCAQXN1KGQ"]
 +++

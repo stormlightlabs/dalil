@@ -249,6 +249,18 @@ impl RelationshipGraph {
             .iter()
             .map(|source| (source.path.as_str(), crate::map::import_bindings(&source.symbols)))
             .collect::<BTreeMap<_, _>>();
+        // The (source, symbol, qualifier) of every reference the graph
+        // resolved through its qualifier. Such a reference joins only the
+        // qualified-path edges that list that qualifier.
+        let resolved_qualifiers = edges
+            .iter()
+            .filter(|edge| edge.resolution_reason == LexicalResolutionReason::QualifiedPath)
+            .flat_map(|edge| {
+                edge.qualifiers
+                    .iter()
+                    .map(|qualifier| (edge.source.as_str(), edge.symbol.as_str(), qualifier.as_str()))
+            })
+            .collect::<BTreeSet<_>>();
         let mut relationship_ids = BTreeSet::new();
         for edge in &edges {
             let (Some(source), Some(target)) = (
@@ -281,17 +293,32 @@ impl RelationshipGraph {
                 graph.add_edge(source_file, target_file, file_relationship);
             }
 
-            // An edge for calls on unknown receivers joins only those calls to
-            // methods; any other edge joins every other reference and import.
+            // A qualified-path edge joins the references written with a
+            // qualifier it lists, such as `Foo::Bar` in `Foo::Bar.baz`, and
+            // those references join no other edge. Of the rest, an edge for
+            // calls on unknown receivers joins only those calls to methods,
+            // and any other edge joins every other reference and import.
             let member_edge = edge.resolution_reason == LexicalResolutionReason::MemberReceiverUnknown;
+            let qualified_edge =
+                edge.resolution_reason == LexicalResolutionReason::QualifiedPath && !edge.qualifiers.is_empty();
             let source_bindings = &bindings[source.path.as_str()];
+            let joins_reference = |symbol: &SourceSymbol| {
+                if qualified_edge {
+                    return symbol
+                        .qualifier
+                        .as_ref()
+                        .is_some_and(|qualifier| edge.qualifiers.contains(qualifier));
+                }
+                let resolved = symbol.qualifier.as_deref().is_some_and(|qualifier| {
+                    resolved_qualifiers.contains(&(source.path.as_str(), symbol.name.as_str(), qualifier))
+                });
+                !resolved && crate::map::has_unknown_receiver(symbol, source_bindings) == member_edge
+            };
             let source_symbols = source
                 .symbols
                 .iter()
                 .filter(|symbol| {
-                    (symbol.role == SymbolRole::Reference
-                        && symbol.name == edge.symbol
-                        && crate::map::has_unknown_receiver(symbol, source_bindings) == member_edge)
+                    (symbol.role == SymbolRole::Reference && symbol.name == edge.symbol && joins_reference(symbol))
                         || (!member_edge
                             && symbol.role == SymbolRole::Definition
                             && symbol.evidence == SymbolEvidence::Import
@@ -1062,6 +1089,7 @@ mod tests {
             resolution_reason: LexicalResolutionReason::ImportedName,
             confidence: ConfidenceTier::High,
             target_visibility: SymbolVisibility::Public,
+            qualifiers: Vec::new(),
         };
         let graph = RelationshipGraph::from_parts(sources, vec![edge]);
         let callers = symbol_relationship_candidates(&graph, "parse", RelationshipMatchKind::Caller, true);

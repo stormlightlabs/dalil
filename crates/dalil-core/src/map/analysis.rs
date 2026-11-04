@@ -73,6 +73,7 @@ pub fn analyze_unbounded(path: &Path, settings: &MapSettings, history: Option<&H
         map_tokens: settings.map_tokens,
         analysis_options: digest_hex(format!("{settings:?}").as_bytes()),
         content_state: String::new(),
+        project_roots: String::new(),
         language_pack_identity: LANGUAGE_SUPPORT
             .iter()
             .map(|support| (support.language.label().to_owned(), query_digest(support)))
@@ -617,6 +618,7 @@ pub fn analyze_unbounded(path: &Path, settings: &MapSettings, history: Option<&H
             .join("\n")
             .as_bytes(),
     );
+    index_identity.project_roots = cache::project_roots_state(&topology.project_roots);
     let index_state = cache.load_index(&index_identity);
     if index_state.status == PersistentIndexStatus::Hit {
         if let Some(cached_trigram_index) = index_state.trigram_index() {
@@ -626,6 +628,7 @@ pub fn analyze_unbounded(path: &Path, settings: &MapSettings, history: Option<&H
     let incremental_edges = if cache_stats.stale.is_empty() && cache_stats.unavailable == 0 && !work_limit_reached {
         index_state.incremental_edges(
             &files,
+            &topology.project_roots,
             &current_fingerprints,
             limits.max_candidates_per_reference,
             limits.max_edges,
@@ -637,7 +640,12 @@ pub fn analyze_unbounded(path: &Path, settings: &MapSettings, history: Option<&H
         cache_stats.invalidated = incremental.invalidated;
         incremental.edges
     } else {
-        build_lexical_edges(&files, limits.max_candidates_per_reference, limits.max_edges)
+        build_lexical_edges(
+            &files,
+            &topology.project_roots,
+            limits.max_candidates_per_reference,
+            limits.max_edges,
+        )
     };
     // Edge building stops at `max_edges`, so reaching it means edges may be missing.
     let edge_limit_reached = edges.len() >= limits.max_edges;

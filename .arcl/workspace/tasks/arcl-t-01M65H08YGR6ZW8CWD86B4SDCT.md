@@ -3,7 +3,7 @@ id = "arcl-t-01M65H08YGR6ZW8CWD86B4SDCT"
 phase = "arcl-ph-01M65H08RW144BCPZ31QP7N2VS"
 title = "Ingest history into an oid-keyed commit table"
 status = "pending"
-priority = "normal"
+priority = "high"
 position = 1
 blocked-by = ["arcl-t-01M65H08XYV97ZE71YFM3YTB9H"]
 +++

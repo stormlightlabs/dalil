@@ -449,6 +449,12 @@ pub struct LexicalEdge {
     pub confidence: ConfidenceTier,
     #[serde(default)]
     pub target_visibility: SymbolVisibility,
+    /// The qualifiers that resolved a `qualified_path` edge, sorted, such as
+    /// `Foo::Bar` in `Foo::Bar.baz`, or `crate::map` and `map` for two calls
+    /// that reach the same file. Only references written with one of them
+    /// join the edge.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub qualifiers: Vec<String>,
 }
 
 /// Typed task inputs that can personalize source ranking without interpreting a

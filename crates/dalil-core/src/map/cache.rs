@@ -34,6 +34,10 @@ struct RepositoryIndex {
     query_packs: BTreeMap<String, String>,
     files: Vec<IndexedFile>,
     lexical_edges: Vec<LexicalEdge>,
+    /// The project roots the lexical edges were built with, as
+    /// [`project_roots_state`] gives them.
+    #[serde(default)]
+    project_roots: String,
     history_path_weights: BTreeMap<String, u64>,
     #[serde(default)]
     trigram_index: TrigramIndex,
@@ -80,7 +84,22 @@ pub struct IndexIdentity {
     pub map_tokens: usize,
     pub analysis_options: String,
     pub content_state: String,
+    pub project_roots: String,
     pub language_pack_identity: BTreeMap<String, String>,
+}
+
+/// The path and kind of each project root, as one string. Qualified calls
+/// resolve only inside the caller's root, so edges built with other roots
+/// cannot be reused.
+pub fn project_roots_state(project_roots: &[ProjectRoot]) -> String {
+    digest_hex(
+        project_roots
+            .iter()
+            .map(|root| format!("{}:{:?}", root.path, root.kind))
+            .collect::<Vec<_>>()
+            .join("\n")
+            .as_bytes(),
+    )
 }
 
 #[derive(Debug)]
@@ -164,7 +183,8 @@ impl CacheStore {
         let stale = index.head != identity.head
             || index.worktree_state != identity.worktree_state
             || index.manifest_state != identity.manifest_state
-            || index.content_state != identity.content_state;
+            || index.content_state != identity.content_state
+            || index.project_roots != identity.project_roots;
         let detail = stale.then(|| index_invalidation_detail(&index, identity));
         IndexState {
             status: if stale { PersistentIndexStatus::Stale } else { PersistentIndexStatus::Hit },
@@ -217,6 +237,7 @@ impl CacheStore {
                 })
                 .collect(),
             lexical_edges,
+            project_roots: identity.project_roots.clone(),
             history_path_weights,
             trigram_index,
             created_at: unix_timestamp(),
@@ -384,6 +405,9 @@ fn index_invalidation_detail(index: &RepositoryIndex, identity: &IndexIdentity) 
     if index.content_state != identity.content_state {
         causes.push("source file fingerprints changed");
     }
+    if index.project_roots != identity.project_roots {
+        causes.push("project roots changed");
+    }
     format!("the repository index was invalidated because {}", causes.join(", "))
 }
 
@@ -399,13 +423,15 @@ impl IndexState {
     }
 
     /// Rebuild only the lexical component that could be affected by changed
-    /// source fingerprints. Any graph that might have been cut off is
-    /// rebuilt cold so the result remains equivalent to a fresh analysis.
+    /// source fingerprints. Any graph that might have been cut off, or that
+    /// was built with other project roots, is rebuilt cold so the result
+    /// remains equivalent to a fresh analysis.
     pub fn incremental_edges(
-        &self, files: &[SourceFile], fingerprints: &BTreeMap<String, String>, max_candidates: usize, max_edges: usize,
+        &self, files: &[SourceFile], project_roots: &[ProjectRoot], fingerprints: &BTreeMap<String, String>,
+        max_candidates: usize, max_edges: usize,
     ) -> Option<IncrementalEdges> {
         let index = self.index.as_ref()?;
-        if index.lexical_edges.len() >= max_edges {
+        if index.lexical_edges.len() >= max_edges || index.project_roots != project_roots_state(project_roots) {
             return None;
         }
 
@@ -500,7 +526,12 @@ impl IndexState {
             .filter(|file| affected.contains(&file.path))
             .cloned()
             .collect::<Vec<_>>();
-        edges.extend(build_lexical_edges(&affected_files, max_candidates, max_edges));
+        edges.extend(build_lexical_edges(
+            &affected_files,
+            project_roots,
+            max_candidates,
+            max_edges,
+        ));
         if edges.len() > max_edges {
             return None;
         }
