@@ -280,6 +280,120 @@ fn search_splits_plain_queries_into_ranked_terms() {
     );
 }
 
+/// Check `value` against the JSON Schema keywords the v1 schema uses, and
+/// return the first violation with its JSON path.
+fn schema_violation(root: &Value, schema: &Value, value: &Value, at: &str) -> Option<String> {
+    if let Some(reference) = schema["$ref"].as_str() {
+        let name = reference.strip_prefix("#/$defs/").expect("local reference");
+        return schema_violation(root, &root["$defs"][name], value, at);
+    }
+    let type_name = match value {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(number) if number.is_i64() || number.is_u64() => "integer",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    };
+    let types = match &schema["type"] {
+        Value::String(name) => vec![name.as_str()],
+        Value::Array(names) => names.iter().filter_map(Value::as_str).collect(),
+        _ => Vec::new(),
+    };
+    if !types.is_empty()
+        && !types
+            .iter()
+            .any(|name| *name == type_name || (*name == "number" && type_name == "integer"))
+    {
+        return Some(format!("{at}: {type_name} is not {types:?}"));
+    }
+    if let Some(values) = schema["enum"].as_array() {
+        if !values.contains(value) {
+            return Some(format!("{at}: {value} is not in {values:?}"));
+        }
+    }
+    if let Some(expected) = schema.get("const") {
+        if expected != value {
+            return Some(format!("{at}: {value} is not {expected}"));
+        }
+    }
+    if let (Some(minimum), Some(number)) = (schema["minimum"].as_f64(), value.as_f64()) {
+        if number < minimum {
+            return Some(format!("{at}: {number} is under {minimum}"));
+        }
+    }
+    if let (Some(maximum), Some(number)) = (schema["maximum"].as_f64(), value.as_f64()) {
+        if number > maximum {
+            return Some(format!("{at}: {number} is over {maximum}"));
+        }
+    }
+    if let (Some(min_length), Some(text)) = (schema["minLength"].as_u64(), value.as_str()) {
+        if (text.chars().count() as u64) < min_length {
+            return Some(format!("{at}: shorter than {min_length}"));
+        }
+    }
+    if let (Some(items), Some(values)) = (schema.get("items"), value.as_array()) {
+        for (index, item) in values.iter().enumerate() {
+            if let Some(violation) = schema_violation(root, items, item, &format!("{at}[{index}]")) {
+                return Some(violation);
+            }
+        }
+    }
+    if let Some(object) = value.as_object() {
+        for field in schema["required"].as_array().into_iter().flatten() {
+            let field = field.as_str().expect("required field name");
+            if !object.contains_key(field) {
+                return Some(format!("{at}: missing `{field}`"));
+            }
+        }
+        for (key, item) in object {
+            match schema["properties"].get(key) {
+                Some(property) => {
+                    if let Some(violation) = schema_violation(root, property, item, &format!("{at}.{key}")) {
+                        return Some(violation);
+                    }
+                }
+                None if schema["additionalProperties"] == Value::Bool(false) => {
+                    return Some(format!("{at}: `{key}` is not allowed"));
+                }
+                None => {}
+            }
+        }
+    }
+    None
+}
+
+#[test]
+fn plain_search_matches_validate_against_both_schema_copies() {
+    let fixture = MapFixtureRepository::new();
+    let output = fixture.run(&["search", "duplicate parse value", "--no-cache", "--json"]);
+    assert!(
+        output.status.success(),
+        "search failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_str(&stdout(&output)).expect("valid search JSON");
+    let matches = report["search"]["matches"].as_array().expect("matches");
+    assert!(matches.iter().any(|result| result.get("matched_terms").is_some()));
+
+    for (name, schema) in [
+        ("schema/v1/dalil.json", include_str!("../../../../schema/v1/dalil.json")),
+        (
+            "crates/dalil-core/schema/v1/dalil.json",
+            include_str!("../../../dalil-core/schema/v1/dalil.json"),
+        ),
+    ] {
+        let schema: Value = serde_json::from_str(schema).expect("schema is valid JSON");
+        let search_match = &schema["$defs"]["search_match"];
+        for (index, result) in matches.iter().enumerate() {
+            if let Some(violation) = schema_violation(&schema, search_match, result, &format!("matches[{index}]")) {
+                panic!("{name}: {violation}");
+            }
+        }
+    }
+}
+
 #[test]
 fn packaged_agent_skill_uses_supported_cli_workflows() {
     let skill = include_str!("../../skills/dalil/SKILL.md");

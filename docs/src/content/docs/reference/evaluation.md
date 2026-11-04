@@ -73,8 +73,9 @@ The summary gives the median of each over successful runs.
 
 Measured on 2026-11-04 with Dalil 0.1.0 built from `4ac74b4`, at its
 defaults (budget 1000, search limit 10), one run per case on a Linux container.
-The `dalil search`, terms rows rerun the same cases with Dalil built from the
-change that splits a plain query into ranked terms (branch commit `38ac9a1`).
+The `dalil search`, terms rows rerun the same cases, at the same revisions,
+with Dalil built from pull request #10, which splits a plain query into ranked
+terms.
 
 Dalil at `4ac74b4c77ebc8c7aa7c8c1e151de88bfeee229d`: 60 cases, 2 commits
 skipped for changing more than 50 files.
@@ -83,7 +84,7 @@ skipped for changing more than 50 files.
 | ------------------------- | -------------- | ------------------ | -----------: | --------: |
 | `dalil context`           | 6.1% / 6.1%    | 8.4% / 8.4%        |        10568 |      1734 |
 | `dalil search`, substring | 0.0% / 0.0%    | 0.0% / 0.0%        |        11046 |      1837 |
-| `dalil search`, terms     | 12.2% / 12.2%  | 14.2% / 14.2%      |        21098 |      2067 |
+| `dalil search`, terms     | 12.2% / 12.2%  | 14.2% / 14.2%      |        21103 |      2008 |
 | baseline                  | 23.5% / 38.1%  | 26.5% / 43.4%      |          214 |        14 |
 
 [sharkdp/fd](https://github.com/sharkdp/fd) (MIT or Apache-2.0) at
@@ -94,7 +95,7 @@ skipped.
 | ------------------------- | -------------- | ------------------ | -----------: | --------: |
 | `dalil context`           | 3.3% / 3.3%    | 3.3% / 3.3%        |        10266 |       570 |
 | `dalil search`, substring | 0.0% / 0.0%    | 0.0% / 0.0%        |        10606 |       438 |
-| `dalil search`, terms     | 21.8% / 21.8%  | 21.9% / 21.9%      |        20791 |       521 |
+| `dalil search`, terms     | 23.5% / 23.5%  | 23.5% / 23.5%      |        20846 |       483 |
 | baseline                  | 77.6% / 93.0%  | 77.8% / 93.3%      |          144 |         8 |
 
 `dalil context` recommended one or two files per case. Of its 140

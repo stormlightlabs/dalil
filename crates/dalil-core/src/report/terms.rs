@@ -4,7 +4,8 @@
 //! identifier boundaries (`camelCase`, `HTTPServer`, `snake_case`). Terms under
 //! two characters and common stopwords are dropped. A token that splits into
 //! more than one part, such as `CacheStore` or `src/one.rs`, is also kept whole
-//! as an extra term. Text inside double quotes stays one exact phrase.
+//! as an extra term. Text inside double quotes stays one exact phrase. Terms
+//! under three bytes match paths and names only on word boundaries.
 
 /// The most terms one query keeps, so matching stays bounded.
 pub(crate) const MAX_QUERY_TERMS: usize = 32;
@@ -57,7 +58,6 @@ impl QueryTerms {
                 terms.push(QueryTerm { text, kind });
             }
         };
-        let mut unquoted = String::new();
         let mut rest = query;
         while let Some(start) = rest.find('"') {
             let (before, after) = rest.split_at(start);
@@ -65,8 +65,6 @@ impl QueryTerms {
             let Some(end) = after.find('"') else {
                 break;
             };
-            unquoted.push_str(before);
-            unquoted.push(' ');
             split_words(before, &mut push);
             let phrase = after[..end]
                 .split_whitespace()
@@ -79,13 +77,10 @@ impl QueryTerms {
             rest = &after[end + 1..];
         }
         // An unbalanced quote is a separator like any other punctuation.
-        unquoted.push_str(rest);
         split_words(rest, &mut push);
 
-        let has_quotes = query.contains('"');
-        let words = terms.iter().filter(|term| term.kind == TermKind::Word).count();
-        let phrase = (!has_quotes && words > 1)
-            .then(|| unquoted.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase());
+        let tokens = query.split_whitespace().collect::<Vec<_>>();
+        let phrase = (!query.contains('"') && tokens.len() > 1).then(|| tokens.join(" ").to_lowercase());
         Self { terms, phrase }
     }
 
@@ -94,27 +89,65 @@ impl QueryTerms {
     }
 }
 
+/// Drop a leading Conventional Commits `type:`, `type!:` or `type(scope):`
+/// prefix. The colon must end the query or be followed by whitespace, so a
+/// path such as `test::helpers` keeps its first segment. A scoped prefix is
+/// left for `strip_commit_scope`, which keeps the scope as a term.
 fn strip_commit_type(query: &str) -> &str {
-    let Some((head, rest)) = query.split_once(':') else {
-        return query;
-    };
-    let head = head.strip_suffix('!').unwrap_or(head);
-    let kind = match head.split_once('(') {
-        Some((kind, scope)) if scope.ends_with(')') => kind,
-        Some(_) => return query,
-        None => head,
-    };
-    if COMMIT_TYPES.contains(&kind.to_ascii_lowercase().as_str()) {
-        // Keep the scope: it usually names the area the change touches.
-        let scope = head
-            .split_once('(')
-            .map_or("", |(_, scope)| scope.trim_end_matches(')'));
-        if scope.is_empty() {
-            return rest.trim_start();
-        }
+    let kind_len = query.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(query.len());
+    let (kind, after) = query.split_at(kind_len);
+    if !COMMIT_TYPES.contains(&kind.to_ascii_lowercase().as_str()) {
         return query;
     }
-    query
+    let scoped = after.starts_with('(');
+    let after = if scoped {
+        match after.find(')') {
+            Some(end) if !after[1..end].contains(['(', ':']) => &after[end + 1..],
+            _ => return query,
+        }
+    } else {
+        after
+    };
+    let after = after.strip_prefix('!').unwrap_or(after);
+    let Some(rest) = after.strip_prefix(':') else {
+        return query;
+    };
+    if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
+        return query;
+    }
+    if scoped { query } else { rest.trim_start() }
+}
+
+/// Terms shorter than this many bytes have no trigrams, so they skip content
+/// and match paths and names only as whole words or identifier parts.
+pub(crate) const MIN_SUBSTRING_TERM_BYTES: usize = 3;
+
+/// A path or symbol name prepared for term matching.
+pub(crate) struct NameText {
+    lower: String,
+    parts: Vec<String>,
+}
+
+impl NameText {
+    pub(crate) fn new(text: &str) -> Self {
+        Self { lower: text.to_lowercase(), parts: identifier_parts(text) }
+    }
+
+    /// Whether `term` occurs in the text. A term of at least
+    /// `MIN_SUBSTRING_TERM_BYTES` matches anywhere; a shorter one only as a
+    /// whole word or identifier part, so `go` matches `go.mod`, `cmd/go/` and
+    /// `GoParser` but not `Cargo.toml`.
+    pub(crate) fn contains(&self, term: &str) -> bool {
+        if term.len() < MIN_SUBSTRING_TERM_BYTES {
+            self.parts.iter().any(|part| part == term)
+        } else {
+            self.lower.contains(term)
+        }
+    }
+
+    pub(crate) fn lower(&self) -> &str {
+        &self.lower
+    }
 }
 
 fn split_words(text: &str, push: &mut impl FnMut(String, TermKind)) {
@@ -239,6 +272,38 @@ mod tests {
         assert_eq!(texts("feat: split search queries"), ["split", "search", "queries"]);
         assert_eq!(texts("fix(cli)!: read path"), ["cli", "read", "path"]);
         assert_eq!(texts("Note: keep"), ["note", "keep"]);
+        assert_eq!(texts("refactor!: drop"), ["drop"]);
+        assert_eq!(texts("fix(cli):"), ["cli"]);
+        assert_eq!(texts("docs:"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn rust_paths_starting_with_a_commit_type_keep_every_segment() {
+        assert_eq!(texts("test::helpers"), ["test", "helpers", "test::helpers"]);
+        assert_eq!(texts("build::Config"), ["build", "config", "build::config"]);
+        assert_eq!(texts("fix:value"), ["fix", "value", "fix:value"]);
+        assert_eq!(texts("fix(cli)::run"), ["fix", "cli", "run", "fix(cli)::run"]);
+    }
+
+    #[test]
+    fn the_phrase_needs_more_than_one_token() {
+        assert_eq!(QueryTerms::parse("HTTPClient").phrase, None);
+        assert_eq!(QueryTerms::parse("src/one.rs").phrase, None);
+        assert_eq!(
+            QueryTerms::parse("HTTPClient retry").phrase.as_deref(),
+            Some("httpclient retry")
+        );
+    }
+
+    #[test]
+    fn short_terms_match_names_only_on_word_boundaries() {
+        for name in ["go.mod", "cmd/go/main.rs", "GoParser", "go_parser"] {
+            assert!(NameText::new(name).contains("go"), "{name}");
+        }
+        for name in ["Cargo.toml", "src/ergonomic.rs", "Gopher"] {
+            assert!(!NameText::new(name).contains("go"), "{name}");
+        }
+        assert!(NameText::new("Cargo.toml").contains("arg"));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use super::terms::{QueryTerms, TermKind};
+use super::terms::{MIN_SUBSTRING_TERM_BYTES, NameText, QueryTerms, TermKind};
 use super::*;
 
 const DEFAULT_QUERY_RESULT_LIMIT: usize = 20;
@@ -544,7 +544,7 @@ fn match_text_value(value: &str, mode: QueryMatchMode, subject: &str) -> Option<
 
 fn match_text(query: &TextQuery, subject: &str) -> Option<MatchScore> {
     if query.mode == QueryMatchMode::Terms {
-        let subject = subject.to_lowercase();
+        let subject = NameText::new(subject);
         return QueryTerms::parse(&query.value)
             .terms
             .iter()
@@ -570,7 +570,8 @@ fn indexed_content_matches(map: &MapReport, query: &TextQuery) -> BTreeSet<Strin
 struct TermIndex {
     terms: QueryTerms,
     /// Files containing each term, in term order. Terms under three bytes
-    /// cannot use the trigram index and match names and paths only.
+    /// cannot use the trigram index and match names and paths only, on word
+    /// boundaries.
     content: Vec<BTreeSet<String>>,
     phrase_content: BTreeSet<String>,
 }
@@ -624,12 +625,12 @@ fn term_candidate(
         return None;
     }
     let terms = &index.terms.terms;
-    let path = source.path.to_lowercase();
+    let path = NameText::new(&source.path);
     let symbols = source
         .symbols
         .iter()
         .filter(|symbol| symbol_score(symbol, filters).is_some())
-        .map(|symbol| (symbol, symbol.name.to_lowercase(), symbol.context.to_lowercase()))
+        .map(|symbol| (symbol, NameText::new(&symbol.name), symbol.context.to_lowercase()))
         .collect::<Vec<_>>();
     if symbol_matches_are_required(filters) && symbols.is_empty() {
         return None;
@@ -644,10 +645,11 @@ fn term_candidate(
             ("symbol name", NAME_WEIGHT)
         } else if path.contains(&term.text) {
             ("path", PATH_WEIGHT)
-        } else if content.contains(&source.path)
-            || symbols
-                .iter()
-                .any(|(_, _, symbol_context)| symbol_context.contains(&term.text))
+        } else if term.text.len() >= MIN_SUBSTRING_TERM_BYTES
+            && (content.contains(&source.path)
+                || symbols
+                    .iter()
+                    .any(|(_, _, symbol_context)| symbol_context.contains(&term.text)))
         {
             ("source content", CONTENT_WEIGHT)
         } else {
@@ -664,17 +666,17 @@ fn term_candidate(
         return None;
     }
     if let Some(phrase) = &index.terms.phrase {
-        if path.contains(phrase.as_str())
+        if path.lower().contains(phrase.as_str())
             || index.phrase_content.contains(&source.path)
             || symbols.iter().any(|(_, name, symbol_context)| {
-                name.contains(phrase.as_str()) || symbol_context.contains(phrase.as_str())
+                name.lower().contains(phrase.as_str()) || symbol_context.contains(phrase.as_str())
             })
         {
             phrases += 1;
         }
     }
 
-    let name_terms = |name: &str| matched.iter().filter(|term| name.contains(term.as_str())).count();
+    let name_terms = |name: &NameText| matched.iter().filter(|term| name.contains(term.as_str())).count();
     let best_symbol = symbols
         .iter()
         .map(|(symbol, name, _)| (name_terms(name), *symbol))
@@ -1540,6 +1542,44 @@ mod tests {
 
         let empty = compile(terms_request("the of"), &map, ChangeResolution::default());
         assert_eq!(empty.bounds.total, 0);
+    }
+
+    #[test]
+    fn short_terms_match_paths_and_names_only_on_word_boundaries() {
+        let mut map = fixture_map();
+        map.files.push(source("Cargo.toml", SourceLanguage::Rust, Vec::new()));
+        map.files
+            .push(source("cmd/go/main.rs", SourceLanguage::Rust, Vec::new()));
+        map.files.push(source(
+            "src/grammar.rs",
+            SourceLanguage::Rust,
+            vec![symbol("GoParser", SymbolKind::Class)],
+        ));
+        map.reading_evidence
+            .trigram_index
+            .insert("packages/api/src/build.rs", b"the parser reads tokens");
+        let omission = |path: &str| SourceOmission {
+            path: path.to_owned(),
+            reason: OmissionReason::NonSource,
+            detail: "not source".to_owned(),
+            classifications: Vec::new(),
+            classification_overridden: false,
+        };
+        map.omissions = vec![omission("vendor/cargo.lock"), omission("docs/go.md")];
+
+        let results = compile(terms_request("go parser"), &map, ChangeResolution::default());
+        assert_eq!(
+            paths(&results),
+            [
+                "src/grammar.rs",
+                "cmd/go/main.rs",
+                "packages/api/src/build.rs",
+                "docs/go.md"
+            ]
+        );
+        assert_eq!(results.bounds.total, 4);
+        assert_eq!(results.matches[0].matched_terms, ["go", "parser"]);
+        assert_eq!(results.matches[2].matched_terms, ["parser"]);
     }
 
     #[test]
