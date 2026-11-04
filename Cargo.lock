@@ -2541,6 +2541,10 @@ dependencies = [
  "clap_complete",
  "clap_mangen",
  "dalil",
+ "gix",
+ "libc",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
