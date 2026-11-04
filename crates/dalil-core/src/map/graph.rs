@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use super::*;
 
 /// Builds the lexical edges between `files`. `project_roots` bound the
@@ -70,18 +72,16 @@ pub fn build_lexical_edges(
                 .push(file.path.as_str());
         }
     }
-    let scope = QualifierScope {
-        files: files.iter().map(|file| (file.path.as_str(), file)).collect(),
-        modules: &modules,
-        project_roots,
-        python_names,
-    };
+    let scope = QualifierScope::new(files, &modules, project_roots, python_names);
 
-    let mut edges = Vec::new();
+    let mut edges = Vec::<LexicalEdge>::new();
     // Every occurrence of a reference proposes the same edges again. Counting
     // only unseen (candidate group, target) pairs keeps `max_edges` a limit on
     // distinct edges, so repeated calls early in the file list cannot use it up.
-    let mut seen = BTreeSet::new();
+    // Each (candidate group, target) pair maps to its edge, so a later
+    // reference with another qualifier for the same targets adds the qualifier
+    // to that edge rather than a new edge.
+    let mut seen = BTreeMap::<(String, String), usize>::new();
     'files: for file in files {
         let bindings = import_bindings(&file.symbols);
         for symbol in &file.symbols {
@@ -93,14 +93,18 @@ pub fn build_lexical_edges(
             }
             // A qualifier with path evidence names a module or type, not a
             // value, so its call is not one on an unknown receiver.
+            let key = (file.language, symbol.name.clone());
             let qualified = definitions
-                .get(&(file.language, symbol.name.clone()))
+                .get(&key)
                 .and_then(|candidates| qualified_candidates(file, symbol, candidates, &scope));
             let unknown_receiver = qualified.is_none() && has_unknown_receiver(symbol, &bindings);
             let pool = if unknown_receiver { &member_definitions } else { &definitions };
-            let all_candidates = import_candidates(file, symbol, &definitions)
-                .or_else(|| pool.get(&(file.language, symbol.name.clone())).cloned())
-                .unwrap_or_default();
+            let all_candidates = match import_candidates(file, symbol, &definitions) {
+                Some(found) => Cow::Owned(found),
+                None => pool
+                    .get(&key)
+                    .map_or(Cow::Owned(Vec::new()), |found| Cow::Borrowed(found.as_slice())),
+            };
             if all_candidates.is_empty() {
                 continue;
             }
@@ -147,7 +151,7 @@ pub fn build_lexical_edges(
                         continue;
                     };
                     (
-                        all_candidates.clone(),
+                        all_candidates.to_vec(),
                         LexicalResolutionReason::ImportedName,
                         ConfidenceTier::Medium,
                     )
@@ -165,31 +169,33 @@ pub fn build_lexical_edges(
                 continue;
             }
             let candidate_paths = candidates.iter().map(|(path, _)| path.clone()).collect::<Vec<_>>();
-            // A qualified-path edge belongs to the qualifier that resolved it,
-            // so two qualifiers reaching the same files give two edges, and
-            // the relationship graph joins each call only to its own.
+            // Qualified-path edges for the same targets are one edge, which
+            // lists every qualifier that resolved to it, so `map::f()` and
+            // `crate::map::f()` count once against `max_edges`.
             let qualifier = (reason == LexicalResolutionReason::QualifiedPath)
                 .then(|| symbol.qualifier.clone())
                 .flatten();
             let candidate_group = format!(
-                "{}:{}:{}:{}{}",
+                "{}:{}:{}:{}",
                 file.path,
                 symbol.name,
                 reason.label(),
-                qualifier
-                    .as_deref()
-                    .map(|qualifier| format!("{qualifier}:"))
-                    .unwrap_or_default(),
                 digest_hex(candidate_paths.join("\0").as_bytes())
             );
             let ambiguous = unknown_receiver || candidates.len() > 1;
             for (target, target_visibility) in &candidates {
-                if !seen.insert((candidate_group.clone(), target.clone())) {
+                if let Some(&index) = seen.get(&(candidate_group.clone(), target.clone())) {
+                    if let Some(qualifier) = &qualifier
+                        && !edges[index].qualifiers.contains(qualifier)
+                    {
+                        edges[index].qualifiers.push(qualifier.clone());
+                    }
                     continue;
                 }
                 if edges.len() >= max_edges {
                     break 'files;
                 }
+                seen.insert((candidate_group.clone(), target.clone()), edges.len());
                 edges.push(LexicalEdge {
                     source: file.path.clone(),
                     target: target.clone(),
@@ -200,10 +206,13 @@ pub fn build_lexical_edges(
                     resolution_reason: reason,
                     confidence,
                     target_visibility: *target_visibility,
-                    qualifier: qualifier.clone(),
+                    qualifiers: qualifier.iter().cloned().collect(),
                 });
             }
         }
+    }
+    for edge in &mut edges {
+        edge.qualifiers.sort();
     }
     edges.sort_by(|left, right| {
         left.source
@@ -987,37 +996,130 @@ fn import_module_hints(context: &str, language: SourceLanguage) -> Vec<String> {
     hints
 }
 
-/// What qualified calls resolve against: every file by path, the module
-/// names each file declares and the repository's project roots.
+/// What qualified calls resolve against, built once per graph so that each
+/// reference does lookups rather than scans: every file by path, the module
+/// names each file declares, each file's project root, and indexes of the
+/// files that may be a qualifier's target.
 struct QualifierScope<'a> {
     files: BTreeMap<&'a str, &'a SourceFile>,
     modules: &'a BTreeMap<String, BTreeSet<String>>,
-    project_roots: &'a [ProjectRoot],
+    /// Each file's project root.
+    roots: BTreeMap<&'a str, Option<String>>,
     /// The Python files that define each name at module level, other than
     /// by importing it.
     python_names: BTreeMap<&'a str, Vec<&'a str>>,
+    /// The files whose module path, as [`module_path`] gives it, ends in each
+    /// last segment, such as `bar` for `lib/foo/bar.rb`. Ruby and Python
+    /// qualifiers look up their last segment here.
+    module_files: BTreeMap<(SourceLanguage, &'a str), Vec<&'a str>>,
+    /// The files that declare each type, for Java and C#.
+    type_files: BTreeMap<(SourceLanguage, &'a str), Vec<&'a str>>,
+    /// The Lua files that assign each global table.
+    lua_tables: BTreeMap<&'a str, Vec<&'a str>>,
+    /// The module names declared in each Rust crate, keyed by the source root
+    /// [`crate_source_root`] gives.
+    crate_modules: BTreeMap<&'a str, BTreeSet<&'a str>>,
 }
 
-impl QualifierScope<'_> {
-    fn same_project(&self, source: &str, candidate: &str) -> bool {
-        crate::landmarks::project_root_for_path(source, self.project_roots)
-            == crate::landmarks::project_root_for_path(candidate, self.project_roots)
+impl<'a> QualifierScope<'a> {
+    fn new(
+        files: &'a [SourceFile], modules: &'a BTreeMap<String, BTreeSet<String>>, project_roots: &'a [ProjectRoot],
+        python_names: BTreeMap<&'a str, Vec<&'a str>>,
+    ) -> Self {
+        let mut module_files = BTreeMap::<_, Vec<_>>::new();
+        let mut type_files = BTreeMap::<_, Vec<_>>::new();
+        let mut lua_tables = BTreeMap::<_, Vec<_>>::new();
+        for file in files {
+            let path = file.path.as_str();
+            match file.language {
+                SourceLanguage::Ruby | SourceLanguage::Python => {
+                    let last = module_path(path).rsplit('/').next().unwrap_or(path);
+                    module_files.entry((file.language, last)).or_default().push(path);
+                }
+                SourceLanguage::Java | SourceLanguage::CSharp => {
+                    let declared = file
+                        .symbols
+                        .iter()
+                        .filter(|symbol| is_type_declaration(symbol))
+                        .map(|symbol| symbol.name.as_str())
+                        .collect::<BTreeSet<_>>();
+                    for name in declared {
+                        type_files.entry((file.language, name)).or_default().push(path);
+                    }
+                }
+                SourceLanguage::Lua => {
+                    let tables = file
+                        .symbols
+                        .iter()
+                        .filter(|symbol| is_global_table(symbol))
+                        .map(|symbol| symbol.name.as_str())
+                        .collect::<BTreeSet<_>>();
+                    for table in tables {
+                        lua_tables.entry(table).or_default().push(path);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut crate_modules = BTreeMap::<&str, BTreeSet<&str>>::new();
+        for file in files.iter().filter(|file| file.language == SourceLanguage::Rust) {
+            let root = crate_source_root(&file.path);
+            if crate_modules.contains_key(root) {
+                continue;
+            }
+            let declared = modules
+                .iter()
+                .filter(|(path, _)| same_crate(&file.path, path))
+                .flat_map(|(_, names)| names.iter().map(String::as_str))
+                .collect();
+            crate_modules.insert(root, declared);
+        }
+        Self {
+            files: files.iter().map(|file| (file.path.as_str(), file)).collect(),
+            modules,
+            roots: files
+                .iter()
+                .map(|file| {
+                    (
+                        file.path.as_str(),
+                        crate::landmarks::project_root_for_path(&file.path, project_roots),
+                    )
+                })
+                .collect(),
+            python_names,
+            module_files,
+            type_files,
+            lua_tables,
+            crate_modules,
+        }
     }
 
-    /// The candidates in the caller's project root, other than the caller,
-    /// whose file passes `keep`.
-    fn filter(
-        &self, file: &SourceFile, candidates: &[(String, SymbolVisibility)], keep: impl Fn(&SourceFile) -> bool,
+    fn same_project(&self, source: &str, candidate: &str) -> bool {
+        self.roots.get(source) == self.roots.get(candidate)
+    }
+
+    /// The candidates among `targets` in the caller's project root, other
+    /// than the caller, whose file passes `keep`, in path order. `candidates`
+    /// is sorted by path, so each target is a binary search.
+    fn pick<'t>(
+        &self, file: &SourceFile, candidates: &[(String, SymbolVisibility)],
+        targets: impl IntoIterator<Item = &'t str>, keep: impl Fn(&SourceFile) -> bool,
     ) -> Option<Vec<(String, SymbolVisibility)>> {
-        let matching = candidates
-            .iter()
-            .filter(|(path, _)| {
-                path != &file.path
-                    && self.same_project(&file.path, path)
-                    && self.files.get(path.as_str()).is_some_and(|target| keep(target))
+        let mut matching = targets
+            .into_iter()
+            .filter(|path| *path != file.path && self.same_project(&file.path, path))
+            .filter_map(|path| {
+                let index = candidates
+                    .binary_search_by(|(candidate, _)| candidate.as_str().cmp(path))
+                    .ok()?;
+                self.files
+                    .get(path)
+                    .is_some_and(|target| keep(target))
+                    .then(|| candidates[index].clone())
             })
-            .cloned()
             .collect::<Vec<_>>();
+        matching.sort_by(|left, right| left.0.cmp(&right.0));
+        matching.dedup_by(|right, left| right.0 == left.0);
         (!matching.is_empty()).then_some(matching)
     }
 }
@@ -1035,18 +1137,47 @@ impl QualifierScope<'_> {
 ///   such as a class, the call resolves to that file instead.
 /// - Java and C#: the file that declares the qualifier's type in the
 ///   qualifier's package or namespace, read from its `package` or `namespace`
-///   declaration rather than its directory.
+///   declaration rather than its directory. A lowercase name such as `x` in
+///   `x.get()` is a variable, not a type, and is not resolved.
 /// - Lua: a file that assigns the global table `M = {…}` and defines the
-///   called function on it. The qualifier names no path, so this is medium.
+///   called function on it, unless the caller binds `M` with `local`. The
+///   qualifier names no path, so this is medium.
 ///
-/// Every language but Rust stays inside the caller's project root.
+/// Every language but Rust stays inside the caller's project root. When an
+/// import binds the qualifier's first name, such as Lua's
+/// `local M = require("a")`, the files that import names take precedence: a
+/// result outside them is dropped, and the call resolves through the import.
+/// Rust and Python resolve the qualifier through that import already.
 fn qualified_candidates(
+    file: &SourceFile, symbol: &SourceSymbol, candidates: &[(String, SymbolVisibility)], scope: &QualifierScope<'_>,
+) -> Option<(Vec<(String, SymbolVisibility)>, ConfidenceTier)> {
+    let found = qualified_candidates_by_language(file, symbol, candidates, scope)?;
+    // Rust and Python read the qualifier through the import that binds it
+    // already, so their results are that import's evidence.
+    if matches!(file.language, SourceLanguage::Rust | SourceLanguage::Python) {
+        return Some(found);
+    }
+    let hints = qualifier_import_hints(file, symbol.qualifier.as_deref()?);
+    if hints.is_empty() {
+        return Some(found);
+    }
+    let imported = candidates
+        .iter()
+        .filter(|(path, _)| module_path_matches(path, &hints))
+        .map(|(path, _)| path.as_str())
+        .collect::<BTreeSet<_>>();
+    let refines_import = imported.is_empty() || found.0.iter().all(|(path, _)| imported.contains(path.as_str()));
+    refines_import.then_some(found)
+}
+
+fn qualified_candidates_by_language(
     file: &SourceFile, symbol: &SourceSymbol, candidates: &[(String, SymbolVisibility)], scope: &QualifierScope<'_>,
 ) -> Option<(Vec<(String, SymbolVisibility)>, ConfidenceTier)> {
     let qualifier = symbol.qualifier.as_deref()?;
     match file.language {
-        SourceLanguage::Rust => qualified_path_candidates(file, symbol, candidates, scope.modules)
-            .map(|found| (found, ConfidenceTier::High)),
+        SourceLanguage::Rust => {
+            qualified_path_candidates(file, symbol, candidates, scope).map(|found| (found, ConfidenceTier::High))
+        }
         SourceLanguage::Ruby => {
             let module = qualifier
                 .trim_start_matches("::")
@@ -1054,8 +1185,12 @@ fn qualified_candidates(
                 .map(snake_case)
                 .collect::<Vec<_>>()
                 .join("/");
+            let last = module.rsplit('/').next().unwrap_or(&module);
+            let targets = scope.module_files.get(&(file.language, last)).into_iter().flatten();
             scope
-                .filter(file, candidates, |target| module_path_ends_with(&target.path, &module))
+                .pick(file, candidates, targets.copied(), |target| {
+                    module_path_ends_with(&target.path, &module)
+                })
                 .map(|found| (found, ConfidenceTier::High))
         }
         SourceLanguage::Python => {
@@ -1068,43 +1203,93 @@ fn qualified_candidates(
                     .get(name.as_str())
                     .into_iter()
                     .flatten()
-                    .filter(|path| parent.matches(path) && scope.same_project(&file.path, path))
+                    .filter(|path| parent.matches(path))
                     .copied()
-                    .collect::<BTreeSet<_>>();
-                if !definers.is_empty() {
+                    .collect::<Vec<_>>();
+                if definers.iter().any(|path| scope.same_project(&file.path, path)) {
                     return scope
-                        .filter(file, candidates, |target| definers.contains(target.path.as_str()))
+                        .pick(file, candidates, definers, |_| true)
                         .map(|found| (found, ConfidenceTier::High));
                 }
             }
+            let targets = scope
+                .module_files
+                .get(&(file.language, qualifier.module.last_segment()))
+                .into_iter()
+                .flatten();
             scope
-                .filter(file, candidates, |target| qualifier.module.matches(&target.path))
+                .pick(file, candidates, targets.copied(), |target| {
+                    qualifier.module.matches(&target.path)
+                })
                 .map(|found| (found, ConfidenceTier::High))
         }
         SourceLanguage::Java | SourceLanguage::CSharp => {
-            let names = declared_type_names(file, qualifier, scope.modules);
-            let (type_name, packages) = names.as_ref()?;
+            let (type_name, packages) = declared_type_names(file, qualifier, scope.modules)?;
+            let targets = scope
+                .type_files
+                .get(&(file.language, type_name.as_str()))
+                .into_iter()
+                .flatten();
             scope
-                .filter(file, candidates, |target| {
+                .pick(file, candidates, targets.copied(), |target| {
                     let target_packages = scope.modules.get(&target.path);
-                    let in_package = packages.iter().any(|package| {
+                    packages.iter().any(|package| {
                         if package.is_empty() {
                             target_packages.is_none_or(BTreeSet::is_empty)
                         } else {
                             target_packages.is_some_and(|declared| declared.contains(package))
                         }
-                    });
-                    in_package && declares_type(target, type_name)
+                    })
                 })
                 .map(|found| (found, ConfidenceTier::High))
         }
-        SourceLanguage::Lua => scope
-            .filter(file, candidates, |target| {
-                declares_global_table(target, qualifier) && defines_table_function(target, qualifier, &symbol.name)
-            })
-            .map(|found| (found, ConfidenceTier::Medium)),
+        SourceLanguage::Lua => {
+            if binds_local(file, qualifier) {
+                return None;
+            }
+            let targets = scope.lua_tables.get(qualifier).into_iter().flatten();
+            scope
+                .pick(file, candidates, targets.copied(), |target| {
+                    defines_table_function(target, qualifier, &symbol.name)
+                })
+                .map(|found| (found, ConfidenceTier::Medium))
+        }
         _ => None,
     }
+}
+
+/// The module hints of the imports that bind a qualifier's first name, as
+/// [`import_bindings`] reads a binding: the import's name, the last segment
+/// of its path, or a variable declared on its line.
+fn qualifier_import_hints(file: &SourceFile, qualifier: &str) -> Vec<String> {
+    let qualifier = qualifier.trim_start_matches("::");
+    let qualifier = qualifier.strip_prefix("global::").unwrap_or(qualifier);
+    let Some(head) = qualifier.split(['.', ':']).find(|segment| !segment.is_empty()) else {
+        return Vec::new();
+    };
+    let variable_lines = file
+        .symbols
+        .iter()
+        .filter(|symbol| {
+            symbol.role == SymbolRole::Definition && symbol.kind == SymbolKind::Variable && symbol.name == head
+        })
+        .map(|symbol| symbol.location.start.line)
+        .collect::<BTreeSet<_>>();
+    let mut hints = file
+        .symbols
+        .iter()
+        .filter(|import| {
+            import.role == SymbolRole::Definition
+                && import.evidence == SymbolEvidence::Import
+                && (import.name == head
+                    || import.name.rsplit(['/', '.', ':']).next() == Some(head)
+                    || variable_lines.contains(&import.location.start.line))
+        })
+        .flat_map(|import| import_module_hints(&import.context, file.language))
+        .collect::<Vec<_>>();
+    hints.sort();
+    hints.dedup();
+    hints
 }
 
 /// Whether `path`, as [`module_path`] gives it, is `module` or ends with `/module`.
@@ -1173,6 +1358,12 @@ impl PythonModule {
                 .collect::<Vec<_>>()
                 .join("/"),
         )
+    }
+
+    /// The module's last segment, such as `mod` for `pkg/mod`.
+    fn last_segment(&self) -> &str {
+        let (Self::Absolute(module) | Self::Relative(module)) = self;
+        module.rsplit('/').next().unwrap_or(module)
     }
 
     fn matches(&self, path: &str) -> bool {
@@ -1288,6 +1479,10 @@ fn declared_type_names(
     if let Some(package) = package {
         return Some((type_name.to_owned(), vec![package.to_owned()]));
     }
+    // A lowercase name such as `x` in `x.get()` is a variable, not a type.
+    if type_name.starts_with(|character: char| character.is_lowercase()) {
+        return None;
+    }
     let mut packages = modules
         .get(&file.path)
         .map(|declared| declared.iter().cloned().collect::<Vec<_>>())
@@ -1325,29 +1520,34 @@ fn declared_type_names(
     Some((type_name.to_owned(), packages))
 }
 
-fn declares_type(file: &SourceFile, name: &str) -> bool {
-    file.symbols.iter().any(|symbol| {
-        symbol.role == SymbolRole::Definition
-            && symbol.name == name
-            && matches!(
-                symbol.kind,
-                SymbolKind::Class | SymbolKind::Struct | SymbolKind::Interface | SymbolKind::Enum
-            )
-    })
+fn is_type_declaration(symbol: &SourceSymbol) -> bool {
+    symbol.role == SymbolRole::Definition
+        && matches!(
+            symbol.kind,
+            SymbolKind::Class | SymbolKind::Struct | SymbolKind::Interface | SymbolKind::Enum
+        )
 }
 
-/// Whether a Lua file assigns `table = {…}` outside any function and without
+/// Whether a Lua symbol assigns `table = {…}` outside any function and without
 /// `local`, which makes `table` a global every loaded file can call through.
-fn declares_global_table(file: &SourceFile, table: &str) -> bool {
+fn is_global_table(symbol: &SourceSymbol) -> bool {
+    symbol.role == SymbolRole::Definition
+        && symbol.kind == SymbolKind::Variable
+        && symbol.visibility == SymbolVisibility::Public
+        && symbol
+            .context
+            .split_once('=')
+            .is_some_and(|(_, value)| value.trim_start().starts_with('{'))
+}
+
+/// Whether a Lua file declares `name` with `local`, such as `local M = {}` or
+/// `local M = require("a")`, which hides any global `M`.
+fn binds_local(file: &SourceFile, name: &str) -> bool {
     file.symbols.iter().any(|symbol| {
         symbol.role == SymbolRole::Definition
             && symbol.kind == SymbolKind::Variable
-            && symbol.name == table
-            && symbol.visibility == SymbolVisibility::Public
-            && symbol
-                .context
-                .split_once('=')
-                .is_some_and(|(_, value)| value.trim_start().starts_with('{'))
+            && symbol.name == name
+            && symbol.visibility != SymbolVisibility::Public
     })
 }
 
@@ -1374,8 +1574,7 @@ fn defines_table_function(file: &SourceFile, table: &str, name: &str) -> bool {
 /// imports from another crate, such as `fs` after `use std::fs;`, and an extern
 /// crate path such as `serde_json::from_str` yield no candidates.
 fn qualified_path_candidates(
-    file: &SourceFile, symbol: &SourceSymbol, candidates: &[(String, SymbolVisibility)],
-    modules: &BTreeMap<String, BTreeSet<String>>,
+    file: &SourceFile, symbol: &SourceSymbol, candidates: &[(String, SymbolVisibility)], scope: &QualifierScope<'_>,
 ) -> Option<Vec<(String, SymbolVisibility)>> {
     let qualifier = symbol.qualifier.as_deref()?;
     let segments = qualifier
@@ -1387,9 +1586,10 @@ fn qualified_path_candidates(
         .any(|segment| matches!(*segment, "crate" | "self" | "super"));
     if !anchored {
         let head = segments.first()?;
-        let declared = modules
-            .iter()
-            .any(|(path, names)| same_crate(&file.path, path) && names.contains(*head));
+        let declared = scope
+            .crate_modules
+            .get(crate_source_root(&file.path))
+            .is_some_and(|names| names.contains(*head));
         if !declared && !use_binding_root(file, head).is_some_and(is_crate_relative_root) {
             return None;
         }

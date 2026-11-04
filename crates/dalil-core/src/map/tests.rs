@@ -2560,3 +2560,95 @@ fn variable_receivers_stay_low_beside_qualified_calls() {
         [(LexicalResolutionReason::MemberReceiverUnknown, ConfidenceTier::Low)]
     );
 }
+
+#[test]
+fn a_required_lua_table_wins_over_a_global_of_the_same_name() {
+    let files = [
+        source_file("app/main.lua", "local M = require(\"a\")\nM.setup()\n"),
+        source_file("app/local.lua", "local M = {}\nM.setup()\n"),
+        source_file("a.lua", "local M = {}\nfunction M.setup() end\nreturn M\n"),
+        source_file("b.lua", "M = {}\nfunction M.setup() end\n"),
+    ];
+    let edges = graph::build_lexical_edges(&files, &[], 32, 32)
+        .into_iter()
+        .filter(|edge| edge.symbol == "setup")
+        .map(|edge| (edge.source, edge.target, edge.resolution_reason, edge.confidence))
+        .collect::<Vec<_>>();
+    // `require("a")` binds `M` in `main.lua`; `local M` hides the global `M`
+    // in `local.lua`, so neither call reaches `b.lua` through it.
+    assert!(
+        edges.contains(&(
+            "app/main.lua".to_owned(),
+            "a.lua".to_owned(),
+            LexicalResolutionReason::ImportedModule,
+            ConfidenceTier::High
+        )),
+        "{edges:?}"
+    );
+    assert!(
+        edges
+            .iter()
+            .all(|(_, _, reason, _)| *reason != LexicalResolutionReason::QualifiedPath),
+        "{edges:?}"
+    );
+    assert!(
+        edges
+            .iter()
+            .all(|(source, target, _, _)| !(source == "app/main.lua" && target == "b.lua")),
+        "{edges:?}"
+    );
+}
+
+#[test]
+fn qualifiers_that_reach_the_same_targets_share_one_edge() {
+    let qualified = |files: &[SourceFile]| {
+        graph::build_lexical_edges(files, &[], 32, 32)
+            .into_iter()
+            .filter(|edge| edge.resolution_reason == LexicalResolutionReason::QualifiedPath)
+            .map(|edge| (edge.source, edge.target, edge.qualifiers))
+            .collect::<Vec<_>>()
+    };
+    let strings = |values: &[&str]| values.iter().map(|value| (*value).to_owned()).collect::<Vec<_>>();
+    assert_eq!(
+        qualified(&[
+            source_file(
+                "src/lib.rs",
+                "mod map;\nfn run() { map::f(); crate::map::f(); self::map::f(); }\n",
+            ),
+            source_file("src/map.rs", "pub fn f() {}\n"),
+        ]),
+        [(
+            "src/lib.rs".to_owned(),
+            "src/map.rs".to_owned(),
+            strings(&["crate::map", "map", "self::map"])
+        )]
+    );
+    assert_eq!(
+        qualified(&[
+            source_file("app/caller.rb", "def run\n  Foo::Bar.baz\n  ::Foo::Bar.baz\nend\n"),
+            source_file(
+                "lib/foo/bar.rb",
+                "module Foo\n  class Bar\n    def self.baz; end\n  end\nend\n",
+            ),
+        ]),
+        [(
+            "app/caller.rb".to_owned(),
+            "lib/foo/bar.rb".to_owned(),
+            strings(&["::Foo::Bar", "Foo::Bar"])
+        )]
+    );
+    assert_eq!(
+        qualified(&[
+            source_file(
+                "src/app/Main.java",
+                "package app;\nclass Main { void run() { Util.f(); app.Util.f(); } }",
+            ),
+            source_file("src/app/Util.java", "package app;\nclass Util { static void f() {} }"),
+        ]),
+        [(
+            "src/app/Main.java".to_owned(),
+            "src/app/Util.java".to_owned(),
+            strings(&["Util", "app.Util"])
+        )]
+    );
+}

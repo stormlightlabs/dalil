@@ -589,7 +589,7 @@ mod tests {
                 resolution_reason: LexicalResolutionReason::SameModule,
                 confidence: ConfidenceTier::High,
                 target_visibility: SymbolVisibility::Public,
-                qualifier: None,
+                qualifiers: Vec::new(),
             }],
             relevant_tests: vec![ContextTest {
                 path: "tests/service.rs".to_owned(),
