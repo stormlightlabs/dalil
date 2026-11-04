@@ -3,7 +3,7 @@ id = "arcl-t-01M6G59W8XJBGKV90MFF92D9HA"
 phase = "arcl-ph-01M65H08QHQG2WE9TPFPAR1JTJ"
 title = "Attribute removed lines from the base revision"
 status = "pending"
-priority = "high"
+priority = "normal"
 position = 7
 +++
 

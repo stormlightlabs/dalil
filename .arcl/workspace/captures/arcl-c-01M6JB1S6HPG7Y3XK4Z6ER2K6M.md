@@ -1,7 +1,7 @@
 +++
 id = "arcl-c-01M6JB1S6HPG7Y3XK4Z6ER2K6M"
 title = "Leave context budget for task-matched files"
-status = "captured"
+status = "discarded"
 created-at = "2026-11-04T03:53:38.769Z"
 +++
 
