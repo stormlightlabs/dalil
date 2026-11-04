@@ -3,7 +3,7 @@ id = "arcl-t-01M65H08XBZ7BCV490F7BPRWF6"
 phase = "arcl-ph-01M65H08RDC7CBQ0Z8ATRYA2KY"
 title = "Intern paths, symbols, commits and authors"
 status = "pending"
-priority = "high"
+priority = "normal"
 position = 1
 +++
 

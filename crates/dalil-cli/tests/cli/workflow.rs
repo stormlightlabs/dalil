@@ -170,7 +170,8 @@ fn search_returns_path_symbol_concept_and_budget_limited_anchors() {
 fn search_uses_content_index_and_typed_filters() {
     let fixture = MapFixtureRepository::new();
 
-    let content = fixture.run(&["search", "let value", "--language", "rust", "--no-cache", "--json"]);
+    // Quotes keep the words one exact phrase, so only the file holding it matches.
+    let content = fixture.run(&["search", "\"let value\"", "--language", "rust", "--no-cache", "--json"]);
     assert!(
         content.status.success(),
         "content search failed: {}",
@@ -207,6 +208,190 @@ fn search_uses_content_index_and_typed_filters() {
     assert!(tests_only.status.success());
     let tests_only: Value = serde_json::from_str(&stdout(&tests_only)).expect("valid test-filtered search JSON");
     assert_eq!(tests_only["search"]["query"]["bounds"]["total"], 0);
+}
+
+#[test]
+fn search_splits_plain_queries_into_ranked_terms() {
+    let fixture = MapFixtureRepository::new();
+    write_file(fixture.root.join("src/cache_store.rs"), b"pub struct CacheStore {}\n");
+    write_file(fixture.root.join("src/cache.rs"), b"pub fn cache() {}\n");
+    let search = |arguments: &[&str]| -> Value {
+        let output = fixture.run(arguments);
+        assert!(
+            output.status.success(),
+            "search failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_str(&stdout(&output)).expect("valid search JSON")
+    };
+
+    // A multi-word query matches any of its terms and ranks the file matching most first.
+    let words = search(&[
+        "search",
+        "duplicate parse value",
+        "--limit",
+        "12",
+        "--no-cache",
+        "--json",
+    ]);
+    let matches = words["search"]["matches"].as_array().expect("matches");
+    assert_eq!(matches[0]["path"], "src/lib.rs");
+    assert_eq!(matches[0]["matched_terms"], serde_json::json!(["parse", "value"]));
+    assert_eq!(matches[0]["symbol"]["name"], "parse");
+    for path in ["src/one.rs", "src/two.rs", "src/use.rs"] {
+        assert!(
+            matches.iter().any(|result| result["path"] == path),
+            "{path} matches `duplicate`: {matches:?}"
+        );
+    }
+    let markdown = stdout(&fixture.run(&["search", "duplicate parse value", "--no-cache"]));
+    assert!(markdown.contains("Matched terms: `parse`, `value`"), "{markdown}");
+
+    // A quoted phrase matches only where its words are contiguous.
+    let phrase = search(&["search", "\"value let\"", "--no-cache", "--json"]);
+    assert!(phrase["search"]["matches"].as_array().is_some_and(Vec::is_empty));
+    let phrase = search(&["search", "\"let value\"", "--no-cache", "--json"]);
+    assert_eq!(phrase["search"]["matches"][0]["path"], "src/lib.rs");
+    assert_eq!(
+        phrase["search"]["matches"][0]["matched_terms"],
+        serde_json::json!(["let value"])
+    );
+
+    // A camelCase identifier splits into its words and also matches whole.
+    let identifier = search(&["search", "CacheStore", "--no-cache", "--json"]);
+    let matches = identifier["search"]["matches"].as_array().expect("matches");
+    assert_eq!(matches[0]["path"], "src/cache_store.rs");
+    assert_eq!(matches[0]["symbol"]["name"], "CacheStore");
+    assert_eq!(
+        matches[0]["matched_terms"],
+        serde_json::json!(["cache", "store", "cachestore"])
+    );
+    assert_eq!(matches[1]["path"], "src/cache.rs");
+    assert_eq!(matches[1]["matched_terms"], serde_json::json!(["cache"]));
+
+    // No term matches anything.
+    let missing = search(&["search", "zqxv unfindable", "--no-cache", "--json"]);
+    assert!(missing["search"]["matches"].as_array().is_some_and(Vec::is_empty));
+    assert_eq!(missing["search"]["budget"]["total_candidates"], 0);
+    assert!(
+        missing["search"]["shortfall"]["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("No strong"))
+    );
+}
+
+/// Check `value` against the JSON Schema keywords the v1 schema uses, and
+/// return the first violation with its JSON path.
+fn schema_violation(root: &Value, schema: &Value, value: &Value, at: &str) -> Option<String> {
+    if let Some(reference) = schema["$ref"].as_str() {
+        let name = reference.strip_prefix("#/$defs/").expect("local reference");
+        return schema_violation(root, &root["$defs"][name], value, at);
+    }
+    let type_name = match value {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(number) if number.is_i64() || number.is_u64() => "integer",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    };
+    let types = match &schema["type"] {
+        Value::String(name) => vec![name.as_str()],
+        Value::Array(names) => names.iter().filter_map(Value::as_str).collect(),
+        _ => Vec::new(),
+    };
+    if !types.is_empty()
+        && !types
+            .iter()
+            .any(|name| *name == type_name || (*name == "number" && type_name == "integer"))
+    {
+        return Some(format!("{at}: {type_name} is not {types:?}"));
+    }
+    if let Some(values) = schema["enum"].as_array() {
+        if !values.contains(value) {
+            return Some(format!("{at}: {value} is not in {values:?}"));
+        }
+    }
+    if let Some(expected) = schema.get("const") {
+        if expected != value {
+            return Some(format!("{at}: {value} is not {expected}"));
+        }
+    }
+    if let (Some(minimum), Some(number)) = (schema["minimum"].as_f64(), value.as_f64()) {
+        if number < minimum {
+            return Some(format!("{at}: {number} is under {minimum}"));
+        }
+    }
+    if let (Some(maximum), Some(number)) = (schema["maximum"].as_f64(), value.as_f64()) {
+        if number > maximum {
+            return Some(format!("{at}: {number} is over {maximum}"));
+        }
+    }
+    if let (Some(min_length), Some(text)) = (schema["minLength"].as_u64(), value.as_str()) {
+        if (text.chars().count() as u64) < min_length {
+            return Some(format!("{at}: shorter than {min_length}"));
+        }
+    }
+    if let (Some(items), Some(values)) = (schema.get("items"), value.as_array()) {
+        for (index, item) in values.iter().enumerate() {
+            if let Some(violation) = schema_violation(root, items, item, &format!("{at}[{index}]")) {
+                return Some(violation);
+            }
+        }
+    }
+    if let Some(object) = value.as_object() {
+        for field in schema["required"].as_array().into_iter().flatten() {
+            let field = field.as_str().expect("required field name");
+            if !object.contains_key(field) {
+                return Some(format!("{at}: missing `{field}`"));
+            }
+        }
+        for (key, item) in object {
+            match schema["properties"].get(key) {
+                Some(property) => {
+                    if let Some(violation) = schema_violation(root, property, item, &format!("{at}.{key}")) {
+                        return Some(violation);
+                    }
+                }
+                None if schema["additionalProperties"] == Value::Bool(false) => {
+                    return Some(format!("{at}: `{key}` is not allowed"));
+                }
+                None => {}
+            }
+        }
+    }
+    None
+}
+
+#[test]
+fn plain_search_matches_validate_against_both_schema_copies() {
+    let fixture = MapFixtureRepository::new();
+    let output = fixture.run(&["search", "duplicate parse value", "--no-cache", "--json"]);
+    assert!(
+        output.status.success(),
+        "search failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_str(&stdout(&output)).expect("valid search JSON");
+    let matches = report["search"]["matches"].as_array().expect("matches");
+    assert!(matches.iter().any(|result| result.get("matched_terms").is_some()));
+
+    for (name, schema) in [
+        ("schema/v1/dalil.json", include_str!("../../../../schema/v1/dalil.json")),
+        (
+            "crates/dalil-core/schema/v1/dalil.json",
+            include_str!("../../../dalil-core/schema/v1/dalil.json"),
+        ),
+    ] {
+        let schema: Value = serde_json::from_str(schema).expect("schema is valid JSON");
+        let search_match = &schema["$defs"]["search_match"];
+        for (index, result) in matches.iter().enumerate() {
+            if let Some(violation) = schema_violation(&schema, search_match, result, &format!("matches[{index}]")) {
+                panic!("{name}: {violation}");
+            }
+        }
+    }
 }
 
 #[test]

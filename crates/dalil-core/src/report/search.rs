@@ -12,7 +12,7 @@ pub(crate) fn query_request(request: &SearchRequest, repository: &str, cache_mod
             filters.symbol = Some(SymbolQuery { name: request.query.clone(), mode: QueryMatchMode::Exact, role: None });
         }
     } else if filters.text.is_none() {
-        filters.text = Some(TextQuery { value: request.query.clone(), mode: QueryMatchMode::Substring });
+        filters.text = Some(TextQuery { value: request.query.clone(), mode: QueryMatchMode::Terms });
     }
     QueryRequest {
         repository: repository.to_owned(),
@@ -59,6 +59,7 @@ pub(crate) fn from_query(query: QueryResults) -> SearchResults {
             symbol: result.symbol.clone(),
             score: result.score,
             anchor: false,
+            matched_terms: result.matched_terms.clone(),
         })
         .collect::<Vec<_>>();
     let shortfall = if query.bounds.total == 0 {
@@ -95,6 +96,7 @@ pub(crate) fn from_query(query: QueryResults) -> SearchResults {
             returned: query.bounds.returned,
             estimated_tokens: query.bounds.estimated_tokens,
             truncated: !query.is_complete(),
+            dropped_terms: query.bounds.dropped_terms,
         },
         shortfall,
         limitations: query.limitations.clone(),
@@ -165,13 +167,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn plain_search_defaults_to_a_substring_text_query() {
+    fn plain_search_defaults_to_a_terms_text_query() {
         let request = SearchRequest { query: "invalidation".to_owned(), ..SearchRequest::default() };
         let query = query_request(&request, "/fixture", CacheMode::Disabled);
 
         assert_eq!(
             query.filters.text.as_ref().map(|text| text.mode),
-            Some(QueryMatchMode::Substring)
+            Some(QueryMatchMode::Terms)
         );
         assert_eq!(
             query.filters.text.as_ref().map(|text| text.value.as_str()),

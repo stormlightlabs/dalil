@@ -6,16 +6,19 @@ use std::path::Path;
 use clap::Command;
 use clap_complete::{Shell, generate_to};
 
+mod replay;
+
 fn main() -> io::Result<()> {
     match env::args().nth(1).as_deref() {
         Some("release-assets") => generate_release_assets(),
+        Some("replay") => replay::run(env::args_os().skip(2)),
         Some(command) => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("unknown xtask `{command}`; expected `release-assets`"),
+            format!("unknown xtask `{command}`; expected `release-assets` or `replay`"),
         )),
         None => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "missing xtask; expected `release-assets`",
+            "missing xtask; expected `release-assets` or `replay`",
         )),
     }
 }

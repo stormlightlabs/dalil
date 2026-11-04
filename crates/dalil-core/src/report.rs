@@ -6,6 +6,7 @@ mod orientation;
 mod query;
 mod relationships;
 mod search;
+mod terms;
 mod traversal;
 
 use std::collections::{BTreeMap, BTreeSet};

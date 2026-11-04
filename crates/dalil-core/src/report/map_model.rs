@@ -798,6 +798,10 @@ impl Default for QueryRequest {
     }
 }
 
+const fn is_zero(value: &usize) -> bool {
+    *value == 0
+}
+
 const fn default_query_result_limit() -> usize {
     20
 }
@@ -839,6 +843,9 @@ pub enum QueryMatchMode {
     Prefix,
     #[default]
     Substring,
+    /// Split text into terms and rank results by how many terms match and
+    /// where. Path, symbol and project filters read it as `substring`.
+    Terms,
 }
 
 impl QueryMatchMode {
@@ -847,6 +854,7 @@ impl QueryMatchMode {
             Self::Exact => "exact",
             Self::Prefix => "prefix",
             Self::Substring => "substring",
+            Self::Terms => "terms",
         }
     }
 }
@@ -959,6 +967,10 @@ pub struct QueryBounds {
     pub truncated: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub continuation: Option<QueryCursor>,
+    /// Distinct terms a `terms` text query held past the term cap, which it
+    /// did not search.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub dropped_terms: usize,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -984,6 +996,9 @@ pub struct QueryMatch {
     pub ambiguous: bool,
     pub partial: bool,
     pub score: u64,
+    /// The query terms this result matched, for a `terms` text query.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub matched_terms: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub limitations: Vec<String>,
 }
@@ -1791,6 +1806,9 @@ pub struct SearchMatch {
     pub score: u64,
     #[serde(default)]
     pub anchor: bool,
+    /// The query terms this result matched, for a plain query.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub matched_terms: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1817,6 +1835,9 @@ pub struct SearchBudget {
     pub returned: usize,
     pub estimated_tokens: usize,
     pub truncated: bool,
+    /// Distinct query terms past the term cap, which the search did not use.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub dropped_terms: usize,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

@@ -3,7 +3,7 @@ id = "arcl-t-01M65H092MYZSYJ3YR5SYQJ2WZ"
 phase = "arcl-ph-01M65H08T6XANNJTGAFMMKV0VE"
 title = "Release with fabrial's dist flow"
 status = "pending"
-priority = "high"
+priority = "normal"
 position = 1
 blocked-by = ["arcl-t-01M65H093DD9QMJAYD27BA5P28"]
 +++

@@ -148,7 +148,8 @@
         "target": { "enum": ["path", "symbol"] },
         "symbol": { "type": ["object", "null"] },
         "score": { "type": "integer", "minimum": 0 },
-        "anchor": { "type": "boolean" }
+        "anchor": { "type": "boolean" },
+        "matched_terms": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
     },
@@ -161,7 +162,8 @@
         "total_candidates": { "type": "integer", "minimum": 0 },
         "returned": { "type": "integer", "minimum": 0 },
         "estimated_tokens": { "type": "integer", "minimum": 0 },
-        "truncated": { "type": "boolean" }
+        "truncated": { "type": "boolean" },
+        "dropped_terms": { "type": "integer", "minimum": 1 }
       },
       "additionalProperties": false
     },

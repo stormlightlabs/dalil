@@ -731,6 +731,12 @@ struct ExportCommand {
     dalil search cache --limit 3 --budget 600
     dalil search --symbol CacheStore --language rust --symbol-kind struct
     dalil search invalidation --test only --changed-path src/cache.rs
+    dalil search '\"cache invalidation\"'
+
+A plain query is split into terms, including the words of a camelCase or
+snake_case identifier. Results rank by how many terms match, then by where
+they match: symbol name, then path, then content. Quote words to match them as
+one exact phrase.
 
 Search uses the shared bounded repository query model for source content,
 paths, symbols, and filters. Human output is concise; `--json` includes the
@@ -1071,7 +1077,7 @@ impl SearchOptions {
     fn query_filters(&self, query: &str, mode: SearchQueryMode) -> QueryFilters {
         QueryFilters {
             text: (mode == SearchQueryMode::Plain)
-                .then(|| report::TextQuery { value: query.to_owned(), mode: QueryMatchMode::Substring }),
+                .then(|| report::TextQuery { value: query.to_owned(), mode: QueryMatchMode::Terms }),
             symbol: (mode == SearchQueryMode::Symbol).then(|| SymbolQuery {
                 name: query.to_owned(),
                 mode: QueryMatchMode::Exact,

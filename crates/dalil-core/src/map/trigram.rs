@@ -218,24 +218,33 @@ impl TrigramIndex {
                 ])
             })
             .collect::<Vec<_>>();
-        let Some(anchor) = query_trigrams
+        // Start from the rarest trigram. Its offset in the query is subtracted
+        // from each of its positions to find where the query would start.
+        let Some((anchor_offset, anchor)) = query_trigrams
             .iter()
-            .min_by_key(|trigram| self.postings.get(trigram).map_or(0, Vec::len))
+            .enumerate()
+            .min_by_key(|(_, trigram)| self.postings.get(trigram).map_or(0, Vec::len))
         else {
             return Vec::new();
         };
         let Some(anchor_postings) = self.postings.get(anchor) else {
             return Vec::new();
         };
+        let Some(anchor_offset) = u32::try_from(anchor_offset).ok() else {
+            return Vec::new();
+        };
 
         let mut matches = BTreeSet::new();
         for posting in anchor_postings {
             if posting.positions.iter().any(|&position| {
+                let Some(start) = position.checked_sub(anchor_offset) else {
+                    return false;
+                };
                 query_trigrams.iter().enumerate().all(|(offset, trigram)| {
                     let Some(offset) = u32::try_from(offset).ok() else {
                         return false;
                     };
-                    let Some(position) = position.checked_add(offset) else {
+                    let Some(position) = start.checked_add(offset) else {
                         return false;
                     };
                     self.postings.get(trigram).is_some_and(|postings| {
@@ -308,6 +317,17 @@ mod tests {
 
         assert_eq!(index.search_str("abc---"), [String::from("src/a.rs")]);
         assert!(index.search_str("abcabc").is_empty());
+    }
+
+    #[test]
+    fn matches_when_the_rarest_trigram_is_not_the_first() {
+        let mut index = TrigramIndex::default();
+        index.insert("src/a.rs", b"cache invalidation marker");
+        index.insert("src/b.rs", b"cache only");
+        index.insert("src/c.rs", b"cache too");
+
+        assert_eq!(index.search_str("cache invalidation"), [String::from("src/a.rs")]);
+        assert!(index.search_str("cache onlyx").is_empty());
     }
 
     #[test]
