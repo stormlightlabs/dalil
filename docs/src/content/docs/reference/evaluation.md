@@ -73,30 +73,37 @@ The summary gives the median of each over successful runs.
 
 Measured on 2026-11-04 with Dalil 0.1.0 built from `4ac74b4`, at its
 defaults (budget 1000, search limit 10), one run per case on a Linux container.
+The `dalil search`, terms rows rerun the same cases with Dalil built from the
+change that splits a plain query into ranked terms (branch commit `38ac9a1`).
 
 Dalil at `4ac74b4c77ebc8c7aa7c8c1e151de88bfeee229d`: 60 cases, 2 commits
 skipped for changing more than 50 files.
 
-| Ranker          | Recall@5 / @10 | In parent @5 / @10 | Median bytes | Median ms |
-| --------------- | -------------- | ------------------ | -----------: | --------: |
-| `dalil context` | 6.1% / 6.1%    | 8.4% / 8.4%        |        10568 |      1734 |
-| `dalil search`  | 0.0% / 0.0%    | 0.0% / 0.0%        |        11046 |      1837 |
-| baseline        | 23.5% / 38.1%  | 26.5% / 43.4%      |          214 |        14 |
+| Ranker                    | Recall@5 / @10 | In parent @5 / @10 | Median bytes | Median ms |
+| ------------------------- | -------------- | ------------------ | -----------: | --------: |
+| `dalil context`           | 6.1% / 6.1%    | 8.4% / 8.4%        |        10568 |      1734 |
+| `dalil search`, substring | 0.0% / 0.0%    | 0.0% / 0.0%        |        11046 |      1837 |
+| `dalil search`, terms     | 12.2% / 12.2%  | 14.2% / 14.2%      |        21098 |      2067 |
+| baseline                  | 23.5% / 38.1%  | 26.5% / 43.4%      |          214 |        14 |
 
 [sharkdp/fd](https://github.com/sharkdp/fd) (MIT or Apache-2.0) at
 `cc4e40fa4e32d61733cd72926e233a3fb6c8d56d`: 60 cases, 36 merge commits
 skipped.
 
-| Ranker          | Recall@5 / @10 | In parent @5 / @10 | Median bytes | Median ms |
-| --------------- | -------------- | ------------------ | -----------: | --------: |
-| `dalil context` | 3.3% / 3.3%    | 3.3% / 3.3%        |        10266 |       570 |
-| `dalil search`  | 0.0% / 0.0%    | 0.0% / 0.0%        |        10606 |       438 |
-| baseline        | 77.6% / 93.0%  | 77.8% / 93.3%      |          144 |         8 |
+| Ranker                    | Recall@5 / @10 | In parent @5 / @10 | Median bytes | Median ms |
+| ------------------------- | -------------- | ------------------ | -----------: | --------: |
+| `dalil context`           | 3.3% / 3.3%    | 3.3% / 3.3%        |        10266 |       570 |
+| `dalil search`, substring | 0.0% / 0.0%    | 0.0% / 0.0%        |        10606 |       438 |
+| `dalil search`, terms     | 21.8% / 21.8%  | 21.9% / 21.9%      |        20791 |       521 |
+| baseline                  | 77.6% / 93.0%  | 77.8% / 93.3%      |          144 |         8 |
 
 `dalil context` recommended one or two files per case. Of its 140
-recommendations, 139 were `README.md`, `AGENTS.md` or `Makefile`. `dalil search`
-matches a plain query as one substring, so no subject returned a result. fd
-has 61 tracked files, so its baseline top 10 covers a sixth of the tree.
+recommendations, 139 were `README.md`, `AGENTS.md` or `Makefile`. Built from
+`4ac74b4`, `dalil search` matched a plain query as one substring, so no subject
+returned a result. With terms, it returned a median of 3 paths per
+case and at most 5, because the 1000-token budget filled first; recall@10
+equals recall@5 for that reason. fd has 61 tracked files, so its baseline top
+10 covers a sixth of the tree.
 
 ## Rerun
 
@@ -112,6 +119,9 @@ cargo replay --dalil "$dalil" --repo . --rev 4ac74b4c77ebc8c7aa7c8c1e151de88bfee
 git clone https://github.com/sharkdp/fd.git /tmp/fd
 cargo replay --dalil "$dalil" --repo /tmp/fd --rev cc4e40fa4e32d61733cd72926e233a3fb6c8d56d --commits 60
 ```
+
+For the terms rows, pass a Dalil built from `main` after term splitting merged,
+with the same `--rev` values.
 
 Each run writes `results.json` and `summary.md` to `target/replay/<name>`, or
 to `--out`.
