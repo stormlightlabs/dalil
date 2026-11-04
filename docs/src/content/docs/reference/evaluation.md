@@ -19,7 +19,10 @@ cargo replay --repo <path> --commits 60 [--rev <revision>] [--out <dir>]
 
 The harness walks back from `--rev` (default `HEAD`), newest commit first. It
 skips merge commits, root commits, and commits that change no files or more
-than 50. It stops after `--commits` cases.
+than 50. It also skips a commit whose parent tree cannot be written safely: an
+entry name that a macOS or Windows filesystem reads as `.git`, such as `GIT~1`,
+or two paths that differ only in case or Unicode normalization. It stops after
+`--commits` cases.
 
 Each case reads the parent's tree with `gix` into a directory under the system
 temporary directory, named `dalil-replay-<pid>-<case>`. The directory holds a
@@ -27,8 +30,8 @@ temporary directory, named `dalil-replay-<pid>-<case>`. The directory holds a
 `objects/info/alternates`, with `HEAD` on the parent commit. Blobs are written
 straight from the object database. No `git` process, checkout, hook, filter or
 attribute runs, and no index is written. The directory is removed when the
-case ends or on Ctrl-C, and a later run removes those left by a run that was
-killed.
+case ends or on Ctrl-C. A later run removes those that the same user's killed
+runs left, and warns about any it cannot remove.
 
 ## Commands
 
@@ -96,10 +99,17 @@ has 61 tracked files, so its baseline top 10 covers a sixth of the tree.
 
 ## Rerun
 
+The numbers above are for Dalil built at `4ac74b4`. That commit predates
+`cargo replay`, so build Dalil there in a separate worktree and pass the binary
+with `--dalil`:
+
 ```sh
-cargo replay --repo . --rev 4ac74b4c77ebc8c7aa7c8c1e151de88bfeee229d --commits 60
+git worktree add /tmp/dalil-4ac74b4 4ac74b4c77ebc8c7aa7c8c1e151de88bfeee229d
+cargo build --release --package dalil --manifest-path /tmp/dalil-4ac74b4/Cargo.toml
+dalil=/tmp/dalil-4ac74b4/target/release/dalil
+cargo replay --dalil "$dalil" --repo . --rev 4ac74b4c77ebc8c7aa7c8c1e151de88bfeee229d --commits 60
 git clone https://github.com/sharkdp/fd.git /tmp/fd
-cargo replay --repo /tmp/fd --rev cc4e40fa4e32d61733cd72926e233a3fb6c8d56d --commits 60
+cargo replay --dalil "$dalil" --repo /tmp/fd --rev cc4e40fa4e32d61733cd72926e233a3fb6c8d56d --commits 60
 ```
 
 Each run writes `results.json` and `summary.md` to `target/replay/<name>`, or

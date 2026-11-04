@@ -229,3 +229,210 @@ fn replay_reports_each_command_and_cleans_up() {
     assert!(remaining.is_empty(), "{remaining:?}");
     fs::remove_dir_all(scratch).unwrap();
 }
+
+/// A stand-in for Dalil that copies each checkout's `.git` to `$DALIL_PROBE` and reports no paths. With
+/// `DALIL_SLEEP` set, `context` touches `$DALIL_PROBE/started` and sleeps instead.
+#[cfg(unix)]
+fn fake_dalil(directory: &Path) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let script = directory.join("fake-dalil");
+    fs::write(
+        &script,
+        r#"#!/bin/sh
+case "$1" in
+--version) echo "dalil 0.0.0-fake" ;;
+context)
+    if [ -n "$DALIL_SLEEP" ]; then
+        touch "$DALIL_PROBE/started"
+        exec sleep 30
+    fi
+    mkdir -p "$DALIL_PROBE/$$"
+    cp -R .git "$DALIL_PROBE/$$/.git"
+    echo '{"context":{"files":[]}}' ;;
+search) echo '{"search":{"matches":[]}}' ;;
+esac
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    script
+}
+
+#[cfg(unix)]
+fn replay_command(repository: &Path, dalil: &Path, temp: &Path, out: &Path, probe: &Path) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_xtask"));
+    command
+        .arg("replay")
+        .arg("--repo")
+        .arg(repository)
+        .args(["--commits", "3", "--dalil"])
+        .arg(dalil)
+        .arg("--out")
+        .arg(out)
+        .env("TMPDIR", temp)
+        .env("DALIL_PROBE", probe);
+    command
+}
+
+#[cfg(unix)]
+fn scratch(name: &str) -> PathBuf {
+    let scratch = std::env::temp_dir().join(format!("xtask-replay-{name}-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&scratch);
+    for directory in ["repository", "tmp", "probe"] {
+        fs::create_dir_all(scratch.join(directory)).unwrap();
+    }
+    scratch
+}
+
+#[cfg(unix)]
+#[test]
+fn each_checkout_has_only_the_parent_reachable() {
+    let scratch = scratch("refs");
+    let repository = scratch.join("repository");
+    let probe = scratch.join("probe");
+    build_repository(&repository);
+    // A tag on the newest commit must not reach the checkouts.
+    let head = fs::read_to_string(repository.join(".git/refs/heads/main")).unwrap();
+    fs::create_dir_all(repository.join(".git/refs/tags")).unwrap();
+    fs::write(repository.join(".git/refs/tags/v1"), &head).unwrap();
+    fs::write(
+        repository.join(".git/packed-refs"),
+        format!("{} refs/tags/v2\n", head.trim()),
+    )
+    .unwrap();
+
+    let output = replay_command(
+        &repository,
+        &fake_dalil(&scratch),
+        &scratch.join("tmp"),
+        &scratch.join("out"),
+        &probe,
+    )
+    .output()
+    .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+
+    let report: Value = serde_json::from_slice(&fs::read(scratch.join("out/results.json")).unwrap()).unwrap();
+    let mut parents: Vec<String> = report["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|case| case["parent"].as_str().unwrap().to_owned())
+        .collect();
+    parents.sort();
+    assert_eq!(parents.len(), 3);
+
+    let mut heads = Vec::new();
+    for copy in fs::read_dir(&probe).unwrap() {
+        let copy = copy.unwrap().path();
+        assert!(!copy.join(".git/packed-refs").exists());
+        let checkout = gix::open(&copy).unwrap();
+        let refs: Vec<String> = checkout
+            .references()
+            .unwrap()
+            .all()
+            .unwrap()
+            .map(|reference| reference.unwrap().name().as_bstr().to_string())
+            .collect();
+        assert_eq!(refs, ["refs/heads/replay"]);
+        heads.push(checkout.head_id().unwrap().to_string());
+    }
+    heads.sort();
+    assert_eq!(heads, parents);
+    fs::remove_dir_all(scratch).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn an_interrupted_replay_removes_its_checkout() {
+    use std::os::unix::process::CommandExt;
+    use std::time::{Duration, Instant};
+
+    let scratch = scratch("interrupt");
+    let repository = scratch.join("repository");
+    let temp = scratch.join("tmp");
+    let probe = scratch.join("probe");
+    build_repository(&repository);
+    let mut child = replay_command(&repository, &fake_dalil(&scratch), &temp, &scratch.join("out"), &probe)
+        .env("DALIL_SLEEP", "1")
+        .process_group(0)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = libc::pid_t::try_from(child.id()).unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !probe.join("started").exists() {
+        assert!(Instant::now() < deadline, "the first case never started");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // As a terminal does on Ctrl-C: the whole process group gets SIGINT.
+    // SAFETY: kill only sends a signal to the group the test spawned.
+    assert_eq!(unsafe { libc::kill(-pid, libc::SIGINT) }, 0);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            panic!("replay did not exit after SIGINT");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(!status.success());
+    let remaining: Vec<_> = fs::read_dir(&temp)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert!(remaining.is_empty(), "{remaining:?}");
+    assert!(!scratch.join("out/results.json").exists());
+    fs::remove_dir_all(scratch).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn a_tree_that_names_git_is_skipped() {
+    let scratch = scratch("unsafe");
+    let repository = scratch.join("repository");
+    let git = gix::init(&repository).unwrap();
+    let first = commit(
+        &git,
+        &files(&[("README.md", "# demo\n"), ("GIT~1/hooks/post-checkout", "#!/bin/sh\n")]),
+        &[],
+        1_000,
+        "Initial import",
+    );
+    let second = commit(
+        &git,
+        &files(&[
+            ("README.md", "# demo 2\n"),
+            ("GIT~1/hooks/post-checkout", "#!/bin/sh\n"),
+        ]),
+        &[first],
+        2_000,
+        "Edit the readme",
+    );
+    fs::write(repository.join(".git/refs/heads/main"), format!("{second}\n")).unwrap();
+
+    let output = replay_command(
+        &repository,
+        &fake_dalil(&scratch),
+        &scratch.join("tmp"),
+        &scratch.join("out"),
+        &scratch.join("probe"),
+    )
+    .output()
+    .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let report: Value = serde_json::from_slice(&fs::read(scratch.join("out/results.json")).unwrap()).unwrap();
+    assert_eq!(report["cases"], serde_json::json!([]));
+    let reasons: Vec<&str> = report["skipped"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|skip| skip["reason"].as_str().unwrap())
+        .collect();
+    assert_eq!(reasons, ["unsafe tree: entry name \"GIT~1\"", "root commit"]);
+    fs::remove_dir_all(scratch).unwrap();
+}

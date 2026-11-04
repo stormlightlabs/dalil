@@ -135,8 +135,12 @@ pub fn run(arguments: impl Iterator<Item = OsString>) -> io::Result<()> {
     let args = Args::parse_from(std::iter::once(OsString::from("cargo replay")).chain(arguments));
     checkout::install_interrupt_handler();
     let temp_root = std::env::temp_dir();
-    for removed in checkout::remove_leftovers(&temp_root)? {
+    let leftovers = checkout::remove_leftovers(&temp_root)?;
+    for removed in &leftovers.removed {
         eprintln!("removed leftover {}", removed.display());
+    }
+    for (path, error) in &leftovers.failed {
+        eprintln!("warning: could not remove leftover {}: {error}", path.display());
     }
 
     let dalil = match args.dalil {
@@ -156,7 +160,7 @@ pub fn run(arguments: impl Iterator<Item = OsString>) -> io::Result<()> {
         .peel_to_commit()
         .map_err(other)?
         .id;
-    let (candidates, skipped) = select_cases(&source, head, args.commits)?;
+    let (candidates, mut skipped) = select_cases(&source, head, args.commits)?;
 
     let mut cases = Vec::new();
     for (index, candidate) in candidates.iter().enumerate() {
@@ -168,7 +172,17 @@ pub fn run(arguments: impl Iterator<Item = OsString>) -> io::Result<()> {
             short(&candidate.commit),
             candidate.subject
         );
-        cases.push(replay_case(&source, &dalil, &temp_root, index, candidate)?);
+        match unsafe_tree(replay_case(&source, &dalil, &temp_root, index, candidate))? {
+            Ok(case) => cases.push(case),
+            Err(reason) => {
+                eprintln!("skipped: {reason}");
+                skipped.push(Skipped {
+                    commit: candidate.commit.to_string(),
+                    subject: candidate.subject.clone(),
+                    reason,
+                });
+            }
+        }
     }
 
     let name = source
@@ -260,14 +274,38 @@ fn select_cases(
         };
         let parent_tree = parent_commit.tree_id().map_err(other)?.detach();
         let tree = commit.tree_id().map_err(other)?.detach();
-        let changed = checkout::changed_paths(repository, parent_tree, tree, MAX_CHANGED_FILES)?;
+        let changed = match unsafe_tree(checkout::changed_paths(
+            repository,
+            parent_tree,
+            tree,
+            MAX_CHANGED_FILES,
+        ))? {
+            Ok(changed) => changed,
+            Err(reason) => {
+                skipped.push(skip(reason));
+                continue;
+            }
+        };
         if let Some(reason) = change_skip(changed.len()) {
+            skipped.push(skip(reason));
+            continue;
+        }
+        // Check the parent tree now, so a tree that cannot be written does not take a case's place.
+        if let Err(reason) = unsafe_tree(checkout::flatten_tree(repository, parent_tree))? {
             skipped.push(skip(reason));
             continue;
         }
         candidates.push(Candidate { commit: info.id, parent: parents[0], parent_tree, subject, changed });
     }
     Ok((candidates, skipped))
+}
+
+/// Separate an unsafe tree, which skips one commit, from errors that stop the run.
+fn unsafe_tree<T>(result: io::Result<T>) -> io::Result<Result<T, String>> {
+    match result {
+        Ok(value) => Ok(Ok(value)),
+        Err(error) => checkout::unsafe_reason(&error).map(Err).ok_or(error),
+    }
 }
 
 fn replay_case(
