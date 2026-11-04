@@ -160,6 +160,7 @@ pub fn run(arguments: impl Iterator<Item = OsString>) -> io::Result<()> {
         .peel_to_commit()
         .map_err(other)?
         .id;
+    checkout::alternates_path(&source)?;
     let (candidates, mut skipped) = select_cases(&source, head, args.commits)?;
 
     let mut cases = Vec::new();
@@ -172,7 +173,7 @@ pub fn run(arguments: impl Iterator<Item = OsString>) -> io::Result<()> {
             short(&candidate.commit),
             candidate.subject
         );
-        match unsafe_tree(replay_case(&source, &dalil, &temp_root, index, candidate))? {
+        match unsafe_tree(replay_case(&source, &dalil, &temp_root, candidate))? {
             Ok(case) => cases.push(case),
             Err(reason) => {
                 eprintln!("skipped: {reason}");
@@ -259,6 +260,7 @@ fn select_cases(
         if candidates.len() >= wanted {
             break;
         }
+        check_interrupted()?;
         let info = info.map_err(other)?;
         let commit = repository.find_commit(info.id).map_err(other)?;
         let subject = commit.message().map_err(other)?.summary().to_string();
@@ -308,10 +310,8 @@ fn unsafe_tree<T>(result: io::Result<T>) -> io::Result<Result<T, String>> {
     }
 }
 
-fn replay_case(
-    source: &gix::Repository, dalil: &Path, temp_root: &Path, index: usize, candidate: &Candidate,
-) -> io::Result<Case> {
-    let case_dir = CaseDir::create(temp_root, index)?;
+fn replay_case(source: &gix::Repository, dalil: &Path, temp_root: &Path, candidate: &Candidate) -> io::Result<Case> {
+    let case_dir = CaseDir::create(temp_root)?;
     let checkout = case_dir.path().join("checkout");
     let cache = case_dir.path().join("cache");
     fs::create_dir_all(&checkout)?;

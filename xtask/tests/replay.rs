@@ -144,7 +144,7 @@ fn replay_reports_each_command_and_cleans_up() {
     let out = scratch.join("out");
     fs::create_dir_all(&repository).unwrap();
     // A directory a killed run would leave behind; no process can own this pid.
-    let leftover = temp.join("dalil-replay-4000000000-0/checkout");
+    let leftover = temp.join("dalil-replay-4000000000-a1B2c3/checkout");
     fs::create_dir_all(&leftover).unwrap();
     build_repository(&repository);
 
@@ -388,6 +388,53 @@ fn an_interrupted_replay_removes_its_checkout() {
     assert!(remaining.is_empty(), "{remaining:?}");
     assert!(!scratch.join("out/results.json").exists());
     fs::remove_dir_all(scratch).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn a_second_interrupt_ends_a_replay_stuck_on_dalil() {
+    use std::os::unix::process::{CommandExt, ExitStatusExt};
+    use std::time::{Duration, Instant};
+
+    let scratch = scratch("second-interrupt");
+    let repository = scratch.join("repository");
+    let temp = scratch.join("tmp");
+    let probe = scratch.join("probe");
+    build_repository(&repository);
+    let mut child = replay_command(&repository, &fake_dalil(&scratch), &temp, &scratch.join("out"), &probe)
+        .env("DALIL_SLEEP", "1")
+        .process_group(0)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = libc::pid_t::try_from(child.id()).unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !probe.join("started").exists() {
+        assert!(Instant::now() < deadline, "the first case never started");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // Only replay gets the signals, so the fake Dalil keeps sleeping as a hung child would. The first is recorded;
+    // a later one must end the process. Sending until it exits avoids two signals merging while one is pending.
+    let status = loop {
+        // SAFETY: kill only sends a signal to the process the test spawned.
+        unsafe { libc::kill(pid, libc::SIGINT) };
+        std::thread::sleep(Duration::from_millis(100));
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            // SAFETY: as above, for the group the test spawned.
+            unsafe { libc::kill(-pid, libc::SIGKILL) };
+            panic!("replay did not exit after a second SIGINT");
+        }
+    };
+    // SAFETY: as above; this ends the sleeping fake Dalil.
+    unsafe { libc::kill(-pid, libc::SIGKILL) };
+    assert_eq!(status.signal(), Some(libc::SIGINT));
+    let _ = fs::remove_dir_all(scratch);
 }
 
 #[cfg(unix)]

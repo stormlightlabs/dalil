@@ -24,14 +24,15 @@ entry name that a macOS or Windows filesystem reads as `.git`, such as `GIT~1`,
 or two paths that differ only in case or Unicode normalization. It stops after
 `--commits` cases.
 
-Each case reads the parent's tree with `gix` into a directory under the system
-temporary directory, named `dalil-replay-<pid>-<case>`. The directory holds a
-`.git` whose objects come from the source repository through
-`objects/info/alternates`, with `HEAD` on the parent commit. Blobs are written
-straight from the object database. No `git` process, checkout, hook, filter or
-attribute runs, and no index is written. The directory is removed when the
-case ends or on Ctrl-C. A later run removes those that the same user's killed
-runs left, and warns about any it cannot remove.
+Each case reads the parent's tree with `gix` into a new directory under the
+system temporary directory, named `dalil-replay-<pid>-<random suffix>` and
+readable only by its user. The directory holds a `.git` whose objects come
+from the source repository through `objects/info/alternates`, with `HEAD` on
+the parent commit. Blobs are written straight from the object database. No
+`git` process, checkout, hook, filter or attribute runs, and no index is
+written. The directory is removed when the case ends or on Ctrl-C; a second
+Ctrl-C exits at once and leaves it. A later run removes those that the same
+user's killed runs left, and warns about any it cannot remove.
 
 ## Commands
 

@@ -17,6 +17,9 @@ use super::other;
 /// Every case directory starts with this name, so a later run can find leftovers.
 pub const TEMP_PREFIX: &str = "dalil-replay-";
 
+/// Length of the random suffix that ends a case directory's name.
+const SUFFIX_LEN: usize = 6;
+
 /// The branch the temporary repository's `HEAD` points at.
 const REPLAY_BRANCH: &str = "refs/heads/replay";
 
@@ -27,9 +30,15 @@ static INTERRUPTED: AtomicBool = AtomicBool::new(false);
 #[cfg(unix)]
 extern "C" fn on_signal(_: libc::c_int) {
     INTERRUPTED.store(true, Ordering::SeqCst);
+    // SAFETY: signal is async-signal-safe. A second signal now ends the process, as when a child hangs.
+    unsafe {
+        libc::signal(libc::SIGINT, libc::SIG_DFL);
+        libc::signal(libc::SIGTERM, libc::SIG_DFL);
+    }
 }
 
-/// Record SIGINT and SIGTERM instead of exiting, so the running case can remove its directory.
+/// Record the first SIGINT or SIGTERM instead of exiting, so the running case can remove its directory. A second
+/// one ends the process at once.
 pub fn install_interrupt_handler() {
     #[cfg(unix)]
     {
@@ -78,29 +87,34 @@ pub fn unsafe_reason(error: &io::Error) -> Option<String> {
         .map(ToString::to_string)
 }
 
-/// A case's temporary directory, removed when dropped.
+/// A case's temporary directory, `dalil-replay-<pid>-<suffix>`, removed when dropped.
 pub struct CaseDir {
-    path: PathBuf,
+    dir: tempfile::TempDir,
 }
 
 impl CaseDir {
-    pub fn create(temp_root: &Path, case: usize) -> io::Result<Self> {
-        let path = temp_root.join(format!("{TEMP_PREFIX}{}-{case}", std::process::id()));
-        if path.exists() {
-            fs::remove_dir_all(&path)?;
+    /// Create a new directory under a random name, readable only by this user. The directory is made in one step and
+    /// never at a path that already exists, so nothing planted in `temp_root` is reused or followed.
+    pub fn create(temp_root: &Path) -> io::Result<Self> {
+        let prefix = format!("{TEMP_PREFIX}{}-", std::process::id());
+        let mut builder = tempfile::Builder::new();
+        builder.prefix(&prefix).rand_bytes(SUFFIX_LEN);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            builder.permissions(fs::Permissions::from_mode(0o700));
         }
-        fs::create_dir_all(&path)?;
-        Ok(Self { path })
+        let dir = builder.tempdir_in(temp_root).map_err(|error| {
+            io::Error::new(
+                error.kind(),
+                format!("cannot create a case directory in {}: {error}", temp_root.display()),
+            )
+        })?;
+        Ok(Self { dir })
     }
 
     pub fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for CaseDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
+        self.dir.path()
     }
 }
 
@@ -149,11 +163,12 @@ fn remove_leftovers_with(temp_root: &Path, remove: impl Fn(&Path) -> io::Result<
     Ok(leftovers)
 }
 
-/// The pid in a name [`CaseDir::create`] makes, `dalil-replay-<pid>-<case>`.
+/// The pid in a name [`CaseDir::create`] makes, `dalil-replay-<pid>-<suffix>`.
 fn case_dir_pid(name: &str) -> Option<u32> {
-    let (pid, case) = name.strip_prefix(TEMP_PREFIX)?.split_once('-')?;
-    let digits = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
-    if !digits(case) || !digits(pid) {
+    let (pid, suffix) = name.strip_prefix(TEMP_PREFIX)?.split_once('-')?;
+    let pid_ok = !pid.is_empty() && pid.bytes().all(|byte| byte.is_ascii_digit());
+    let suffix_ok = suffix.len() == SUFFIX_LEN && suffix.bytes().all(|byte| byte.is_ascii_alphanumeric());
+    if !pid_ok || !suffix_ok {
         return None;
     }
     pid.parse().ok()
@@ -366,10 +381,7 @@ pub fn materialize(source: &gix::Repository, parent: gix::ObjectId, files: &Tree
     let git = root.join(".git");
     fs::create_dir_all(git.join("objects/info"))?;
     fs::create_dir_all(git.join("refs/heads"))?;
-    let source_objects = fs::canonicalize(source.common_dir().join("objects"))?;
-    let alternates = source_objects
-        .to_str()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "source object path is not UTF-8"))?;
+    let alternates = alternates_path(source)?;
     fs::write(git.join("objects/info/alternates"), format!("{alternates}\n"))?;
     let shallow = source.common_dir().join("shallow");
     if shallow.is_file() {
@@ -413,6 +425,27 @@ pub fn materialize(source: &gix::Repository, parent: gix::ObjectId, files: &Tree
     Ok(())
 }
 
+/// The source's object directory as `objects/info/alternates` names it: absolute, UTF-8, and on one line. Every
+/// case needs it, so the run checks it before the first case.
+pub fn alternates_path(source: &gix::Repository) -> io::Result<String> {
+    let objects = source.common_dir().join("objects");
+    let canonical = fs::canonicalize(&objects)
+        .map_err(|error| io::Error::new(error.kind(), format!("{}: {error}", objects.display())))?;
+    let invalid = |reason: &str| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("source object path {}: {reason}", canonical.display()),
+        )
+    };
+    let path = canonical.to_str().ok_or_else(|| invalid("not UTF-8"))?;
+    if path.contains(['\n', '\r']) {
+        return Err(invalid(
+            "contains a line break, which objects/info/alternates cannot hold",
+        ));
+    }
+    Ok(path.to_owned())
+}
+
 /// Create the directories above `path` inside `root` and return where `path` goes. Refuses when a component is a
 /// link or `path` already exists, so a write cannot leave the checkout.
 fn prepare_target(root: &Path, path: &str) -> io::Result<PathBuf> {
@@ -454,7 +487,7 @@ mod tests {
     fn case_dir_is_removed_on_drop() {
         let root = scratch("drop");
         let path = {
-            let case = CaseDir::create(&root, 7).unwrap();
+            let case = CaseDir::create(&root).unwrap();
             fs::write(case.path().join("file"), "x").unwrap();
             case.path().to_owned()
         };
@@ -462,24 +495,81 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn case_dirs_are_new_private_and_never_follow_a_planted_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = scratch("planted");
+        let outside = root.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        let pid = std::process::id();
+        // What the old predictable names made easy to plant, and names of the new shape.
+        let planted_dir = root.join(format!("{TEMP_PREFIX}{pid}-0"));
+        fs::create_dir_all(&planted_dir).unwrap();
+        for name in [format!("{pid}-1"), format!("{pid}-aaaaaa"), format!("{pid}-ZZZZZZ")] {
+            std::os::unix::fs::symlink(&outside, root.join(format!("{TEMP_PREFIX}{name}"))).unwrap();
+        }
+        let cases: Vec<CaseDir> = (0..32).map(|_| CaseDir::create(&root).unwrap()).collect();
+        for case in &cases {
+            let metadata = fs::symlink_metadata(case.path()).unwrap();
+            assert!(metadata.is_dir() && !metadata.file_type().is_symlink());
+            assert_eq!(
+                metadata.permissions().mode() & 0o777,
+                0o700,
+                "{}",
+                case.path().display()
+            );
+            assert_eq!(case.path().parent(), Some(root.as_path()));
+            let name = case.path().file_name().unwrap().to_str().unwrap();
+            assert_eq!(case_dir_pid(name), Some(pid), "{name}");
+            fs::write(case.path().join("file"), "x").unwrap();
+        }
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+        assert_eq!(fs::read_dir(&planted_dir).unwrap().count(), 0);
+        drop(cases);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_missing_temp_root_is_named_in_the_error() {
+        let root = scratch("missing-root").join("absent");
+        let error = CaseDir::create(&root).err().unwrap();
+        assert!(error.to_string().contains(root.to_str().unwrap()), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_source_path_with_a_line_break_is_rejected() {
+        let root = scratch("newline");
+        let source = gix::init(root.join("a\nb")).unwrap();
+        let error = alternates_path(&source).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(error.to_string().contains("line break"), "{error}");
+        let plain = gix::init(root.join("plain")).unwrap();
+        assert!(alternates_path(&plain).unwrap().ends_with("objects"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn leftovers_from_dead_runs_are_removed() {
         let root = scratch("leftovers");
         // No process can have this pid: it is outside the range of pid_t.
-        let dead = root.join(format!("{TEMP_PREFIX}4000000000-0"));
-        let own = root.join(format!("{TEMP_PREFIX}{}-3", std::process::id()));
+        let dead = root.join(format!("{TEMP_PREFIX}4000000000-a1B2c3"));
+        let own = root.join(format!("{TEMP_PREFIX}{}-Zz9Yy8", std::process::id()));
         // Names replay never makes are left alone.
         let kept = [
             format!("{TEMP_PREFIX}junk"),
             format!("{TEMP_PREFIX}cache"),
             format!("{TEMP_PREFIX}4000000000"),
             format!("{TEMP_PREFIX}4000000000-x"),
-            format!("{TEMP_PREFIX}4000000000-0-1"),
-            format!("{TEMP_PREFIX}-0"),
+            format!("{TEMP_PREFIX}4000000000-a1B2c"),
+            format!("{TEMP_PREFIX}4000000000-a1B2c3d"),
+            format!("{TEMP_PREFIX}4000000000-a1B2-3"),
+            format!("{TEMP_PREFIX}-a1B2c3"),
             "other-tool-1".to_owned(),
         ]
         .map(|name| root.join(name));
-        let plain_file = root.join(format!("{TEMP_PREFIX}4000000000-1"));
+        let plain_file = root.join(format!("{TEMP_PREFIX}4000000000-plain1"));
         for directory in kept.iter().chain([&dead, &own]) {
             fs::create_dir_all(directory.join("nested")).unwrap();
         }
@@ -500,8 +590,8 @@ mod tests {
     #[test]
     fn a_failed_removal_is_reported_and_the_rest_continue() {
         let root = scratch("failed-removal");
-        let stuck = root.join(format!("{TEMP_PREFIX}4000000000-0"));
-        let dead = root.join(format!("{TEMP_PREFIX}4000000000-1"));
+        let stuck = root.join(format!("{TEMP_PREFIX}4000000000-stuck0"));
+        let dead = root.join(format!("{TEMP_PREFIX}4000000000-dead00"));
         fs::create_dir_all(&stuck).unwrap();
         fs::create_dir_all(&dead).unwrap();
         let leftovers = remove_leftovers_with(&root, |path| {
@@ -523,7 +613,7 @@ mod tests {
     #[test]
     fn directories_of_other_users_are_kept() {
         let root = scratch("other-user");
-        let theirs = root.join(format!("{TEMP_PREFIX}4000000000-0"));
+        let theirs = root.join(format!("{TEMP_PREFIX}4000000000-theirs"));
         fs::create_dir_all(&theirs).unwrap();
         let path = std::ffi::CString::new(theirs.to_str().unwrap()).unwrap();
         // SAFETY: `path` is a valid C string for the duration of the call.
@@ -543,7 +633,7 @@ mod tests {
     fn directories_of_live_runs_are_kept() {
         let root = scratch("live");
         // pid 1 always exists.
-        let live = root.join(format!("{TEMP_PREFIX}1-0"));
+        let live = root.join(format!("{TEMP_PREFIX}1-live00"));
         fs::create_dir_all(&live).unwrap();
         assert!(remove_leftovers(&root).unwrap().removed.is_empty());
         assert!(live.exists());
