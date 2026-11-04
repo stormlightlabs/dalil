@@ -231,6 +231,9 @@ pub(crate) fn compile(request: QueryRequest, map: &MapReport, change_resolution:
     omissions.truncate(MAX_QUERY_OMISSIONS);
     let estimated_tokens = estimate_matches(&matches);
     let mut limitations = query_limitations(map, &change_resolution, &request, &sources);
+    if let Some(index) = &term_index {
+        limitations.extend(term_limitations(&index.terms));
+    }
     if budget_stopped {
         limitations
             .push("The query token budget stopped the page before every matching fact could be returned.".to_owned());
@@ -255,6 +258,7 @@ pub(crate) fn compile(request: QueryRequest, map: &MapReport, change_resolution:
             estimated_tokens,
             truncated: omitted > 0,
             continuation,
+            dropped_terms: term_index.as_ref().map_or(0, |index| index.terms.dropped),
         },
         omissions,
         provenance,
@@ -548,7 +552,7 @@ fn match_text(query: &TextQuery, subject: &str) -> Option<MatchScore> {
         return QueryTerms::parse(&query.value)
             .terms
             .iter()
-            .any(|term| subject.contains(&term.text))
+            .any(|term| subject.contains(&term.lower))
             .then_some(MatchScore { score: 2_000_000_000, confidence: ConfidenceTier::Medium });
     }
     match_text_value(&query.value, query.mode, subject)
@@ -607,12 +611,39 @@ const NAME_WEIGHT: u64 = 3;
 const PATH_WEIGHT: u64 = 2;
 const CONTENT_WEIGHT: u64 = 1;
 
+/// The ranking keys of one `terms` candidate.
+struct TermRank {
+    /// Distinct terms matched.
+    distinct: usize,
+    /// The sum of each matched term's location weight.
+    weight: u64,
+    /// Terms whose symbol-name match came from a definition rather than an
+    /// import or reference.
+    definitions: u64,
+    /// Exact-phrase matches.
+    phrases: u64,
+    /// The map ranking of the path.
+    ranking: u64,
+}
+
 /// Pack the ranking keys into one score so that sorting by score orders by
-/// distinct terms matched, then location weight, then exact-phrase matches,
-/// then the map ranking.
-fn term_score(distinct: usize, weight: u64, phrases: u64, ranking: u64) -> u64 {
-    let distinct = u64::try_from(distinct).unwrap_or(u64::MAX).min(0xFFFF);
-    (distinct << 48) | (weight.min(0xFFFF) << 32) | (phrases.min(0xFF) << 24) | ranking.min(0xFF_FFFF)
+/// distinct terms matched, then location weight, then definition matches,
+/// then exact-phrase matches, then the map ranking. Each key fits its field:
+/// at most `MAX_QUERY_TERMS` terms, each weighing at most `NAME_WEIGHT`.
+fn term_score(rank: &TermRank) -> u64 {
+    let distinct = u64::try_from(rank.distinct).unwrap_or(u64::MAX).min(0xFF);
+    (distinct << 56)
+        | (rank.weight.min(0xFF) << 48)
+        | (rank.definitions.min(0xFF) << 40)
+        | (rank.phrases.min(0xFF) << 32)
+        | rank.ranking.min(0xFFFF_FFFF)
+}
+
+/// Whether a symbol defines its name, rather than importing or referencing it.
+fn is_definition(symbol: &SourceSymbol) -> bool {
+    symbol.role == SymbolRole::Definition
+        && symbol.evidence != SymbolEvidence::Import
+        && symbol.kind != SymbolKind::Import
 }
 
 /// One candidate for a source under a `terms` text query: the file, carrying
@@ -630,7 +661,7 @@ fn term_candidate(
         .symbols
         .iter()
         .filter(|symbol| symbol_score(symbol, filters).is_some())
-        .map(|symbol| (symbol, NameText::new(&symbol.name), symbol.context.to_lowercase()))
+        .map(|symbol| (symbol, NameText::new(&symbol.name), symbol.context.to_ascii_lowercase()))
         .collect::<Vec<_>>();
     if symbol_matches_are_required(filters) && symbols.is_empty() {
         return None;
@@ -638,12 +669,21 @@ fn term_candidate(
 
     let mut matched = Vec::new();
     let mut weight = 0;
+    let mut definitions = 0;
     let mut phrases = 0;
     let mut locations = BTreeSet::new();
     for (term, content) in terms.iter().zip(&index.content) {
-        let location = if symbols.iter().any(|(_, name, _)| name.contains(&term.text)) {
+        let named = symbols
+            .iter()
+            .filter(|(_, name, _)| name.contains(&term.lower))
+            .map(|(symbol, _, _)| *symbol)
+            .collect::<Vec<_>>();
+        let location = if !named.is_empty() {
+            if named.iter().any(|symbol| is_definition(symbol)) {
+                definitions += 1;
+            }
             ("symbol name", NAME_WEIGHT)
-        } else if path.contains(&term.text) {
+        } else if path.contains(&term.lower) {
             ("path", PATH_WEIGHT)
         } else if term.text.len() >= MIN_SUBSTRING_TERM_BYTES
             && (content.contains(&source.path)
@@ -655,7 +695,7 @@ fn term_candidate(
         } else {
             continue;
         };
-        matched.push(term.text.clone());
+        matched.push(term);
         weight += location.1;
         locations.insert(location.0);
         if term.kind == TermKind::Phrase {
@@ -666,17 +706,18 @@ fn term_candidate(
         return None;
     }
     if let Some(phrase) = &index.terms.phrase {
-        if path.lower().contains(phrase.as_str())
+        let lower = phrase.to_lowercase();
+        if path.lower().contains(&lower)
             || index.phrase_content.contains(&source.path)
             || symbols.iter().any(|(_, name, symbol_context)| {
-                name.lower().contains(phrase.as_str()) || symbol_context.contains(phrase.as_str())
+                name.lower().contains(&lower) || symbol_context.contains(phrase.as_str())
             })
         {
             phrases += 1;
         }
     }
 
-    let name_terms = |name: &NameText| matched.iter().filter(|term| name.contains(term.as_str())).count();
+    let name_terms = |name: &NameText| matched.iter().filter(|term| name.contains(&term.lower)).count();
     let best_symbol = symbols
         .iter()
         .map(|(symbol, name, _)| (name_terms(name), *symbol))
@@ -684,6 +725,7 @@ fn term_candidate(
         .max_by(|(left_count, left), (right_count, right)| {
             left_count
                 .cmp(right_count)
+                .then_with(|| is_definition(left).cmp(&is_definition(right)))
                 .then_with(|| right.location.start.line.cmp(&left.location.start.line))
                 .then_with(|| right.location.start.column.cmp(&left.location.start.column))
         })
@@ -694,12 +736,11 @@ fn term_candidate(
     evidence.push(QueryEvidence {
         kind: QueryEvidenceKind::Text,
         detail: format!(
-            "terms matched in {}: {}",
-            locations.into_iter().collect::<Vec<_>>().join(", "),
-            matched.join(", ")
+            "terms matched in {}",
+            locations.into_iter().collect::<Vec<_>>().join(", ")
         ),
     });
-    let score = term_score(matched.len(), weight, phrases, ranking);
+    let score = term_score(&TermRank { distinct: matched.len(), weight, definitions, phrases, ranking });
     let all = matched.len() == terms.len();
     let reason = format!(
         "the query matched {} of {} terms{}",
@@ -729,7 +770,7 @@ fn term_candidate(
         },
         context,
     );
-    result.matched_terms = matched;
+    result.matched_terms = matched.iter().map(|term| term.text.clone()).collect();
     Some(result)
 }
 
@@ -1177,6 +1218,26 @@ fn query_limitations(
     limitations
 }
 
+/// Say when a `terms` query searched fewer terms than it was given.
+fn term_limitations(terms: &QueryTerms) -> Vec<String> {
+    let mut limitations = Vec::new();
+    if terms.dropped > 0 {
+        limitations.push(format!(
+            "the query searched its first {} terms and dropped {} more",
+            terms.terms.len(),
+            terms.dropped
+        ));
+    }
+    if terms.all_dropped {
+        limitations.push(
+            "every query term was a stopword or under two characters, so nothing was searched; quote the text to \
+             search for it as written"
+                .to_owned(),
+        );
+    }
+    limitations
+}
+
 fn query_provenance(map: &MapReport, change_resolution: ChangeResolution, limitations: &[String]) -> QueryProvenance {
     let mut provenance_limitations = limitations.to_vec();
     provenance_limitations.sort();
@@ -1241,6 +1302,7 @@ impl From<&QueryRevision> for ContextRevisionContext {
 
 #[cfg(test)]
 mod tests {
+    use super::super::terms::MAX_QUERY_TERMS;
     use super::*;
 
     fn symbol(name: &str, kind: SymbolKind) -> SourceSymbol {
@@ -1584,10 +1646,124 @@ mod tests {
 
     #[test]
     fn term_scores_order_keys_lexicographically() {
-        assert!(term_score(2, 2, 0, 0) > term_score(1, 3 * 32, 255, 0xFF_FFFF));
-        assert!(term_score(1, 3, 0, 0) > term_score(1, 2, 255, 0xFF_FFFF));
-        assert!(term_score(1, 2, 1, 0) > term_score(1, 2, 0, 0xFF_FFFF));
-        assert!(term_score(1, 2, 0, 2) > term_score(1, 2, 0, 1));
+        let score = |distinct, weight, definitions, phrases, ranking| {
+            term_score(&TermRank { distinct, weight, definitions, phrases, ranking })
+        };
+        let max_weight = NAME_WEIGHT * MAX_QUERY_TERMS as u64;
+        assert!(max_weight <= 0xFF);
+        assert!(score(2, 2, 0, 0, 0) > score(1, max_weight, 32, 255, 0xFFFF_FFFF));
+        assert!(score(1, 3, 0, 0, 0) > score(1, 2, 32, 255, 0xFFFF_FFFF));
+        assert!(score(1, 3, 1, 0, 0) > score(1, 3, 0, 255, 0xFFFF_FFFF));
+        assert!(score(1, 2, 0, 1, 0) > score(1, 2, 0, 0, 0xFFFF_FFFF));
+        assert!(score(1, 2, 0, 0, 2) > score(1, 2, 0, 0, 1));
+    }
+
+    #[test]
+    fn non_ascii_terms_match_content_as_the_index_folds_case() {
+        let mut map = fixture_map();
+        let index = &mut map.reading_evidence.trigram_index;
+        index.insert("packages/api/src/build.rs", b"// \xc3\x84rger handling for retries");
+        index.insert("packages/api/tests/build_test.rs", b"// \xc3\xa4rger only");
+
+        // ASCII case folds; `Ä` stays as typed, as in the index.
+        let word = compile(terms_request("ÄRGER"), &map, ChangeResolution::default());
+        assert_eq!(paths(&word), ["packages/api/src/build.rs"]);
+        assert_eq!(word.matches[0].matched_terms, ["Ärger"]);
+
+        let phrase = compile(terms_request("\"Ärger Handling\""), &map, ChangeResolution::default());
+        assert_eq!(paths(&phrase), ["packages/api/src/build.rs"]);
+        let lower = compile(terms_request("ärger"), &map, ChangeResolution::default());
+        assert_eq!(paths(&lower), ["packages/api/tests/build_test.rs"]);
+    }
+
+    #[test]
+    fn definitions_outrank_imports_of_the_same_name() {
+        let import = |name: &str, line: usize| SourceSymbol {
+            evidence: SymbolEvidence::Import,
+            location: SourceLocation { start: Position { line, column: 1 }, end: Position { line, column: 20 } },
+            context: format!("use crate::settings::{name};"),
+            ..symbol(name, SymbolKind::Import)
+        };
+        let mut definition = symbol("MapSettings", SymbolKind::Struct);
+        definition.location.start.line = 40;
+        let mut map = fixture_map();
+        map.files = vec![
+            source("src/a.rs", SourceLanguage::Rust, vec![import("MapSettings", 1)]),
+            source("src/b.rs", SourceLanguage::Rust, vec![import("MapSettings", 2)]),
+            source(
+                "src/settings.rs",
+                SourceLanguage::Rust,
+                vec![import("MapSettings", 1), definition],
+            ),
+            source("src/c.rs", SourceLanguage::Rust, vec![import("MapSettings", 3)]),
+        ];
+
+        let results = compile(terms_request("MapSettings"), &map, ChangeResolution::default());
+        assert_eq!(results.matches[0].path, "src/settings.rs");
+        let symbol = results.matches[0].symbol.as_ref().expect("best symbol");
+        assert_eq!((symbol.name.as_str(), symbol.kind), ("MapSettings", SymbolKind::Struct));
+        assert_eq!(results.bounds.total, 4);
+    }
+
+    #[test]
+    fn term_evidence_does_not_repeat_the_matched_terms() {
+        let mut map = fixture_map();
+        map.reading_evidence
+            .trigram_index
+            .insert("packages/api/src/build.rs", b"cache invalidation");
+        let results = compile(terms_request("cache invalidation"), &map, ChangeResolution::default());
+        let text = results.matches[0]
+            .evidence
+            .iter()
+            .find(|evidence| evidence.kind == QueryEvidenceKind::Text)
+            .expect("text evidence");
+        assert_eq!(text.detail, "terms matched in source content");
+        assert_eq!(results.matches[0].matched_terms, ["cache", "invalidation"]);
+    }
+
+    #[test]
+    fn dropped_terms_are_reported() {
+        let map = fixture_map();
+        let query = (0..40)
+            .map(|index| format!("word{index}x"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let results = compile(terms_request(&query), &map, ChangeResolution::default());
+        assert_eq!(results.bounds.dropped_terms, 8);
+        assert!(
+            results
+                .limitations
+                .contains(&"the query searched its first 32 terms and dropped 8 more".to_owned())
+        );
+
+        let short = compile(terms_request("cache"), &map, ChangeResolution::default());
+        assert_eq!(short.bounds.dropped_terms, 0);
+        assert!(
+            !short
+                .limitations
+                .iter()
+                .any(|limitation| limitation.contains("dropped"))
+        );
+    }
+
+    #[test]
+    fn stopword_only_queries_say_every_term_was_dropped() {
+        let map = fixture_map();
+        let results = compile(terms_request("the"), &map, ChangeResolution::default());
+        assert_eq!(results.bounds.total, 0);
+        assert!(
+            results
+                .limitations
+                .iter()
+                .any(|limitation| limitation.starts_with("every query term was a stopword"))
+        );
+        let found = compile(terms_request("build"), &map, ChangeResolution::default());
+        assert!(
+            !found
+                .limitations
+                .iter()
+                .any(|limitation| limitation.starts_with("every query term"))
+        );
     }
 
     #[test]

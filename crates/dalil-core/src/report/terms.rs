@@ -1,11 +1,15 @@
 //! Split a plain search query into ranked terms.
 //!
-//! A query is lowercased and split on non-alphanumeric characters and on
-//! identifier boundaries (`camelCase`, `HTTPServer`, `snake_case`). Terms under
-//! two characters and common stopwords are dropped. A token that splits into
-//! more than one part, such as `CacheStore` or `src/one.rs`, is also kept whole
-//! as an extra term. Text inside double quotes stays one exact phrase. Terms
-//! under three bytes match paths and names only on word boundaries.
+//! A query is split on non-alphanumeric characters and on identifier
+//! boundaries (`camelCase`, `HTTPServer`, `snake_case`). Terms under two
+//! characters and common stopwords are dropped. A token that splits into more
+//! than one part, such as `CacheStore` or `src/one.rs`, is also kept whole as
+//! an extra term. Text inside double quotes stays one exact phrase. Terms under
+//! three bytes match paths and names only on word boundaries.
+//!
+//! Content matching folds ASCII case only, as the trigram index does, so each
+//! term keeps its other characters as typed: `Ärger` finds `Ärger` in content
+//! but not `ärger`. Paths and symbol names compare Unicode-lowercased text.
 
 /// The most terms one query keeps, so matching stays bounded.
 pub(crate) const MAX_QUERY_TERMS: usize = 32;
@@ -37,25 +41,41 @@ pub(crate) enum TermKind {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct QueryTerm {
+    /// The term as typed with ASCII case folded, the folding the trigram index
+    /// uses. Content lookups use it, and it is the term's identity.
     pub(crate) text: String,
+    /// The term Unicode-lowercased, for path and symbol-name comparisons.
+    pub(crate) lower: String,
     pub(crate) kind: TermKind,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct QueryTerms {
     pub(crate) terms: Vec<QueryTerm>,
-    /// The unquoted query as one phrase, when it holds more than one word.
-    /// A result that contains it contiguously gets the exact-phrase bonus.
+    /// The unquoted query as one phrase, ASCII case folded, when it holds
+    /// more than one word. A result that contains it contiguously gets the
+    /// exact-phrase bonus.
     pub(crate) phrase: Option<String>,
+    /// Distinct terms past `MAX_QUERY_TERMS`, which the query does not search.
+    pub(crate) dropped: usize,
+    /// Whether the query had words but every one was a stopword or too short.
+    pub(crate) all_dropped: bool,
 }
 
 impl QueryTerms {
     pub(crate) fn parse(query: &str) -> Self {
         let query = strip_commit_type(query.trim());
         let mut terms = Vec::<QueryTerm>::new();
-        let mut push = |text: String, kind: TermKind| {
-            if terms.len() < MAX_QUERY_TERMS && !terms.iter().any(|term| term.text == text) {
-                terms.push(QueryTerm { text, kind });
+        let mut dropped = Vec::<String>::new();
+        let mut push = |typed: &str, kind: TermKind| {
+            let text = typed.to_ascii_lowercase();
+            if terms.iter().any(|term| term.text == text) || dropped.contains(&text) {
+                return;
+            }
+            if terms.len() < MAX_QUERY_TERMS {
+                terms.push(QueryTerm { lower: typed.to_lowercase(), text, kind });
+            } else {
+                dropped.push(text);
             }
         };
         let mut rest = query;
@@ -66,13 +86,9 @@ impl QueryTerms {
                 break;
             };
             split_words(before, &mut push);
-            let phrase = after[..end]
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ")
-                .to_lowercase();
+            let phrase = after[..end].split_whitespace().collect::<Vec<_>>().join(" ");
             if phrase.chars().count() >= MIN_TERM_CHARS {
-                push(phrase, TermKind::Phrase);
+                push(&phrase, TermKind::Phrase);
             }
             rest = &after[end + 1..];
         }
@@ -80,8 +96,9 @@ impl QueryTerms {
         split_words(rest, &mut push);
 
         let tokens = query.split_whitespace().collect::<Vec<_>>();
-        let phrase = (!query.contains('"') && tokens.len() > 1).then(|| tokens.join(" ").to_lowercase());
-        Self { terms, phrase }
+        let phrase = (!query.contains('"') && tokens.len() > 1).then(|| tokens.join(" ").to_ascii_lowercase());
+        let all_dropped = terms.is_empty() && query.contains(char::is_alphanumeric);
+        Self { terms, phrase, dropped: dropped.len(), all_dropped }
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -130,10 +147,11 @@ pub(crate) struct NameText {
 
 impl NameText {
     pub(crate) fn new(text: &str) -> Self {
-        Self { lower: text.to_lowercase(), parts: identifier_parts(text) }
+        let parts = identifier_parts(text).iter().map(|part| part.to_lowercase()).collect();
+        Self { lower: text.to_lowercase(), parts }
     }
 
-    /// Whether `term` occurs in the text. A term of at least
+    /// Whether `term`, Unicode-lowercased, occurs in the text. A term of at least
     /// `MIN_SUBSTRING_TERM_BYTES` matches anywhere; a shorter one only as a
     /// whole word or identifier part, so `go` matches `go.mod`, `cmd/go/` and
     /// `GoParser` but not `Cargo.toml`.
@@ -150,14 +168,14 @@ impl NameText {
     }
 }
 
-fn split_words(text: &str, push: &mut impl FnMut(String, TermKind)) {
+fn split_words(text: &str, push: &mut impl FnMut(&str, TermKind)) {
     for token in text.split_whitespace() {
         let token = strip_commit_scope(token);
         let parts = identifier_parts(token);
-        let whole = token.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+        let whole = token.trim_matches(|c: char| !c.is_alphanumeric());
         for part in &parts {
-            if part.chars().count() >= MIN_TERM_CHARS && !STOPWORDS.contains(&part.as_str()) {
-                push(part.clone(), TermKind::Word);
+            if part.chars().count() >= MIN_TERM_CHARS && !STOPWORDS.contains(&part.to_lowercase().as_str()) {
+                push(part, TermKind::Word);
             }
         }
         if parts.len() > 1 && whole.chars().count() >= MIN_TERM_CHARS {
@@ -182,8 +200,8 @@ fn strip_commit_scope(token: &str) -> &str {
     }
 }
 
-/// Lowercase parts of one token, split on non-alphanumerics and on case
-/// boundaries: `parseHTTPResponse` gives `parse`, `http`, `response`.
+/// Parts of one token as typed, split on non-alphanumerics and on case
+/// boundaries: `parseHTTPResponse` gives `parse`, `HTTP`, `Response`.
 fn identifier_parts(token: &str) -> Vec<String> {
     let mut parts = Vec::new();
     for run in token.split(|c: char| !c.is_alphanumeric()) {
@@ -201,7 +219,7 @@ fn identifier_parts(token: &str) -> Vec<String> {
             if boundary && !current.is_empty() {
                 parts.push(std::mem::take(&mut current));
             }
-            current.extend(c.to_lowercase());
+            current.push(c);
         }
         if !current.is_empty() {
             parts.push(current);
@@ -250,8 +268,12 @@ mod tests {
         assert_eq!(
             terms.terms,
             [
-                QueryTerm { text: "cache invalidation".to_owned(), kind: TermKind::Phrase },
-                QueryTerm { text: "parser".to_owned(), kind: TermKind::Word },
+                QueryTerm {
+                    text: "cache invalidation".to_owned(),
+                    lower: "cache invalidation".to_owned(),
+                    kind: TermKind::Phrase
+                },
+                QueryTerm { text: "parser".to_owned(), lower: "parser".to_owned(), kind: TermKind::Word },
             ]
         );
         assert_eq!(terms.phrase, None);
@@ -312,7 +334,35 @@ mod tests {
             .map(|index| format!("word{index}x"))
             .collect::<Vec<_>>()
             .join(" ");
-        assert_eq!(texts(&query).len(), MAX_QUERY_TERMS);
+        let terms = QueryTerms::parse(&query);
+        assert_eq!(terms.terms.len(), MAX_QUERY_TERMS);
+        assert_eq!(terms.dropped, 100 - MAX_QUERY_TERMS);
+        assert_eq!(QueryTerms::parse("word1x word2x word1x").dropped, 0);
+    }
+
+    #[test]
+    fn content_text_folds_ascii_case_only() {
+        let terms = QueryTerms::parse("Ärger HANDLING");
+        let pairs = terms
+            .terms
+            .iter()
+            .map(|term| (term.text.as_str(), term.lower.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(pairs, [("Ärger", "ärger"), ("handling", "handling")]);
+        assert_eq!(terms.phrase.as_deref(), Some("Ärger handling"));
+        // `Ärger` and `ärger` are different text to the index, so both stay.
+        assert_eq!(texts("Ärger ärger"), ["Ärger", "ärger"]);
+        let phrase = QueryTerms::parse("\"Ärger Handling\"");
+        assert_eq!(phrase.terms[0].text, "Ärger handling");
+        assert_eq!(phrase.terms[0].lower, "ärger handling");
+    }
+
+    #[test]
+    fn stopword_only_queries_report_that_every_term_was_dropped() {
+        assert!(QueryTerms::parse("the of a").all_dropped);
+        assert!(!QueryTerms::parse("-- / !!").all_dropped);
+        assert!(!QueryTerms::parse("\"the\"").all_dropped);
+        assert!(!QueryTerms::parse("the parser").all_dropped);
     }
 
     #[test]

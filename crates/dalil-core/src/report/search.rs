@@ -96,6 +96,7 @@ pub(crate) fn from_query(query: QueryResults) -> SearchResults {
             returned: query.bounds.returned,
             estimated_tokens: query.bounds.estimated_tokens,
             truncated: !query.is_complete(),
+            dropped_terms: query.bounds.dropped_terms,
         },
         shortfall,
         limitations: query.limitations.clone(),

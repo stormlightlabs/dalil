@@ -165,7 +165,8 @@
         "total_candidates": { "type": "integer", "minimum": 0 },
         "returned": { "type": "integer", "minimum": 0 },
         "estimated_tokens": { "type": "integer", "minimum": 0 },
-        "truncated": { "type": "boolean" }
+        "truncated": { "type": "boolean" },
+        "dropped_terms": { "type": "integer", "minimum": 1 }
       },
       "additionalProperties": false
     },
