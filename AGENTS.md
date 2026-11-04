@@ -96,3 +96,7 @@ first `arcl` command.
 - A handoff parks the task. Unpark only when `arcl task explain` gives parking
   as the only reason it is not ready.
 - When a merge conflicts on a task file, keep the newer status.
+- Plan work in weekly sprints: an arcl release named `Sprint <ISO year>-W<week>`,
+  such as `Sprint 2026-W45`, holding about 10 tasks set to `high` priority.
+  Work the current sprint's tasks before others, and carry unfinished ones into
+  the next sprint.

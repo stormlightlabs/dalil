@@ -3,7 +3,7 @@ id = "arcl-t-01M65H08W8HBCF0NZCAQXN1KGQ"
 phase = "arcl-ph-01M65H08QZ0AWDGX26SNY66VYZ"
 title = "Replay commits to measure context recall"
 status = "pending"
-priority = "normal"
+priority = "high"
 position = 1
 +++
 

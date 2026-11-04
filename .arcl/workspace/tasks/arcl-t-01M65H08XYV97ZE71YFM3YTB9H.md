@@ -3,7 +3,7 @@ id = "arcl-t-01M65H08XYV97ZE71YFM3YTB9H"
 phase = "arcl-ph-01M65H08RDC7CBQ0Z8ATRYA2KY"
 title = "Encode the store with postcard"
 status = "pending"
-priority = "normal"
+priority = "high"
 position = 2
 blocked-by = ["arcl-t-01M65H08XBZ7BCV490F7BPRWF6"]
 +++

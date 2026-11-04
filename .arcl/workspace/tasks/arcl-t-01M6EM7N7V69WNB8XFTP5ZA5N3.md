@@ -2,8 +2,8 @@
 id = "arcl-t-01M6EM7N7V69WNB8XFTP5ZA5N3"
 phase = "arcl-ph-01M65H08QHQG2WE9TPFPAR1JTJ"
 title = "Read path qualifiers outside Rust"
-status = "pending"
-priority = "normal"
+status = "in_progress"
+priority = "high"
 position = 5
 +++
 
