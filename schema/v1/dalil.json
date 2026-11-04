@@ -151,7 +151,8 @@
         "target": { "enum": ["path", "symbol"] },
         "symbol": { "type": ["object", "null"] },
         "score": { "type": "integer", "minimum": 0 },
-        "anchor": { "type": "boolean" }
+        "anchor": { "type": "boolean" },
+        "matched_terms": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
     },

@@ -1,3 +1,4 @@
+use super::terms::{QueryTerms, TermKind};
 use super::*;
 
 const DEFAULT_QUERY_RESULT_LIMIT: usize = 20;
@@ -29,6 +30,7 @@ struct QueryCandidate {
     ambiguous: bool,
     partial: bool,
     score: u64,
+    matched_terms: Vec<String>,
     limitations: Vec<String>,
 }
 
@@ -58,6 +60,12 @@ pub(crate) fn compile(request: QueryRequest, map: &MapReport, change_resolution:
     let change_paths = active_change_paths(&sources, &change_resolution);
     let ambiguous_paths = ambiguous_paths(map);
     let ranking = query_ranking(map);
+    let term_index = request
+        .filters
+        .text
+        .as_ref()
+        .filter(|query| query.mode == QueryMatchMode::Terms)
+        .map(|query| TermIndex::new(map, query));
     let content_matches = request
         .filters
         .text
@@ -68,6 +76,16 @@ pub(crate) fn compile(request: QueryRequest, map: &MapReport, change_resolution:
 
     for source in &sources {
         if !source_matches_file_filters(source, &request.filters, &change_paths) {
+            continue;
+        }
+        if let Some(index) = &term_index {
+            let input = TermCandidateInput {
+                index,
+                filters: &request.filters,
+                changed_paths: &change_paths,
+                ranking: ranking_score(&ranking, &source.path),
+            };
+            candidates.extend(term_candidate(source, &input, &candidate_context));
             continue;
         }
         let path_score = path_score(source, &request.filters);
@@ -497,7 +515,7 @@ fn match_path(value: &str, mode: QueryMatchMode, subject: &str) -> Option<MatchS
         QueryMatchMode::Prefix if subject.starts_with(&value) => {
             Some(MatchScore { score: 3_000_000_000, confidence: ConfidenceTier::High })
         }
-        QueryMatchMode::Substring if subject.contains(&value) => {
+        QueryMatchMode::Substring | QueryMatchMode::Terms if subject.contains(&value) => {
             Some(MatchScore { score: 2_000_000_000, confidence: ConfidenceTier::Medium })
         }
         _ => None,
@@ -517,7 +535,7 @@ fn match_text_value(value: &str, mode: QueryMatchMode, subject: &str) -> Option<
         QueryMatchMode::Prefix if subject.starts_with(&value) => {
             Some(MatchScore { score: 3_000_000_000, confidence: ConfidenceTier::High })
         }
-        QueryMatchMode::Substring if subject.contains(&value) => {
+        QueryMatchMode::Substring | QueryMatchMode::Terms if subject.contains(&value) => {
             Some(MatchScore { score: 2_000_000_000, confidence: ConfidenceTier::Medium })
         }
         _ => None,
@@ -525,6 +543,14 @@ fn match_text_value(value: &str, mode: QueryMatchMode, subject: &str) -> Option<
 }
 
 fn match_text(query: &TextQuery, subject: &str) -> Option<MatchScore> {
+    if query.mode == QueryMatchMode::Terms {
+        let subject = subject.to_lowercase();
+        return QueryTerms::parse(&query.value)
+            .terms
+            .iter()
+            .any(|term| subject.contains(&term.text))
+            .then_some(MatchScore { score: 2_000_000_000, confidence: ConfidenceTier::Medium });
+    }
     match_text_value(&query.value, query.mode, subject)
 }
 
@@ -537,6 +563,172 @@ fn indexed_content_matches(map: &MapReport, query: &TextQuery) -> BTreeSet<Strin
         .search(query.value.as_bytes())
         .into_iter()
         .collect()
+}
+
+/// The terms of a `terms` text query and the files whose retained content
+/// holds each one, found through the trigram index.
+struct TermIndex {
+    terms: QueryTerms,
+    /// Files containing each term, in term order. Terms under three bytes
+    /// cannot use the trigram index and match names and paths only.
+    content: Vec<BTreeSet<String>>,
+    phrase_content: BTreeSet<String>,
+}
+
+impl TermIndex {
+    fn new(map: &MapReport, query: &TextQuery) -> Self {
+        let terms = QueryTerms::parse(&query.value);
+        let index = &map.reading_evidence.trigram_index;
+        let content = terms
+            .terms
+            .iter()
+            .map(|term| index.search(term.text.as_bytes()).into_iter().collect())
+            .collect();
+        let phrase_content = terms
+            .phrase
+            .as_ref()
+            .map(|phrase| index.search(phrase.as_bytes()).into_iter().collect())
+            .unwrap_or_default();
+        Self { terms, content, phrase_content }
+    }
+}
+
+struct TermCandidateInput<'a> {
+    index: &'a TermIndex,
+    filters: &'a QueryFilters,
+    changed_paths: &'a BTreeSet<String>,
+    ranking: u64,
+}
+
+/// Where a term matched, weighted so a symbol name outranks a path and a path
+/// outranks content.
+const NAME_WEIGHT: u64 = 3;
+const PATH_WEIGHT: u64 = 2;
+const CONTENT_WEIGHT: u64 = 1;
+
+/// Pack the ranking keys into one score so that sorting by score orders by
+/// distinct terms matched, then location weight, then exact-phrase matches,
+/// then the map ranking.
+fn term_score(distinct: usize, weight: u64, phrases: u64, ranking: u64) -> u64 {
+    let distinct = u64::try_from(distinct).unwrap_or(u64::MAX).min(0xFFFF);
+    (distinct << 48) | (weight.min(0xFFFF) << 32) | (phrases.min(0xFF) << 24) | ranking.min(0xFF_FFFF)
+}
+
+/// One candidate for a source under a `terms` text query: the file, carrying
+/// the symbol whose name matched the most terms.
+fn term_candidate(
+    source: &QuerySource, input: &TermCandidateInput<'_>, context: &CandidateContext<'_>,
+) -> Option<QueryCandidate> {
+    let TermCandidateInput { index, filters, changed_paths, ranking } = *input;
+    if index.terms.is_empty() {
+        return None;
+    }
+    let terms = &index.terms.terms;
+    let path = source.path.to_lowercase();
+    let symbols = source
+        .symbols
+        .iter()
+        .filter(|symbol| symbol_score(symbol, filters).is_some())
+        .map(|symbol| (symbol, symbol.name.to_lowercase(), symbol.context.to_lowercase()))
+        .collect::<Vec<_>>();
+    if symbol_matches_are_required(filters) && symbols.is_empty() {
+        return None;
+    }
+
+    let mut matched = Vec::new();
+    let mut weight = 0;
+    let mut phrases = 0;
+    let mut locations = BTreeSet::new();
+    for (term, content) in terms.iter().zip(&index.content) {
+        let location = if symbols.iter().any(|(_, name, _)| name.contains(&term.text)) {
+            ("symbol name", NAME_WEIGHT)
+        } else if path.contains(&term.text) {
+            ("path", PATH_WEIGHT)
+        } else if content.contains(&source.path)
+            || symbols
+                .iter()
+                .any(|(_, _, symbol_context)| symbol_context.contains(&term.text))
+        {
+            ("source content", CONTENT_WEIGHT)
+        } else {
+            continue;
+        };
+        matched.push(term.text.clone());
+        weight += location.1;
+        locations.insert(location.0);
+        if term.kind == TermKind::Phrase {
+            phrases += 1;
+        }
+    }
+    if matched.is_empty() {
+        return None;
+    }
+    if let Some(phrase) = &index.terms.phrase {
+        if path.contains(phrase.as_str())
+            || index.phrase_content.contains(&source.path)
+            || symbols.iter().any(|(_, name, symbol_context)| {
+                name.contains(phrase.as_str()) || symbol_context.contains(phrase.as_str())
+            })
+        {
+            phrases += 1;
+        }
+    }
+
+    let name_terms = |name: &str| matched.iter().filter(|term| name.contains(term.as_str())).count();
+    let best_symbol = symbols
+        .iter()
+        .map(|(symbol, name, _)| (name_terms(name), *symbol))
+        .filter(|(count, _)| *count > 0)
+        .max_by(|(left_count, left), (right_count, right)| {
+            left_count
+                .cmp(right_count)
+                .then_with(|| right.location.start.line.cmp(&left.location.start.line))
+                .then_with(|| right.location.start.column.cmp(&left.location.start.column))
+        })
+        .map(|(_, symbol)| (*symbol).clone())
+        .or_else(|| symbol_matches_are_required(filters).then(|| symbols[0].0.clone()));
+
+    let mut evidence = base_evidence(source, filters, changed_paths);
+    evidence.push(QueryEvidence {
+        kind: QueryEvidenceKind::Text,
+        detail: format!(
+            "terms matched in {}: {}",
+            locations.into_iter().collect::<Vec<_>>().join(", "),
+            matched.join(", ")
+        ),
+    });
+    let score = term_score(matched.len(), weight, phrases, ranking);
+    let all = matched.len() == terms.len();
+    let reason = format!(
+        "the query matched {} of {} terms{}",
+        matched.len(),
+        terms.len(),
+        best_symbol
+            .as_ref()
+            .map(|symbol| format!(", including {} `{}`", symbol.kind.label(), symbol.name))
+            .unwrap_or_default()
+    );
+    let target = if best_symbol.is_some() { QueryTarget::Symbol } else { QueryTarget::File };
+    if let Some(symbol) = &best_symbol {
+        evidence.push(QueryEvidence {
+            kind: QueryEvidenceKind::Symbol,
+            detail: format!("retained {} {} evidence", symbol.role.label(), symbol.kind.label()),
+        });
+    }
+    let mut result = candidate(
+        source,
+        CandidateInput {
+            target,
+            symbol: best_symbol,
+            evidence,
+            score,
+            reason,
+            confidence: if all { ConfidenceTier::High } else { ConfidenceTier::Medium },
+        },
+        context,
+    );
+    result.matched_terms = matched;
+    Some(result)
 }
 
 fn content_match_score() -> MatchScore {
@@ -688,6 +880,7 @@ fn candidate(source: &QuerySource, input: CandidateInput, context: &CandidateCon
         ambiguous,
         partial,
         score,
+        matched_terms: Vec::new(),
         limitations,
     }
 }
@@ -743,6 +936,7 @@ fn query_match(candidate: &QueryCandidate) -> QueryMatch {
         ambiguous: candidate.ambiguous,
         partial: candidate.partial,
         score: candidate.score,
+        matched_terms: candidate.matched_terms.clone(),
         limitations: candidate.limitations.clone(),
     }
 }
@@ -1255,6 +1449,105 @@ mod tests {
         assert!(first.matches[0].evidence.iter().any(|evidence| {
             evidence.kind == QueryEvidenceKind::Text && evidence.detail.contains("source content")
         }));
+    }
+
+    fn terms_request(value: &str) -> QueryRequest {
+        QueryRequest {
+            filters: QueryFilters {
+                text: Some(TextQuery { value: value.to_owned(), mode: QueryMatchMode::Terms }),
+                ..QueryFilters::default()
+            },
+            budget: 100_000,
+            cache_mode: CacheMode::Disabled,
+            ..QueryRequest::new("/fixture")
+        }
+    }
+
+    fn paths(results: &QueryResults) -> Vec<&str> {
+        results.matches.iter().map(|result| result.path.as_str()).collect()
+    }
+
+    #[test]
+    fn terms_rank_by_distinct_terms_then_location_then_phrase() {
+        let mut map = fixture_map();
+        let index = &mut map.reading_evidence.trigram_index;
+        index.insert("packages/api/src/build.rs", b"invalidation of the cache; view model");
+        index.insert("packages/api/tests/build_test.rs", b"cache invalidation marker");
+        index.insert("packages/web/src/view.ts", b"cache only");
+
+        // Two distinct terms beat one.
+        let distinct = compile(terms_request("cache invalidation"), &map, ChangeResolution::default());
+        assert_eq!(distinct.bounds.total, 3);
+        assert_eq!(distinct.matches[2].path, "packages/web/src/view.ts");
+        assert_eq!(distinct.matches[2].matched_terms, ["cache"]);
+        // Equal terms and locations: the contiguous phrase wins over path order.
+        assert_eq!(
+            paths(&distinct)[..2],
+            ["packages/api/tests/build_test.rs", "packages/api/src/build.rs"]
+        );
+        assert_eq!(distinct.matches[0].matched_terms, ["cache", "invalidation"]);
+        assert_eq!(distinct.matches[0].confidence, ConfidenceTier::High);
+
+        // A symbol name outranks content for the same term, ahead of path order.
+        let location = compile(terms_request("view"), &map, ChangeResolution::default());
+        assert_eq!(
+            paths(&location),
+            ["packages/web/src/view.ts", "packages/api/src/build.rs"]
+        );
+        assert_eq!(location.matches[0].target, QueryTarget::Symbol);
+        assert_eq!(
+            location.matches[0].symbol.as_ref().map(|symbol| symbol.name.as_str()),
+            Some("View")
+        );
+        assert_eq!(location.matches[1].target, QueryTarget::File);
+
+        let again = compile(terms_request("cache invalidation"), &map, ChangeResolution::default());
+        assert_eq!(distinct, again);
+    }
+
+    #[test]
+    fn quoted_terms_match_only_the_exact_phrase() {
+        let mut map = fixture_map();
+        let index = &mut map.reading_evidence.trigram_index;
+        index.insert("packages/api/src/build.rs", b"invalidation of the cache");
+        index.insert("packages/api/tests/build_test.rs", b"cache invalidation marker");
+
+        let results = compile(
+            terms_request("\"cache invalidation\""),
+            &map,
+            ChangeResolution::default(),
+        );
+        assert_eq!(paths(&results), ["packages/api/tests/build_test.rs"]);
+        assert_eq!(results.matches[0].matched_terms, ["cache invalidation"]);
+    }
+
+    #[test]
+    fn terms_keep_typed_filters_and_skip_queries_without_terms() {
+        let mut map = fixture_map();
+        map.reading_evidence
+            .trigram_index
+            .insert("packages/web/src/view.ts", b"build pipeline");
+        let mut request = terms_request("build");
+        request.filters.language = Some(SourceLanguage::TypeScript);
+        let filtered = compile(request, &map, ChangeResolution::default());
+        assert_eq!(paths(&filtered), ["packages/web/src/view.ts"]);
+
+        let mut request = terms_request("build");
+        request.filters.symbol_kind = Some(SymbolKind::Class);
+        let kinds = compile(request, &map, ChangeResolution::default());
+        assert_eq!(paths(&kinds), ["packages/web/src/view.ts"]);
+        assert_eq!(kinds.matches[0].target, QueryTarget::Symbol);
+
+        let empty = compile(terms_request("the of"), &map, ChangeResolution::default());
+        assert_eq!(empty.bounds.total, 0);
+    }
+
+    #[test]
+    fn term_scores_order_keys_lexicographically() {
+        assert!(term_score(2, 2, 0, 0) > term_score(1, 3 * 32, 255, 0xFF_FFFF));
+        assert!(term_score(1, 3, 0, 0) > term_score(1, 2, 255, 0xFF_FFFF));
+        assert!(term_score(1, 2, 1, 0) > term_score(1, 2, 0, 0xFF_FFFF));
+        assert!(term_score(1, 2, 0, 2) > term_score(1, 2, 0, 1));
     }
 
     #[test]

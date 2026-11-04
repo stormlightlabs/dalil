@@ -25,6 +25,9 @@ dalil explain src/map.rs
 identity, first reads, project roots, runtime entry points, tests, useful
 history, and any limitations that affect the result.
 
+`dalil search 'cache invalidation'` splits the query into terms and ranks files
+by how many terms match, then by where: symbol name, path, then content. Quote
+words, as in `dalil search '"cache invalidation"'`, to match an exact phrase.
 `dalil search --symbol CacheStore` performs an exact symbol lookup. Use
 `dalil history` after these workflows when you need focused Git evidence. Use
 `dalil export` when you need a persistent `.dalil/map.json` and `.dalil/map.md`

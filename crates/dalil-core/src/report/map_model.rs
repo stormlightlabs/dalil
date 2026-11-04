@@ -839,6 +839,9 @@ pub enum QueryMatchMode {
     Prefix,
     #[default]
     Substring,
+    /// Split text into terms and rank results by how many terms match and
+    /// where. Path, symbol and project filters read it as `substring`.
+    Terms,
 }
 
 impl QueryMatchMode {
@@ -847,6 +850,7 @@ impl QueryMatchMode {
             Self::Exact => "exact",
             Self::Prefix => "prefix",
             Self::Substring => "substring",
+            Self::Terms => "terms",
         }
     }
 }
@@ -984,6 +988,9 @@ pub struct QueryMatch {
     pub ambiguous: bool,
     pub partial: bool,
     pub score: u64,
+    /// The query terms this result matched, for a `terms` text query.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub matched_terms: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub limitations: Vec<String>,
 }
@@ -1791,6 +1798,9 @@ pub struct SearchMatch {
     pub score: u64,
     #[serde(default)]
     pub anchor: bool,
+    /// The query terms this result matched, for a plain query.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub matched_terms: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

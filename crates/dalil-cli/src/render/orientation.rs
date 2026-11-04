@@ -210,6 +210,15 @@ impl Render {
                 .join(", ");
             writeln!(output, "   Evidence: {evidence}; score {}", result.score)
                 .expect("writing to a string cannot fail");
+            if !result.matched_terms.is_empty() {
+                let terms = result
+                    .matched_terms
+                    .iter()
+                    .map(|term| format!("`{}`", utils::escape_inline_code(term)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                writeln!(output, "   Matched terms: {terms}").expect("writing to a string cannot fail");
+            }
             if result.anchor {
                 writeln!(output, "   Direct lexical anchor for the next read.")
                     .expect("writing to a string cannot fail");

@@ -170,7 +170,8 @@ fn search_returns_path_symbol_concept_and_budget_limited_anchors() {
 fn search_uses_content_index_and_typed_filters() {
     let fixture = MapFixtureRepository::new();
 
-    let content = fixture.run(&["search", "let value", "--language", "rust", "--no-cache", "--json"]);
+    // Quotes keep the words one exact phrase, so only the file holding it matches.
+    let content = fixture.run(&["search", "\"let value\"", "--language", "rust", "--no-cache", "--json"]);
     assert!(
         content.status.success(),
         "content search failed: {}",
@@ -207,6 +208,76 @@ fn search_uses_content_index_and_typed_filters() {
     assert!(tests_only.status.success());
     let tests_only: Value = serde_json::from_str(&stdout(&tests_only)).expect("valid test-filtered search JSON");
     assert_eq!(tests_only["search"]["query"]["bounds"]["total"], 0);
+}
+
+#[test]
+fn search_splits_plain_queries_into_ranked_terms() {
+    let fixture = MapFixtureRepository::new();
+    write_file(fixture.root.join("src/cache_store.rs"), b"pub struct CacheStore {}\n");
+    write_file(fixture.root.join("src/cache.rs"), b"pub fn cache() {}\n");
+    let search = |arguments: &[&str]| -> Value {
+        let output = fixture.run(arguments);
+        assert!(
+            output.status.success(),
+            "search failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_str(&stdout(&output)).expect("valid search JSON")
+    };
+
+    // A multi-word query matches any of its terms and ranks the file matching most first.
+    let words = search(&[
+        "search",
+        "duplicate parse value",
+        "--limit",
+        "12",
+        "--no-cache",
+        "--json",
+    ]);
+    let matches = words["search"]["matches"].as_array().expect("matches");
+    assert_eq!(matches[0]["path"], "src/lib.rs");
+    assert_eq!(matches[0]["matched_terms"], serde_json::json!(["parse", "value"]));
+    assert_eq!(matches[0]["symbol"]["name"], "parse");
+    for path in ["src/one.rs", "src/two.rs", "src/use.rs"] {
+        assert!(
+            matches.iter().any(|result| result["path"] == path),
+            "{path} matches `duplicate`: {matches:?}"
+        );
+    }
+    let markdown = stdout(&fixture.run(&["search", "duplicate parse value", "--no-cache"]));
+    assert!(markdown.contains("Matched terms: `parse`, `value`"), "{markdown}");
+
+    // A quoted phrase matches only where its words are contiguous.
+    let phrase = search(&["search", "\"value let\"", "--no-cache", "--json"]);
+    assert!(phrase["search"]["matches"].as_array().is_some_and(Vec::is_empty));
+    let phrase = search(&["search", "\"let value\"", "--no-cache", "--json"]);
+    assert_eq!(phrase["search"]["matches"][0]["path"], "src/lib.rs");
+    assert_eq!(
+        phrase["search"]["matches"][0]["matched_terms"],
+        serde_json::json!(["let value"])
+    );
+
+    // A camelCase identifier splits into its words and also matches whole.
+    let identifier = search(&["search", "CacheStore", "--no-cache", "--json"]);
+    let matches = identifier["search"]["matches"].as_array().expect("matches");
+    assert_eq!(matches[0]["path"], "src/cache_store.rs");
+    assert_eq!(matches[0]["symbol"]["name"], "CacheStore");
+    assert_eq!(
+        matches[0]["matched_terms"],
+        serde_json::json!(["cache", "store", "cachestore"])
+    );
+    assert_eq!(matches[1]["path"], "src/cache.rs");
+    assert_eq!(matches[1]["matched_terms"], serde_json::json!(["cache"]));
+
+    // No term matches anything.
+    let missing = search(&["search", "zqxv unfindable", "--no-cache", "--json"]);
+    assert!(missing["search"]["matches"].as_array().is_some_and(Vec::is_empty));
+    assert_eq!(missing["search"]["budget"]["total_candidates"], 0);
+    assert!(
+        missing["search"]["shortfall"]["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("No strong"))
+    );
 }
 
 #[test]
