@@ -206,3 +206,64 @@ fn html_cards_and_notices_leave_out_method_limitations() {
         "the raw JSON keeps every limitation"
     );
 }
+
+#[test]
+fn member_calls_on_unknown_receivers_reach_only_methods_at_low_confidence() {
+    let fixture = MapFixtureRepository::new();
+    write_file(
+        fixture.root.join("src/members.rs"),
+        b"fn insert() {}\nstruct T;\nimpl T {\n    fn insert(&self) {}\n    fn go(&self) { self.insert(); }\n}\nfn other(m: HashMap) { m.insert(); }\n",
+    );
+
+    let output = fixture.run(&[
+        "relationships",
+        "callers",
+        "insert",
+        ".",
+        "--budget",
+        "100000",
+        "--no-cache",
+        "--json",
+    ]);
+    assert!(output.status.success(), "callers query failed: {:?}", output.stderr);
+    let value: Value = serde_json::from_str(&stdout(&output)).expect("relationship JSON");
+    let free = "symbol:src/members.rs:1:4:1:10:definition:function:insert";
+    let method = "symbol:src/members.rs:4:8:4:14:definition:function:insert";
+    let mut edges = value["relationships"]
+        .as_array()
+        .expect("relationship edges")
+        .iter()
+        .map(|edge| {
+            let source = edge["source"].as_str().unwrap_or_default();
+            let caller = source.rsplit(':').next().unwrap_or_default().to_owned();
+            (
+                caller,
+                edge["target"].as_str().unwrap_or_default().to_owned(),
+                edge["confidence"].as_str().unwrap_or_default().to_owned(),
+                edge["resolution_reason"].as_str().unwrap_or_default().to_owned(),
+                edge["ambiguous"].as_bool().unwrap_or_default(),
+            )
+        })
+        .collect::<Vec<_>>();
+    edges.sort();
+    let edge = |caller: &str, target: &str, confidence: &str, reason: &str, ambiguous: bool| {
+        (
+            caller.to_owned(),
+            target.to_owned(),
+            confidence.to_owned(),
+            reason.to_owned(),
+            ambiguous,
+        )
+    };
+    // `self.insert()` keeps the same-file rule, which does not tell the two
+    // `insert`s apart; `m.insert()` reaches only the method, at low confidence.
+    assert_eq!(
+        edges,
+        [
+            edge("go", free, "high", "same_file_explicit", false),
+            edge("go", method, "high", "same_file_explicit", false),
+            edge("other", method, "low", "member_receiver_unknown", true),
+        ],
+        "{value:#}"
+    );
+}

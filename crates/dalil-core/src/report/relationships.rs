@@ -245,6 +245,10 @@ impl RelationshipGraph {
             .iter()
             .map(|source| (source.path.as_str(), source))
             .collect::<BTreeMap<_, _>>();
+        let bindings = sources
+            .iter()
+            .map(|source| (source.path.as_str(), crate::map::import_bindings(&source.symbols)))
+            .collect::<BTreeMap<_, _>>();
         let mut relationship_ids = BTreeSet::new();
         for edge in &edges {
             let (Some(source), Some(target)) = (
@@ -277,12 +281,19 @@ impl RelationshipGraph {
                 graph.add_edge(source_file, target_file, file_relationship);
             }
 
+            // An edge for calls on unknown receivers joins only those calls to
+            // methods; any other edge joins every other reference and import.
+            let member_edge = edge.resolution_reason == LexicalResolutionReason::MemberReceiverUnknown;
+            let source_bindings = &bindings[source.path.as_str()];
             let source_symbols = source
                 .symbols
                 .iter()
                 .filter(|symbol| {
-                    (symbol.role == SymbolRole::Reference && symbol.name == edge.symbol)
-                        || (symbol.role == SymbolRole::Definition
+                    (symbol.role == SymbolRole::Reference
+                        && symbol.name == edge.symbol
+                        && crate::map::has_unknown_receiver(symbol, source_bindings) == member_edge)
+                        || (!member_edge
+                            && symbol.role == SymbolRole::Definition
                             && symbol.evidence == SymbolEvidence::Import
                             && symbol.name == edge.symbol)
                 })
@@ -302,7 +313,9 @@ impl RelationshipGraph {
                 .symbols
                 .iter()
                 .filter(|symbol| {
-                    is_graph_definition(symbol) && (symbol.name == edge.symbol || imported_names.contains(&symbol.name))
+                    is_graph_definition(symbol)
+                        && (!member_edge || crate::map::is_member_definition(symbol))
+                        && (symbol.name == edge.symbol || imported_names.contains(&symbol.name))
                 })
                 .filter_map(|symbol| node_ids.get(&symbol_node_id(&target.path, symbol)).copied())
                 .collect::<Vec<_>>();
@@ -1001,6 +1014,8 @@ mod tests {
             visibility: SymbolVisibility::Public,
             evidence,
             qualifier: None,
+            receiver: None,
+            member: false,
         }
     }
 

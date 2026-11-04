@@ -737,6 +737,17 @@ pub struct SourceSymbol {
     /// evidence when a file has no import for the name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub qualifier: Option<String>,
+    /// The expression a called member is read from, such as `self` in
+    /// `self.insert()` or `m` in `m.insert()`. Graph construction caps a call
+    /// whose receiver is neither `self`-like nor an imported module at low
+    /// confidence, since the receiver's type is not known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receiver: Option<String>,
+    /// Whether a definition is a member of a type, such as a function in an
+    /// `impl` block or a class body. Only members can be the target of a call
+    /// on an unknown receiver.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub member: bool,
 }
 
 /// A typed repository-wide query. Query adapters can compose the filters without

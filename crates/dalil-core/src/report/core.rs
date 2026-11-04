@@ -504,6 +504,9 @@ pub enum LexicalResolutionReason {
     ImportedModule,
     ImportedName,
     QualifiedPath,
+    /// A member call on a receiver whose type is not known, such as
+    /// `m.insert()`; any method of that name may be the target.
+    MemberReceiverUnknown,
 }
 
 impl LexicalResolutionReason {
@@ -514,6 +517,7 @@ impl LexicalResolutionReason {
             Self::ImportedModule => "imported_module",
             Self::ImportedName => "imported_name",
             Self::QualifiedPath => "qualified_path",
+            Self::MemberReceiverUnknown => "member_receiver_unknown",
         }
     }
 }

@@ -1970,3 +1970,253 @@ fn changed_lines_ignore_line_terminators() {
     assert_eq!(ranges("a\nb", "a\nb\nc\n"), [(3, 3)]);
     assert_eq!(ranges("a\r\nb\r\nc\r\n", "a\nB\r\nc\n"), [(2, 2)]);
 }
+
+#[test]
+fn only_callee_positions_are_tagged_as_calls() {
+    // Each case lists the names that must be calls and the captured names that
+    // must not be. Java's and C#'s queries capture only declarations and
+    // callees, and Go's only callees, fields and types, so their arguments and
+    // receivers are left out: there is nothing to check.
+    let cases: [(&str, &str, &[&str], &[&str]); 10] = [
+        (
+            "a.rs",
+            "fn f() { m::g(x); o.h(y); println!(\"{}\", k(w), q); }\n\
+             macro_rules! d { () => { fn helper(a: u8) {} } }\n\
+             fn e() { quote! { fn helper2() {} }; }\n\
+             #[cfg(any(unix))] fn p(v: u8) { matches!(v, Wrap(_)); }",
+            &["g", "h", "k"],
+            &["m", "x", "o", "y", "w", "q", "helper", "helper2", "any", "Wrap"],
+        ),
+        (
+            "a.js",
+            "g(x); o.h(y); new C(z); (o.p)();",
+            &["g", "h", "C", "p"],
+            &["x", "o", "y", "z"],
+        ),
+        (
+            "a.ts",
+            "g(x); o.h(y); new C(z); o.f!(); (o.p)();",
+            &["g", "h", "C", "f", "p"],
+            &["x", "o", "y", "z"],
+        ),
+        ("a.py", "g(x)\no.h(y)\n", &["g", "h"], &["x", "o", "y"]),
+        (
+            "a.go",
+            "package p\nfunc f() { g(x); o.H(y); v := o.K; _ = v; pkg.F[int](); x.M[int]() }",
+            &["g", "H", "F", "M"],
+            &["K"],
+        ),
+        ("a.rb", "g(x)\no.h(y)\n", &["g", "h"], &["x", "o", "y"]),
+        ("a.java", "class A { void f() { g(x); o.h(y); } }", &["g", "h"], &[]),
+        ("a.cs", "class A { void F() { G(x); o.H(y); } }", &["G", "H"], &[]),
+        (
+            "a.lua",
+            "g(x)\no.h(y)\no:m(z)\nlocal v = o.k\n",
+            &["g", "h", "m"],
+            &["x", "o", "y", "z", "k"],
+        ),
+        (
+            "a.zig",
+            "fn f() void { g(x); o.h(y); const v = o.k; _ = v; }",
+            &["g", "h"],
+            &["x", "o", "y", "k"],
+        ),
+    ];
+    for (path, source, calls, not_calls) in cases {
+        let support = support_for_path(Path::new(path)).expect("supported language");
+        let symbols = parse_source(source.as_bytes(), support).symbols;
+        let references = |name: &str| {
+            symbols
+                .iter()
+                .filter(|symbol| symbol.name == name && symbol.role == SymbolRole::Reference)
+                .collect::<Vec<_>>()
+        };
+        for name in calls {
+            assert!(
+                references(name)
+                    .iter()
+                    .any(|symbol| symbol.evidence == SymbolEvidence::Call),
+                "{path}: `{name}` should be a call: {symbols:?}"
+            );
+        }
+        for name in not_calls {
+            let found = references(name);
+            assert!(!found.is_empty(), "{path}: `{name}` was not captured: {symbols:?}");
+            assert!(
+                found.iter().all(|symbol| symbol.evidence != SymbolEvidence::Call),
+                "{path}: `{name}` should not be a call: {symbols:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn called_members_are_methods() {
+    // Python and Ruby capture `h` as an identifier, not a field, so they have
+    // no field to promote; their call evidence is checked above.
+    let cases = [
+        ("a.rs", "fn f() { o.h(y); }"),
+        ("a.js", "o.h(y);"),
+        ("a.ts", "o.h(y);"),
+        ("a.go", "package p\nfunc f() { o.h(y) }"),
+        ("a.java", "class A { void f() { o.h(y); } }"),
+        ("a.cs", "class A { void F() { o.h(y); } }"),
+        ("a.lua", "o.h(y)\no:h(y)\n"),
+        ("a.zig", "fn f() void { o.h(y); }"),
+    ];
+    for (path, source) in cases {
+        let support = support_for_path(Path::new(path)).expect("supported language");
+        let symbols = parse_source(source.as_bytes(), support).symbols;
+        let callee = symbols
+            .iter()
+            .filter(|symbol| symbol.name == "h" && symbol.role == SymbolRole::Reference)
+            .collect::<Vec<_>>();
+        assert!(
+            callee.iter().any(|symbol| symbol.kind == SymbolKind::Method),
+            "{path}: `h` should be a method: {symbols:?}"
+        );
+        assert!(
+            callee
+                .iter()
+                .all(|symbol| symbol.kind != SymbolKind::Field && symbol.evidence == SymbolEvidence::Call),
+            "{path}: `h` should be a call and never a field: {symbols:?}"
+        );
+    }
+}
+
+#[test]
+fn called_members_record_their_receiver() {
+    let cases = [
+        (
+            "a.rs",
+            "fn f() { o.h(); self.h(); m!(r.h()); }",
+            &["o", "self", "r"][..],
+        ),
+        ("a.js", "o.h(); this.h();", &["o", "this"]),
+        ("a.ts", "o.h(); super.h();", &["o", "super"]),
+        ("a.py", "o.h()\nself.h()\n", &["o", "self"]),
+        ("a.go", "package p\nfunc f() { o.h() }", &["o"]),
+        ("a.rb", "o.h\nself.h(1)\n", &["o", "self"]),
+        ("a.java", "class A { void f() { o.h(); this.h(); } }", &["o", "this"]),
+        ("a.cs", "class A { void F() { o.h(); base.h(); } }", &["o", "base"]),
+        ("a.lua", "o.h()\nself:h()\n", &["o", "self"]),
+        ("a.zig", "fn f() void { o.h(); }", &["o"]),
+    ];
+    for (path, source, receivers) in cases {
+        let support = support_for_path(Path::new(path)).expect("supported language");
+        let symbols = parse_source(source.as_bytes(), support).symbols;
+        let found = symbols
+            .iter()
+            .filter(|symbol| symbol.name == "h" && symbol.evidence == SymbolEvidence::Call)
+            .filter_map(|symbol| symbol.receiver.as_deref())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            found,
+            receivers.iter().copied().collect::<BTreeSet<_>>(),
+            "{path}: {symbols:?}"
+        );
+    }
+}
+
+#[test]
+fn member_definitions_are_marked() {
+    let cases = [
+        (
+            "a.rs",
+            "fn free() {}\nstruct T;\nimpl T { fn m(&self) { fn inner() {} } }\ntrait U { fn t(&self) {} }",
+        ),
+        (
+            "a.py",
+            "def free(): pass\nclass T:\n    def m(self):\n        def inner(): pass\n    @staticmethod\n    def t(): pass\n",
+        ),
+        (
+            "a.zig",
+            "fn free() void {}\nconst T = struct { fn m() void { } fn t() void {} };",
+        ),
+        (
+            "a.lua",
+            "function free() end\nlocal M = {}\nfunction M.m() end\nfunction M:t() end\n",
+        ),
+    ];
+    for (path, source) in cases {
+        let support = support_for_path(Path::new(path)).expect("supported language");
+        let symbols = parse_source(source.as_bytes(), support).symbols;
+        let members = symbols
+            .iter()
+            .filter(|symbol| symbol.role == SymbolRole::Definition && is_member_definition(symbol))
+            .map(|symbol| symbol.name.as_str())
+            .collect::<BTreeSet<_>>();
+        let functions = symbols
+            .iter()
+            .filter(|symbol| {
+                symbol.role == SymbolRole::Definition
+                    && matches!(symbol.kind, SymbolKind::Function | SymbolKind::Method)
+            })
+            .map(|symbol| symbol.name.as_str())
+            .collect::<BTreeSet<_>>();
+        assert!(functions.contains("free"), "{path}: {symbols:?}");
+        assert_eq!(members, BTreeSet::from(["m", "t"]), "{path}: {symbols:?}");
+    }
+}
+
+#[test]
+fn member_calls_on_unknown_receivers_link_only_to_methods_at_low_confidence() {
+    let source = "fn insert() {}\n\
+                  struct T;\n\
+                  impl T { fn insert(&self) {} fn go(&self) { self.insert(); } }\n\
+                  fn other(m: HashMap) { m.insert(); }\n";
+    let edges = build_lexical_edges(&[rust_file("src/a.rs", source)], 32, 32);
+    let reasons = edges
+        .iter()
+        .filter(|edge| edge.symbol == "insert")
+        .map(|edge| (edge.resolution_reason.label(), edge.confidence, edge.ambiguous))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        reasons,
+        BTreeSet::from([
+            ("member_receiver_unknown", ConfidenceTier::Low, true),
+            ("same_file_explicit", ConfidenceTier::High, false),
+        ]),
+        "{edges:?}"
+    );
+
+    // With no method named `insert`, `m.insert()` links to nothing, even to a
+    // free function in the same file.
+    let free_only = rust_file("src/b.rs", "fn insert() {}\nfn other(m: HashMap) { m.insert(); }\n");
+    let edges = build_lexical_edges(&[free_only], 32, 32);
+    assert!(edges.iter().all(|edge| edge.symbol != "insert"), "{edges:?}");
+
+    // A receiver an import binds is a module path, not a value.
+    let go = |path: &str, source: &str| {
+        let support = support_for_path(Path::new(path)).expect("supported language");
+        let parsed = parse_source(source.as_bytes(), support);
+        SourceFile {
+            path: path.to_owned(),
+            language: SourceLanguage::Go,
+            extension: "go".to_owned(),
+            worktree_state: WorktreeState::Tracked,
+            status: parsed.status,
+            symbols: parsed.symbols,
+            limitations: parsed.limitations,
+            classifications: Vec::new(),
+            classification_overridden: false,
+        }
+    };
+    let edges = build_lexical_edges(
+        &[
+            go(
+                "cmd/main.go",
+                "package main\nimport \"example.com/app/util\"\nfunc main() { util.Build() }\n",
+            ),
+            go("util/util.go", "package util\nfunc Build() {}\n"),
+        ],
+        32,
+        32,
+    );
+    assert!(
+        edges.iter().any(|edge| edge.symbol == "Build"
+            && edge.resolution_reason == LexicalResolutionReason::ImportedModule
+            && edge.confidence == ConfidenceTier::High),
+        "{edges:?}"
+    );
+}

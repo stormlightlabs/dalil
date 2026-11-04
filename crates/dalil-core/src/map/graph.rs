@@ -2,6 +2,8 @@ use super::*;
 
 pub fn build_lexical_edges(files: &[SourceFile], max_candidates: usize, max_edges: usize) -> Vec<LexicalEdge> {
     let mut definitions = BTreeMap::<(SourceLanguage, String), Vec<(String, SymbolVisibility)>>::new();
+    // Methods only: the candidates for a call on a receiver of unknown type.
+    let mut member_definitions = BTreeMap::<(SourceLanguage, String), Vec<(String, SymbolVisibility)>>::new();
     for file in files {
         for symbol in &file.symbols {
             if is_graph_definition(symbol) {
@@ -9,10 +11,16 @@ pub fn build_lexical_edges(files: &[SourceFile], max_candidates: usize, max_edge
                     .entry((file.language, symbol.name.clone()))
                     .or_default()
                     .push((file.path.clone(), symbol.visibility));
+                if is_member_definition(symbol) {
+                    member_definitions
+                        .entry((file.language, symbol.name.clone()))
+                        .or_default()
+                        .push((file.path.clone(), symbol.visibility));
+                }
             }
         }
     }
-    for candidates in definitions.values_mut() {
+    for candidates in definitions.values_mut().chain(member_definitions.values_mut()) {
         candidates.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.label().cmp(right.1.label())));
         candidates.dedup_by(|right, left| right.0 == left.0);
     }
@@ -50,6 +58,7 @@ pub fn build_lexical_edges(files: &[SourceFile], max_candidates: usize, max_edge
     // distinct edges, so repeated calls early in the file list cannot use it up.
     let mut seen = BTreeSet::new();
     'files: for file in files {
+        let bindings = import_bindings(&file.symbols);
         for symbol in &file.symbols {
             if edges.len() >= max_edges {
                 break 'files;
@@ -57,8 +66,10 @@ pub fn build_lexical_edges(files: &[SourceFile], max_candidates: usize, max_edge
             if !is_graph_reference(symbol) {
                 continue;
             }
+            let unknown_receiver = has_unknown_receiver(symbol, &bindings);
+            let pool = if unknown_receiver { &member_definitions } else { &definitions };
             let all_candidates = import_candidates(file, symbol, &definitions)
-                .or_else(|| definitions.get(&(file.language, symbol.name.clone())).cloned())
+                .or_else(|| pool.get(&(file.language, symbol.name.clone())).cloned())
                 .unwrap_or_default();
             if all_candidates.is_empty() {
                 continue;
@@ -118,6 +129,13 @@ pub fn build_lexical_edges(files: &[SourceFile], max_candidates: usize, max_edge
                     )
                 }
             };
+            // The same evidence places a call on an unknown receiver, but any
+            // method of that name may be its target, so it stays low and ambiguous.
+            let (reason, confidence) = if unknown_receiver {
+                (LexicalResolutionReason::MemberReceiverUnknown, ConfidenceTier::Low)
+            } else {
+                (reason, confidence)
+            };
             let candidates = candidates.into_iter().take(max_candidates).collect::<Vec<_>>();
             if candidates.is_empty() {
                 continue;
@@ -130,7 +148,7 @@ pub fn build_lexical_edges(files: &[SourceFile], max_candidates: usize, max_edge
                 reason.label(),
                 digest_hex(candidate_paths.join("\0").as_bytes())
             );
-            let ambiguous = candidates.len() > 1;
+            let ambiguous = unknown_receiver || candidates.len() > 1;
             for (target, target_visibility) in &candidates {
                 if !seen.insert((candidate_group.clone(), target.clone())) {
                     continue;
@@ -799,6 +817,49 @@ fn is_graph_definition(symbol: &SourceSymbol) -> bool {
                 | SymbolKind::Method
                 | SymbolKind::Interface
         )
+}
+
+/// Whether a definition can be the target of a call on a receiver of unknown
+/// type: a method, or a function defined inside a type's body.
+pub(crate) fn is_member_definition(symbol: &SourceSymbol) -> bool {
+    symbol.role == SymbolRole::Definition && (symbol.kind == SymbolKind::Method || symbol.member)
+}
+
+/// The names a file's imports bind: the import's name, the last segment of
+/// its path, such as `fmt` for Go's `import "fmt"`, and a variable declared on
+/// the import's line, such as `helper` in Lua's
+/// `local helper = require('src.lua_helper')` or Zig's `const helper = @import(…)`.
+pub(crate) fn import_bindings(symbols: &[SourceSymbol]) -> BTreeSet<&str> {
+    let imports = symbols
+        .iter()
+        .filter(|symbol| symbol.role == SymbolRole::Definition && symbol.evidence == SymbolEvidence::Import)
+        .collect::<Vec<_>>();
+    let import_lines = imports
+        .iter()
+        .map(|symbol| symbol.location.start.line)
+        .collect::<BTreeSet<_>>();
+    let variables = symbols.iter().filter(|symbol| {
+        symbol.role == SymbolRole::Definition
+            && symbol.kind == SymbolKind::Variable
+            && import_lines.contains(&symbol.location.start.line)
+    });
+    imports
+        .iter()
+        .flat_map(|symbol| {
+            let last = symbol.name.rsplit(['/', '.', ':']).next().unwrap_or(&symbol.name);
+            [symbol.name.as_str(), last]
+        })
+        .chain(variables.map(|symbol| symbol.name.as_str()))
+        .collect()
+}
+
+/// Whether a reference is a member call on a receiver whose type is not known:
+/// not `self`, `Self`, `this`, `super`, `base` or `cls`, and not a name an
+/// import binds, which makes `fmt.Println()` a path rather than a value.
+pub(crate) fn has_unknown_receiver(symbol: &SourceSymbol, import_bindings: &BTreeSet<&str>) -> bool {
+    symbol.receiver.as_deref().is_some_and(|receiver| {
+        !matches!(receiver, "self" | "Self" | "this" | "super" | "base" | "cls") && !import_bindings.contains(receiver)
+    })
 }
 
 fn is_graph_reference(symbol: &SourceSymbol) -> bool {
