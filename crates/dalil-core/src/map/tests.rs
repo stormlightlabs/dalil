@@ -1,5 +1,11 @@
 use super::*;
 
+/// The graph's edge builder with no project roots, so the whole repository is
+/// one root. It shadows the builder the glob import brings in.
+fn build_lexical_edges(files: &[SourceFile], max_candidates: usize, max_edges: usize) -> Vec<LexicalEdge> {
+    graph::build_lexical_edges(files, &[], max_candidates, max_edges)
+}
+
 #[test]
 fn scope_and_snippet_are_compact_and_one_based() {
     let source = b"mod outer { fn parse(value: usize) { let _ = value; } }";
@@ -2218,5 +2224,301 @@ fn member_calls_on_unknown_receivers_link_only_to_methods_at_low_confidence() {
             && edge.resolution_reason == LexicalResolutionReason::ImportedModule
             && edge.confidence == ConfidenceTier::High),
         "{edges:?}"
+    );
+}
+
+fn source_file(path: &str, source: &str) -> SourceFile {
+    let support = support_for_path(Path::new(path)).expect("supported language");
+    let parsed = parse_source(source.as_bytes(), support);
+    SourceFile {
+        path: path.to_owned(),
+        language: support.language,
+        extension: path.rsplit('.').next().unwrap_or_default().to_owned(),
+        worktree_state: WorktreeState::Tracked,
+        status: parsed.status,
+        symbols: parsed.symbols,
+        limitations: parsed.limitations,
+        classifications: Vec::new(),
+        classification_overridden: false,
+    }
+}
+
+/// The (symbol, target, confidence) of each qualified-path edge.
+fn qualified_edges_by_symbol(
+    files: &[SourceFile], project_roots: &[ProjectRoot],
+) -> BTreeSet<(String, String, ConfidenceTier)> {
+    graph::build_lexical_edges(files, project_roots, 32, 32)
+        .into_iter()
+        .filter(|edge| edge.resolution_reason == LexicalResolutionReason::QualifiedPath)
+        .map(|edge| (edge.symbol, edge.target, edge.confidence))
+        .collect()
+}
+
+fn edge(symbol: &str, target: &str, confidence: ConfidenceTier) -> (String, String, ConfidenceTier) {
+    (symbol.to_owned(), target.to_owned(), confidence)
+}
+
+fn project_root(path: &str) -> ProjectRoot {
+    ProjectRoot {
+        path: path.to_owned(),
+        kind: ProjectRootKind::Package,
+        reason: String::new(),
+        manifests: Vec::new(),
+        manifest_metadata: Vec::new(),
+        landmark_total: 0,
+        recommendation_total: 0,
+        recommended_paths: Vec::new(),
+    }
+}
+
+#[test]
+fn calls_record_the_name_path_before_them() {
+    let qualifiers = |path: &str, source: &str| {
+        source_file(path, source)
+            .symbols
+            .into_iter()
+            .filter(|symbol| symbol.evidence == SymbolEvidence::Call)
+            .map(|symbol| (symbol.name, symbol.qualifier))
+            .collect::<BTreeSet<_>>()
+    };
+    let some = |name: &str, qualifier: &str| (name.to_owned(), Some(qualifier.to_owned()));
+    let none = |name: &str| (name.to_owned(), None);
+    assert_eq!(
+        qualifiers("a.rb", "Foo::Bar.baz\nFoo::qux\n::Top::Name.run\nvalue.size\n"),
+        BTreeSet::from([
+            some("baz", "Foo::Bar"),
+            some("qux", "Foo"),
+            some("run", "::Top::Name"),
+            none("size"),
+        ])
+    );
+    assert_eq!(
+        qualifiers("A.java", "class A { void m() { a.b.C.f(); this.x.g(); h().i(); } }"),
+        BTreeSet::from([some("f", "a.b.C"), none("g"), none("h"), none("i")])
+    );
+    assert_eq!(
+        qualifiers(
+            "A.cs",
+            "class A { void M() { Ns.Sub.C.F(); global::Ns.C.G(); this.H(); } }"
+        ),
+        BTreeSet::from([some("F", "Ns.Sub.C"), some("G", "global::Ns.C"), none("H")])
+    );
+    assert_eq!(
+        qualifiers("a.py", "pkg.mod.f()\nself.g()\nh().i()\n"),
+        BTreeSet::from([some("f", "pkg.mod"), some("g", "self"), none("h"), none("i")])
+    );
+    assert_eq!(
+        qualifiers("a.go", "package main\nfunc main() { pkg.F(); a.b.G() }\n"),
+        BTreeSet::from([some("F", "pkg"), none("G")])
+    );
+    assert_eq!(
+        qualifiers("a.lua", "M.f()\nM:g()\n"),
+        BTreeSet::from([some("f", "M"), none("g")])
+    );
+}
+
+#[test]
+fn ruby_constant_paths_resolve_to_snake_case_files() {
+    let caller = source_file(
+        "app/caller.rb",
+        "def run\n  Foo::Bar.baz\n  Foo::helper\n  HTTPClient.fetch\n  Missing::Bar.baz\nend\n",
+    );
+    let files = [
+        caller,
+        source_file(
+            "lib/foo/bar.rb",
+            "module Foo\n  class Bar\n    def self.baz; end\n  end\nend\n",
+        ),
+        source_file("lib/foo.rb", "module Foo\n  def self.helper; end\nend\n"),
+        source_file("lib/http_client.rb", "class HTTPClient\n  def self.fetch; end\nend\n"),
+        source_file("lib/other/bar.rb", "class Bar\n  def self.baz; end\nend\n"),
+    ];
+    assert_eq!(
+        qualified_edges_by_symbol(&files, &[]),
+        BTreeSet::from([
+            edge("baz", "lib/foo/bar.rb", ConfidenceTier::High),
+            edge("fetch", "lib/http_client.rb", ConfidenceTier::High),
+            edge("helper", "lib/foo.rb", ConfidenceTier::High),
+        ])
+    );
+
+    // `Missing::Bar` names no file in the repository, such as a gem's
+    // constant, and its call links to nothing.
+    let external = [
+        source_file("app/caller.rb", "def run\n  Missing::Bar.baz\nend\n"),
+        source_file("lib/other/bar.rb", "class Bar\n  def self.baz; end\nend\n"),
+    ];
+    let edges = graph::build_lexical_edges(&external, &[], 32, 32);
+    assert!(edges.is_empty(), "{edges:?}");
+}
+
+#[test]
+fn qualifiers_stay_inside_the_callers_project_root() {
+    let files = [
+        source_file("app/caller.rb", "def run\n  Foo::Bar.baz\nend\n"),
+        source_file(
+            "gems/foo/lib/foo/bar.rb",
+            "module Foo\n  class Bar\n    def self.baz; end\n  end\nend\n",
+        ),
+    ];
+    let roots = [project_root("app"), project_root("gems/foo")];
+    let edges = graph::build_lexical_edges(&files, &roots, 32, 32);
+    assert!(edges.is_empty(), "{edges:?}");
+    // With one root for both, the same call resolves.
+    assert_eq!(
+        qualified_edges_by_symbol(&files, &[project_root(".")]),
+        BTreeSet::from([edge("baz", "gems/foo/lib/foo/bar.rb", ConfidenceTier::High)])
+    );
+}
+
+#[test]
+fn java_qualifiers_resolve_through_package_declarations() {
+    let files = [
+        source_file(
+            "src/main/java/app/Main.java",
+            "package app;\nimport com.acme.io.Files;\nclass Main { void run() { com.acme.util.Strings.trim(); Helper.help(); Files.read(); java.util.List.of(); } }",
+        ),
+        source_file(
+            "src/main/java/com/acme/util/Strings.java",
+            "package com.acme.util;\npublic class Strings { public static void trim() {} }",
+        ),
+        source_file(
+            "src/main/java/com/acme/io/Files.java",
+            "package com.acme.io;\npublic class Files { public static void read() {} }",
+        ),
+        source_file(
+            "src/main/java/app/Helper.java",
+            "package app;\nclass Helper { static void help() {} }",
+        ),
+        // Same class names in other packages are not the targets.
+        source_file(
+            "src/main/java/other/Helper.java",
+            "package other;\nclass Helper { static void help() {} static void trim() {} }",
+        ),
+        // `java.util.List` is the JDK's, not this one.
+        source_file(
+            "src/main/java/mylib/List.java",
+            "package mylib;\npublic class List { static void of() {} }",
+        ),
+    ];
+    assert_eq!(
+        qualified_edges_by_symbol(&files, &[]),
+        BTreeSet::from([
+            edge("help", "src/main/java/app/Helper.java", ConfidenceTier::High),
+            edge("read", "src/main/java/com/acme/io/Files.java", ConfidenceTier::High),
+            edge("trim", "src/main/java/com/acme/util/Strings.java", ConfidenceTier::High),
+        ])
+    );
+    let edges = graph::build_lexical_edges(&files, &[], 32, 32);
+    assert!(edges.iter().all(|edge| edge.symbol != "of"), "{edges:?}");
+}
+
+#[test]
+fn c_sharp_qualifiers_resolve_through_namespace_declarations() {
+    let files = [
+        source_file(
+            "App/Program.cs",
+            "namespace App { class Program { void Run() { Acme.Util.Strings.Trim(); Helper.Help(); global::Acme.Util.Strings.Pad(); } } }",
+        ),
+        // Namespaces need not match directories.
+        source_file(
+            "Lib/Text/Strings.cs",
+            "namespace Acme.Util;\npublic static class Strings { public static void Trim() {} public static void Pad() {} }",
+        ),
+        source_file(
+            "App/Helper.cs",
+            "namespace App { class Helper { public static void Help() {} } }",
+        ),
+        source_file(
+            "Other/Strings.cs",
+            "namespace Other { public static class Strings { public static void Trim() {} } class Helper { public static void Help() {} } }",
+        ),
+    ];
+    assert_eq!(
+        qualified_edges_by_symbol(&files, &[]),
+        BTreeSet::from([
+            edge("Help", "App/Helper.cs", ConfidenceTier::High),
+            edge("Pad", "Lib/Text/Strings.cs", ConfidenceTier::High),
+            edge("Trim", "Lib/Text/Strings.cs", ConfidenceTier::High),
+        ])
+    );
+}
+
+#[test]
+fn lua_global_tables_resolve_at_medium_confidence() {
+    let files = [
+        source_file("app/main.lua", "Util.greet()\nUtil.wave()\nLocal.hide()\n"),
+        source_file(
+            "app/util.lua",
+            "Util = {}\nfunction Util.greet() end\nUtil.wave = function() end\n",
+        ),
+        // A local table is reachable only through `require`.
+        source_file(
+            "app/local.lua",
+            "local Local = {}\nfunction Local.hide() end\nreturn Local\n",
+        ),
+    ];
+    assert_eq!(
+        qualified_edges_by_symbol(&files, &[]),
+        BTreeSet::from([
+            edge("greet", "app/util.lua", ConfidenceTier::Medium),
+            edge("wave", "app/util.lua", ConfidenceTier::Medium),
+        ])
+    );
+    let edges = graph::build_lexical_edges(&files, &[], 32, 32);
+    assert!(edges.iter().all(|edge| edge.symbol != "hide"), "{edges:?}");
+}
+
+#[test]
+fn python_qualifiers_resolve_through_the_import_that_binds_them() {
+    let files = [
+        source_file(
+            "app/main.py",
+            "import pkg.mod\nimport pkg.mod as alias\nfrom pkg import other\n\ndef run():\n    pkg.mod.f()\n    alias.h()\n    other.g()\n",
+        ),
+        source_file("pkg/caller.py", "from . import mod\n\ndef call():\n    mod.f()\n"),
+        source_file("pkg/mod.py", "def f():\n    pass\n\ndef h():\n    pass\n"),
+        source_file("pkg/other/__init__.py", "def g():\n    pass\n"),
+        // The same names in a sibling module are not the targets.
+        source_file(
+            "pkg/decoy.py",
+            "def f():\n    pass\n\ndef g():\n    pass\n\ndef h():\n    pass\n",
+        ),
+    ];
+    let edges = graph::build_lexical_edges(&files, &[], 32, 32);
+    let qualified = qualified_edges_by_symbol(&files, &[]);
+    assert_eq!(
+        qualified,
+        BTreeSet::from([
+            edge("f", "pkg/mod.py", ConfidenceTier::High),
+            edge("g", "pkg/other/__init__.py", ConfidenceTier::High),
+            edge("h", "pkg/mod.py", ConfidenceTier::High),
+        ]),
+        "{edges:?}"
+    );
+    assert!(edges.iter().all(|edge| edge.target != "pkg/decoy.py"), "{edges:?}");
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge.source == "pkg/caller.py" && edge.target == "pkg/mod.py"),
+        "{edges:?}"
+    );
+}
+
+#[test]
+fn variable_receivers_stay_low_beside_qualified_calls() {
+    // `x` names no declared type, so `x.baz()` is a call on an unknown receiver.
+    let files = [source_file(
+        "src/Main.java",
+        "class Main { void baz() {} void run(Foo x) { x.baz(); } }",
+    )];
+    let reasons = graph::build_lexical_edges(&files, &[], 32, 32)
+        .into_iter()
+        .filter(|edge| edge.symbol == "baz")
+        .map(|edge| (edge.resolution_reason, edge.confidence))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        reasons,
+        [(LexicalResolutionReason::MemberReceiverUnknown, ConfidenceTier::Low)]
     );
 }

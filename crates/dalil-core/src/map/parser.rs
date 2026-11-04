@@ -223,7 +223,7 @@ pub fn parse_source_with_analyzer(
     }
     if support.language == SourceLanguage::Lua {
         limitations.push(
-            "Lua references are lexical: only literal `require` paths provide module evidence; dynamic `require`, metatable behavior, and runtime table mutation are not resolved."
+            "Lua references are lexical: only literal `require` paths provide module evidence, and a call through a global table such as `M.f()` links to the file that assigns `M = {…}` at medium confidence; dynamic `require`, metatable behavior, and runtime table mutation are not resolved."
                 .to_owned(),
         );
     }
@@ -327,7 +327,7 @@ pub fn symbol_from_capture(
         context: context_snippet(node, source, support.declaration_kinds),
         visibility: visibility_for_node(declaration, role, source, support.language, kind, &name),
         evidence,
-        qualifier: reference_qualifier(node, role, source, support.language),
+        qualifier: reference_qualifier(node, role, evidence, source, support.language),
         receiver: (evidence == SymbolEvidence::Call)
             .then(|| member_receiver(node, source))
             .flatten(),
@@ -339,6 +339,11 @@ pub fn symbol_from_capture(
 /// A Rust macro body has no member nodes, so there `m . insert (` is read
 /// from its tokens.
 fn member_receiver(node: Node<'_>, source: &[u8]) -> Option<String> {
+    let text = text_for_node(member_receiver_node(node)?, source);
+    (!text.is_empty()).then_some(text)
+}
+
+fn member_receiver_node(node: Node<'_>) -> Option<Node<'_>> {
     let parent = node.parent()?;
     let receiver = if parent.kind() == "token_tree" {
         let dot = node.prev_sibling().filter(|previous| previous.kind() == ".")?;
@@ -357,8 +362,7 @@ fn member_receiver(node: Node<'_>, source: &[u8]) -> Option<String> {
         };
         parent.child_by_field_name(receiver_field)?
     };
-    let text = text_for_node(receiver, source);
-    (!text.is_empty()).then_some(text)
+    Some(receiver)
 }
 
 /// Whether a definition belongs to a type: a method, or a function whose
@@ -410,17 +414,74 @@ fn is_member_definition_node(declaration: Node<'_>, kind: SymbolKind) -> bool {
     false
 }
 
-/// Returns the path before a Rust reference's name, such as `map` in `map::f`.
-fn reference_qualifier(node: Node<'_>, role: SymbolRole, source: &[u8], language: SourceLanguage) -> Option<String> {
-    if role != SymbolRole::Reference || language != SourceLanguage::Rust {
+/// Returns the path written before a reference's name, such as `map` in
+/// Rust's `map::f`. In other languages it is the receiver of a call when that
+/// receiver is made only of names, so it may name a module, package or type:
+/// `Foo::Bar` in Ruby's `Foo::Bar.baz`, `a.b.C` in Java's `a.b.C.m()`,
+/// `Ns.C` in C#'s `Ns.C.M()`, `pkg.mod` in Python's `pkg.mod.f()`, `pkg` in
+/// Go's `pkg.F()` and `M` in Lua's `M.f()`. Graph construction decides from
+/// path and declaration evidence whether it is one.
+fn reference_qualifier(
+    node: Node<'_>, role: SymbolRole, evidence: SymbolEvidence, source: &[u8], language: SourceLanguage,
+) -> Option<String> {
+    if role != SymbolRole::Reference {
         return None;
     }
-    let parent = node.parent()?;
-    if parent.kind() != "scoped_identifier" || parent.child_by_field_name("name")?.id() != node.id() {
+    if language == SourceLanguage::Rust {
+        let parent = node.parent()?;
+        if parent.kind() != "scoped_identifier" || parent.child_by_field_name("name")?.id() != node.id() {
+            return None;
+        }
+        let path = text_for_node(parent.child_by_field_name("path")?, source);
+        return (!path.is_empty()).then_some(path);
+    }
+    if evidence != SymbolEvidence::Call {
         return None;
     }
-    let path = text_for_node(parent.child_by_field_name("path")?, source);
+    // A Lua `M:f()` passes `M` as `self`, so it is a method call, not a path.
+    if language == SourceLanguage::Lua && node.parent()?.kind() != "dot_index_expression" {
+        return None;
+    }
+    let receiver = member_receiver_node(node)?;
+    if !is_name_path(receiver, language) {
+        return None;
+    }
+    let path = text_for_node(receiver, source);
     (!path.is_empty()).then_some(path)
+}
+
+/// Whether `node` is a name or a chain of names that could spell a module
+/// path in `language`, such as `a.b.C`, rather than a call, literal or `this`.
+fn is_name_path(node: Node<'_>, language: SourceLanguage) -> bool {
+    let (name_kinds, chain): (&[&str], Option<(&str, &str, &str)>) = match language {
+        SourceLanguage::Ruby => (&["constant"], Some(("scope_resolution", "scope", "name"))),
+        SourceLanguage::Python => (&["identifier"], Some(("attribute", "object", "attribute"))),
+        SourceLanguage::Java => (&["identifier"], Some(("field_access", "object", "field"))),
+        SourceLanguage::CSharp => (
+            &["identifier", "alias_qualified_name"],
+            Some(("member_access_expression", "expression", "name")),
+        ),
+        SourceLanguage::Go | SourceLanguage::Lua => (&["identifier"], None),
+        _ => return false,
+    };
+    if name_kinds.contains(&node.kind()) {
+        return true;
+    }
+    let Some((kind, object, name)) = chain else {
+        return false;
+    };
+    if node.kind() != kind
+        || !node
+            .child_by_field_name(name)
+            .is_some_and(|name| name_kinds.contains(&name.kind()))
+    {
+        return false;
+    }
+    // Ruby's `::Foo` has a name and no scope.
+    match node.child_by_field_name(object) {
+        Some(object) => is_name_path(object, language),
+        None => language == SourceLanguage::Ruby,
+    }
 }
 
 /// Definitions and calls are kept past the per-file and total symbol limits,

@@ -267,3 +267,41 @@ fn member_calls_on_unknown_receivers_reach_only_methods_at_low_confidence() {
         "{value:#}"
     );
 }
+
+#[test]
+fn callers_follow_ruby_constant_paths_inside_the_project_root() {
+    let fixture = MapFixtureRepository::new();
+    for directory in ["app", "lib/foo", "gems/gem/lib/foo"] {
+        std::fs::create_dir_all(fixture.root.join(directory)).expect("create fixture directory");
+    }
+    write_file(fixture.root.join("Gemfile"), b"source 'https://rubygems.org'\n");
+    write_file(fixture.root.join("app/caller.rb"), b"def run\n  Foo::Bar.baz\nend\n");
+    write_file(
+        fixture.root.join("lib/foo/bar.rb"),
+        b"module Foo\n  class Bar\n    def self.baz; end\n  end\nend\n",
+    );
+    // A gem in the repository is its own project root, so its `foo/bar.rb` is not a target.
+    write_file(fixture.root.join("gems/gem/gem.gemspec"), b"Gem::Specification.new\n");
+    write_file(
+        fixture.root.join("gems/gem/lib/foo/bar.rb"),
+        b"module Foo\n  class Bar\n    def self.baz; end\n  end\nend\n",
+    );
+
+    let output = fixture.run(&["relationships", "callers", "baz", ".", "--no-cache", "--json"]);
+    assert!(output.status.success(), "callers query failed: {:?}", output.stderr);
+    let value: Value = serde_json::from_str(&stdout(&output)).expect("relationship JSON");
+    let matches = value["matches"].as_array().expect("relationship matches");
+    assert_eq!(matches.len(), 1, "callers: {matches:?}");
+    assert_eq!(matches[0]["node"]["symbol"]["name"], "run");
+    let relationships = value["relationships"].as_array().expect("relationship edges");
+    assert!(!relationships.is_empty());
+    assert!(
+        relationships
+            .iter()
+            .all(|edge| edge["resolution_reason"] == "qualified_path" && edge["confidence"] == "high"),
+        "relationships: {relationships:?}"
+    );
+    let text = value.to_string();
+    assert!(text.contains("lib/foo/bar.rb"), "{text}");
+    assert!(!text.contains("gems/gem/lib/foo/bar.rb"), "{text}");
+}

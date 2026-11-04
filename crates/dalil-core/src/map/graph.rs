@@ -1,6 +1,11 @@
 use super::*;
 
-pub fn build_lexical_edges(files: &[SourceFile], max_candidates: usize, max_edges: usize) -> Vec<LexicalEdge> {
+/// Builds the lexical edges between `files`. `project_roots` bound the
+/// qualified calls of languages other than Rust: a qualifier resolves only to
+/// a file under the caller's project root.
+pub fn build_lexical_edges(
+    files: &[SourceFile], project_roots: &[ProjectRoot], max_candidates: usize, max_edges: usize,
+) -> Vec<LexicalEdge> {
     let mut definitions = BTreeMap::<(SourceLanguage, String), Vec<(String, SymbolVisibility)>>::new();
     // Methods only: the candidates for a call on a receiver of unknown type.
     let mut member_definitions = BTreeMap::<(SourceLanguage, String), Vec<(String, SymbolVisibility)>>::new();
@@ -52,6 +57,12 @@ pub fn build_lexical_edges(files: &[SourceFile], max_candidates: usize, max_edge
         })
         .collect::<BTreeMap<_, _>>();
 
+    let scope = QualifierScope {
+        files: files.iter().map(|file| (file.path.as_str(), file)).collect(),
+        modules: &modules,
+        project_roots,
+    };
+
     let mut edges = Vec::new();
     // Every occurrence of a reference proposes the same edges again. Counting
     // only unseen (candidate group, target) pairs keeps `max_edges` a limit on
@@ -66,7 +77,12 @@ pub fn build_lexical_edges(files: &[SourceFile], max_candidates: usize, max_edge
             if !is_graph_reference(symbol) {
                 continue;
             }
-            let unknown_receiver = has_unknown_receiver(symbol, &bindings);
+            // A qualifier with path evidence names a module or type, not a
+            // value, so its call is not one on an unknown receiver.
+            let qualified = definitions
+                .get(&(file.language, symbol.name.clone()))
+                .and_then(|candidates| qualified_candidates(file, symbol, candidates, &scope));
+            let unknown_receiver = qualified.is_none() && has_unknown_receiver(symbol, &bindings);
             let pool = if unknown_receiver { &member_definitions } else { &definitions };
             let all_candidates = import_candidates(file, symbol, &definitions)
                 .or_else(|| pool.get(&(file.language, symbol.name.clone())).cloned())
@@ -91,14 +107,8 @@ pub fn build_lexical_edges(files: &[SourceFile], max_candidates: usize, max_edge
                 } else {
                     continue;
                 }
-            } else if let Some(qualified_candidates) =
-                qualified_path_candidates(file, symbol, &all_candidates, &modules)
-            {
-                (
-                    qualified_candidates,
-                    LexicalResolutionReason::QualifiedPath,
-                    ConfidenceTier::High,
-                )
+            } else if let Some((qualified_candidates, confidence)) = qualified {
+                (qualified_candidates, LexicalResolutionReason::QualifiedPath, confidence)
             } else if let Some(module_candidates) = same_module_candidates(file, &all_candidates, &modules) {
                 (
                     module_candidates,
@@ -950,6 +960,322 @@ fn import_module_hints(context: &str, language: SourceLanguage) -> Vec<String> {
     hints.sort();
     hints.dedup();
     hints
+}
+
+/// What qualified calls resolve against: every file by path, the module
+/// names each file declares and the repository's project roots.
+struct QualifierScope<'a> {
+    files: BTreeMap<&'a str, &'a SourceFile>,
+    modules: &'a BTreeMap<String, BTreeSet<String>>,
+    project_roots: &'a [ProjectRoot],
+}
+
+impl QualifierScope<'_> {
+    fn same_project(&self, source: &str, candidate: &str) -> bool {
+        crate::landmarks::project_root_for_path(source, self.project_roots)
+            == crate::landmarks::project_root_for_path(candidate, self.project_roots)
+    }
+
+    /// The candidates in the caller's project root, other than the caller,
+    /// whose file passes `keep`.
+    fn filter(
+        &self, file: &SourceFile, candidates: &[(String, SymbolVisibility)], keep: impl Fn(&SourceFile) -> bool,
+    ) -> Option<Vec<(String, SymbolVisibility)>> {
+        let matching = candidates
+            .iter()
+            .filter(|(path, _)| {
+                path != &file.path
+                    && self.same_project(&file.path, path)
+                    && self.files.get(path.as_str()).is_some_and(|target| keep(target))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        (!matching.is_empty()).then_some(matching)
+    }
+}
+
+/// The candidates a qualified call resolves to, and the confidence its
+/// evidence gives, per language:
+///
+/// - Rust: the module path, as [`qualified_path_candidates`] reads it.
+/// - Ruby: the constant path in snake case, so `Foo::Bar.baz` and
+///   `Foo::Bar::baz` resolve to a file ending in `foo/bar.rb`.
+/// - Python: the qualifier's first name must be bound by an import, which
+///   gives the module path: `pkg.mod.f()` after `import pkg.mod`, or `mod.f()`
+///   after `from pkg import mod`, resolves to `pkg/mod.py` or
+///   `pkg/mod/__init__.py`.
+/// - Java and C#: the file that declares the qualifier's type in the
+///   qualifier's package or namespace, read from its `package` or `namespace`
+///   declaration rather than its directory.
+/// - Lua: a file that assigns the global table `M = {…}` and defines the
+///   called function on it. The qualifier names no path, so this is medium.
+///
+/// Every language but Rust stays inside the caller's project root.
+fn qualified_candidates(
+    file: &SourceFile, symbol: &SourceSymbol, candidates: &[(String, SymbolVisibility)], scope: &QualifierScope<'_>,
+) -> Option<(Vec<(String, SymbolVisibility)>, ConfidenceTier)> {
+    let qualifier = symbol.qualifier.as_deref()?;
+    match file.language {
+        SourceLanguage::Rust => qualified_path_candidates(file, symbol, candidates, scope.modules)
+            .map(|found| (found, ConfidenceTier::High)),
+        SourceLanguage::Ruby => {
+            let module = qualifier
+                .trim_start_matches("::")
+                .split("::")
+                .map(snake_case)
+                .collect::<Vec<_>>()
+                .join("/");
+            scope
+                .filter(file, candidates, |target| module_path_ends_with(&target.path, &module))
+                .map(|found| (found, ConfidenceTier::High))
+        }
+        SourceLanguage::Python => {
+            let module = python_qualifier_module(file, qualifier)?;
+            scope
+                .filter(file, candidates, |target| match &module {
+                    PythonModule::Absolute(module) => module_path_ends_with(&target.path, module),
+                    PythonModule::Relative(module) => module_path(&target.path) == *module,
+                })
+                .map(|found| (found, ConfidenceTier::High))
+        }
+        SourceLanguage::Java | SourceLanguage::CSharp => {
+            let names = declared_type_names(file, qualifier, scope.modules);
+            let (type_name, packages) = names.as_ref()?;
+            scope
+                .filter(file, candidates, |target| {
+                    let target_packages = scope.modules.get(&target.path);
+                    let in_package = packages.iter().any(|package| {
+                        if package.is_empty() {
+                            target_packages.is_none_or(BTreeSet::is_empty)
+                        } else {
+                            target_packages.is_some_and(|declared| declared.contains(package))
+                        }
+                    });
+                    in_package && declares_type(target, type_name)
+                })
+                .map(|found| (found, ConfidenceTier::High))
+        }
+        SourceLanguage::Lua => scope
+            .filter(file, candidates, |target| {
+                declares_global_table(target, qualifier) && defines_table_function(target, qualifier, &symbol.name)
+            })
+            .map(|found| (found, ConfidenceTier::Medium)),
+        _ => None,
+    }
+}
+
+/// Whether `path`, as [`module_path`] gives it, is `module` or ends with `/module`.
+fn module_path_ends_with(path: &str, module: &str) -> bool {
+    let normalized = module_path(path);
+    !module.is_empty() && (normalized == module || normalized.ends_with(&format!("/{module}")))
+}
+
+/// A file's path without its extension, lowercased, with a Python package's
+/// `/__init__` dropped: `pkg/mod/__init__.py` is `pkg/mod`.
+fn module_path(path: &str) -> String {
+    let normalized = normalize_module_hint(path);
+    normalized.strip_suffix("/__init__").unwrap_or(&normalized).to_owned()
+}
+
+/// Ruby's file name for a constant: `HTTPClient` is `http_client`.
+fn snake_case(constant: &str) -> String {
+    let characters = constant.chars().collect::<Vec<_>>();
+    let mut output = String::new();
+    for (index, character) in characters.iter().enumerate() {
+        if character.is_uppercase() && index > 0 {
+            let previous = characters[index - 1];
+            let next_lowercase = characters.get(index + 1).is_some_and(|next| next.is_lowercase());
+            if previous.is_lowercase() || previous.is_ascii_digit() || (previous.is_uppercase() && next_lowercase) {
+                output.push('_');
+            }
+        }
+        output.extend(character.to_lowercase());
+    }
+    output
+}
+
+enum PythonModule {
+    /// A module path matched at the end of a file's path, such as `pkg/mod`.
+    Absolute(String),
+    /// A repository path from a relative import, such as `app/pkg/mod`.
+    Relative(String),
+}
+
+/// The module a Python qualifier names, from the import that binds its first
+/// name: `import pkg.mod` binds `pkg`, so `pkg.mod` is `pkg/mod`;
+/// `import pkg.mod as m` makes `m.sub` `pkg/mod/sub`; `from pkg import mod`
+/// makes `mod` `pkg/mod`; and `from . import mod` is `mod` beside the caller.
+fn python_qualifier_module(file: &SourceFile, qualifier: &str) -> Option<PythonModule> {
+    let segments = qualifier.split('.').collect::<Vec<_>>();
+    let (head, rest) = segments.split_first()?;
+    for import in file
+        .symbols
+        .iter()
+        .filter(|import| import.role == SymbolRole::Definition && import.evidence == SymbolEvidence::Import)
+    {
+        let words = import
+            .context
+            .split(|character: char| character.is_whitespace() || matches!(character, ',' | '(' | ')'))
+            .filter(|word| !word.is_empty())
+            .collect::<Vec<_>>();
+        let Some(base) = python_import_binding(&words, head) else {
+            continue;
+        };
+        let dots = base.len() - base.trim_start_matches('.').len();
+        let mut module = base
+            .trim_start_matches('.')
+            .split('.')
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>();
+        module.extend(rest);
+        let module = module.join("/").to_ascii_lowercase();
+        if dots == 0 {
+            return Some(PythonModule::Absolute(module));
+        }
+        let mut directory = repository_parent(&file.path);
+        for _ in 1..dots {
+            directory = repository_parent(directory);
+        }
+        return Some(PythonModule::Relative(if directory.is_empty() {
+            module
+        } else {
+            format!("{}/{module}", directory.to_ascii_lowercase())
+        }));
+    }
+    None
+}
+
+/// The dotted module that `name` stands for in one Python import statement,
+/// split into words, or `None` when the statement does not bind `name`.
+fn python_import_binding(words: &[&str], name: &str) -> Option<String> {
+    let alias_of = |index: usize| {
+        (words.get(index + 1) == Some(&"as"))
+            .then(|| words.get(index + 2).copied())
+            .flatten()
+    };
+    match *words.first()? {
+        "import" => words.iter().enumerate().skip(1).find_map(|(index, word)| {
+            if *word == "as" || words.get(index.wrapping_sub(1)) == Some(&"as") {
+                return None;
+            }
+            match alias_of(index) {
+                Some(alias) => (alias == name).then(|| (*word).to_owned()),
+                // `import pkg.mod` binds only `pkg`.
+                None => (word.split('.').next() == Some(name)).then(|| name.to_owned()),
+            }
+        }),
+        "from" => {
+            let from = words.get(1)?;
+            let names = words.iter().position(|word| *word == "import")? + 1;
+            words.iter().enumerate().skip(names).find_map(|(index, word)| {
+                if *word == "as" || words.get(index - 1) == Some(&"as") {
+                    return None;
+                }
+                let bound = alias_of(index).unwrap_or(word);
+                (bound == name).then(|| {
+                    if from.chars().all(|character| character == '.') {
+                        format!("{from}{word}")
+                    } else {
+                        format!("{from}.{word}")
+                    }
+                })
+            })
+        }
+        _ => None,
+    }
+}
+
+/// The type a Java or C# qualifier names and the packages or namespaces it
+/// may be declared in. `a.b.C` is `C` in `a.b`. A bare `C` is in the caller's
+/// own package or namespace, the package of a Java `import a.b.C;` or
+/// `import a.b.*;`, or a C# `using` namespace; an empty package is the
+/// default one. C#'s `global::` prefix is dropped.
+fn declared_type_names(
+    file: &SourceFile, qualifier: &str, modules: &BTreeMap<String, BTreeSet<String>>,
+) -> Option<(String, Vec<String>)> {
+    let qualifier = qualifier.strip_prefix("global::").unwrap_or(qualifier);
+    let (package, type_name) = match qualifier.rsplit_once('.') {
+        Some((package, type_name)) => (Some(package), type_name),
+        None => (None, qualifier),
+    };
+    if type_name.is_empty() || qualifier.contains("::") {
+        return None;
+    }
+    if let Some(package) = package {
+        return Some((type_name.to_owned(), vec![package.to_owned()]));
+    }
+    let mut packages = modules
+        .get(&file.path)
+        .map(|declared| declared.iter().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    if packages.is_empty() {
+        packages.push(String::new());
+    }
+    for import in file
+        .symbols
+        .iter()
+        .filter(|import| import.role == SymbolRole::Definition && import.evidence == SymbolEvidence::Import)
+    {
+        let path = import
+            .context
+            .trim()
+            .trim_start_matches("import ")
+            .trim_start_matches("using ")
+            .trim_end_matches(';')
+            .trim();
+        if path.contains(['=', ' ']) {
+            continue;
+        }
+        if file.language == SourceLanguage::CSharp {
+            packages.push(path.to_owned());
+        } else if let Some(imported) = path.strip_suffix(".*") {
+            packages.push(imported.to_owned());
+        } else if let Some((imported, name)) = path.rsplit_once('.')
+            && name == type_name
+        {
+            packages.push(imported.to_owned());
+        }
+    }
+    packages.sort();
+    packages.dedup();
+    Some((type_name.to_owned(), packages))
+}
+
+fn declares_type(file: &SourceFile, name: &str) -> bool {
+    file.symbols.iter().any(|symbol| {
+        symbol.role == SymbolRole::Definition
+            && symbol.name == name
+            && matches!(
+                symbol.kind,
+                SymbolKind::Class | SymbolKind::Struct | SymbolKind::Interface | SymbolKind::Enum
+            )
+    })
+}
+
+/// Whether a Lua file assigns `table = {…}` outside any function and without
+/// `local`, which makes `table` a global every loaded file can call through.
+fn declares_global_table(file: &SourceFile, table: &str) -> bool {
+    file.symbols.iter().any(|symbol| {
+        symbol.role == SymbolRole::Definition
+            && symbol.kind == SymbolKind::Variable
+            && symbol.name == table
+            && symbol.visibility == SymbolVisibility::Public
+            && symbol
+                .context
+                .split_once('=')
+                .is_some_and(|(_, value)| value.trim_start().starts_with('{'))
+    })
+}
+
+/// Whether a Lua file defines `function table.name()` or `table.name = function`.
+fn defines_table_function(file: &SourceFile, table: &str, name: &str) -> bool {
+    file.symbols.iter().any(|symbol| {
+        symbol.role == SymbolRole::Definition
+            && symbol.kind == SymbolKind::Function
+            && symbol.name == name
+            && (symbol.scope.first().is_some_and(|scope| scope == table)
+                || symbol.context.trim_start().starts_with(&format!("{table}.{name}")))
+    })
 }
 
 /// Keeps the candidates whose module path ends with the reference's qualifier,

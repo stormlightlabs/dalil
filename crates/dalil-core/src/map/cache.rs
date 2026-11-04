@@ -402,7 +402,8 @@ impl IndexState {
     /// source fingerprints. Any graph that might have been cut off is
     /// rebuilt cold so the result remains equivalent to a fresh analysis.
     pub fn incremental_edges(
-        &self, files: &[SourceFile], fingerprints: &BTreeMap<String, String>, max_candidates: usize, max_edges: usize,
+        &self, files: &[SourceFile], project_roots: &[ProjectRoot], fingerprints: &BTreeMap<String, String>,
+        max_candidates: usize, max_edges: usize,
     ) -> Option<IncrementalEdges> {
         let index = self.index.as_ref()?;
         if index.lexical_edges.len() >= max_edges {
@@ -500,7 +501,12 @@ impl IndexState {
             .filter(|file| affected.contains(&file.path))
             .cloned()
             .collect::<Vec<_>>();
-        edges.extend(build_lexical_edges(&affected_files, max_candidates, max_edges));
+        edges.extend(build_lexical_edges(
+            &affected_files,
+            project_roots,
+            max_candidates,
+            max_edges,
+        ));
         if edges.len() > max_edges {
             return None;
         }

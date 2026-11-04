@@ -626,6 +626,7 @@ pub fn analyze_unbounded(path: &Path, settings: &MapSettings, history: Option<&H
     let incremental_edges = if cache_stats.stale.is_empty() && cache_stats.unavailable == 0 && !work_limit_reached {
         index_state.incremental_edges(
             &files,
+            &topology.project_roots,
             &current_fingerprints,
             limits.max_candidates_per_reference,
             limits.max_edges,
@@ -637,7 +638,12 @@ pub fn analyze_unbounded(path: &Path, settings: &MapSettings, history: Option<&H
         cache_stats.invalidated = incremental.invalidated;
         incremental.edges
     } else {
-        build_lexical_edges(&files, limits.max_candidates_per_reference, limits.max_edges)
+        build_lexical_edges(
+            &files,
+            &topology.project_roots,
+            limits.max_candidates_per_reference,
+            limits.max_edges,
+        )
     };
     // Edge building stops at `max_edges`, so reaching it means edges may be missing.
     let edge_limit_reached = edges.len() >= limits.max_edges;

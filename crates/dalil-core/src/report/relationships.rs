@@ -283,7 +283,11 @@ impl RelationshipGraph {
 
             // An edge for calls on unknown receivers joins only those calls to
             // methods; any other edge joins every other reference and import.
+            // A qualified-path edge also joins calls whose receiver is a
+            // qualifier, such as `Foo::Bar` in `Foo::Bar.baz`, since the graph
+            // read that receiver as a module or type rather than a value.
             let member_edge = edge.resolution_reason == LexicalResolutionReason::MemberReceiverUnknown;
+            let qualified_edge = edge.resolution_reason == LexicalResolutionReason::QualifiedPath;
             let source_bindings = &bindings[source.path.as_str()];
             let source_symbols = source
                 .symbols
@@ -291,7 +295,8 @@ impl RelationshipGraph {
                 .filter(|symbol| {
                     (symbol.role == SymbolRole::Reference
                         && symbol.name == edge.symbol
-                        && crate::map::has_unknown_receiver(symbol, source_bindings) == member_edge)
+                        && (crate::map::has_unknown_receiver(symbol, source_bindings) == member_edge
+                            || (qualified_edge && symbol.qualifier.is_some())))
                         || (!member_edge
                             && symbol.role == SymbolRole::Definition
                             && symbol.evidence == SymbolEvidence::Import
