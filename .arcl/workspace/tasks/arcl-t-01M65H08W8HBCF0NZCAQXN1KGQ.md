@@ -2,9 +2,10 @@
 id = "arcl-t-01M65H08W8HBCF0NZCAQXN1KGQ"
 phase = "arcl-ph-01M65H08QZ0AWDGX26SNY66VYZ"
 title = "Replay commits to measure context recall"
-status = "pending"
+status = "completed"
 priority = "high"
 position = 1
+evidence = "Done in #9 at 1b419f4: cargo replay replays commits from parent trees and reports recall, bytes and latency for context, search and a keyword baseline. On Dalil, context R@10 6.1% vs baseline 38.1%; on fd, 3.3% vs 93.0%."
 +++
 
 Measure how well Dalil names the files a real change touched, as ROADMAP.md's
